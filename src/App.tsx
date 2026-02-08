@@ -702,12 +702,6 @@ export default function App() {
                   executeFlush
                 )}
               />
-              <ActionBtn
-                icon={ArrowDownUp}
-                label="ROUTES"
-                color="slate"
-                onClick={handleShowRoutingOutput}
-              />
             </div>
           </div>
 
@@ -952,27 +946,23 @@ const OutputConsole = memo(function OutputConsole({
             <div className="flex items-center gap-1.5">
               <button
                 onClick={onShowCommand}
-                className={`capsule-btn compact-pill transition ${
-                  diagnosticView === "command"
-                    ? "bg-blue-600/90 text-white border-blue-500"
-                    : "bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border-slate-600"
+                className={`capsule-btn compact-pill console-chip console-chip-command ${
+                  diagnosticView === "command" ? "console-chip-command-active" : ""
                 }`}
               >
                 Command
               </button>
               <button
                 onClick={onShowRouting}
-                className={`capsule-btn compact-pill transition ${
-                  diagnosticView === "routing"
-                    ? "bg-indigo-600/90 text-white border-indigo-500"
-                    : "bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border-slate-600"
+                className={`capsule-btn compact-pill console-chip console-chip-routing ${
+                  diagnosticView === "routing" ? "console-chip-routing-active" : ""
                 }`}
               >
                 Routing
               </button>
               <button
                 onClick={diagnosticView === "routing" ? onShowRouting : onClearCommand}
-                className="capsule-btn compact-pill bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border-slate-600 transition"
+                className="capsule-btn compact-pill console-chip console-chip-refresh"
               >
                 {diagnosticView === "routing" ? "Refresh" : "Clear"}
               </button>
