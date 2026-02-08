@@ -45,6 +45,12 @@ export interface CommandResult {
   output: string;
 }
 
+export interface BloatwareItem {
+  package_name: string;
+  label: string;
+  installed: boolean;
+}
+
 // ======================== API CALLS ========================
 
 export async function getNetworkInterfaces(activeOnly: boolean): Promise<NetworkInterface[]> {
@@ -106,4 +112,16 @@ export async function fpingScan(
 
 export async function checkInternet(): Promise<boolean> {
   return invoke<boolean>("check_internet");
+}
+
+export async function getBloatwareCandidates(): Promise<BloatwareItem[]> {
+  return invoke<BloatwareItem[]>("get_bloatware_candidates");
+}
+
+export async function removeBloatware(packages: string[]): Promise<CommandResult> {
+  return invoke<CommandResult>("remove_bloatware", { packages });
+}
+
+export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
+  return invoke<CommandResult>("clear_cache_targets", { targets });
 }

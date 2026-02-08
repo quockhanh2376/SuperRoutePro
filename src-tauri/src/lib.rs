@@ -3,7 +3,8 @@ mod network;
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
     flush_routes, set_default_gateway, run_network_command, ping_host,
-    check_internet, fping_scan,
+    check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
+    clear_cache_targets,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +22,9 @@ pub fn run() {
             ping_host,
             fping_scan,
             check_internet,
+            get_bloatware_candidates,
+            remove_bloatware,
+            clear_cache_targets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

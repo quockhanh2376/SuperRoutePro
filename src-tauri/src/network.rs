@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpStream;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -8,6 +8,43 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const BLOATWARE_CANDIDATES: [(&str, &str); 29] = [
+    ("Clipchamp.Clipchamp", "Clipchamp"),
+    ("Microsoft.BingNews", "Microsoft News"),
+    ("Microsoft.BingWeather", "Microsoft Weather"),
+    ("Microsoft.GetHelp", "Get Help"),
+    ("Microsoft.Getstarted", "Get Started"),
+    ("Microsoft.GamingApp", "Xbox"),
+    ("Microsoft.Microsoft3DViewer", "3D Viewer"),
+    (
+        "Microsoft.MicrosoftOfficeHub",
+        "Microsoft 365 (Office Hub)",
+    ),
+    (
+        "Microsoft.MicrosoftSolitaireCollection",
+        "Microsoft Solitaire Collection",
+    ),
+    ("Microsoft.MixedReality.Portal", "Mixed Reality Portal"),
+    ("Microsoft.OutlookForWindows", "Outlook for Windows"),
+    ("Microsoft.People", "People"),
+    ("Microsoft.PowerAutomateDesktop", "Power Automate"),
+    ("Microsoft.SkypeApp", "Skype"),
+    ("Microsoft.Todos", "Microsoft To Do"),
+    ("Microsoft.WindowsAlarms", "Clock"),
+    ("microsoft.windowscommunicationsapps", "Mail and Calendar"),
+    ("Microsoft.WindowsFeedbackHub", "Feedback Hub"),
+    ("Microsoft.WindowsMaps", "Maps"),
+    ("Microsoft.Xbox.TCUI", "Xbox TCUI"),
+    ("Microsoft.XboxGameOverlay", "Xbox Game Bar Plugin"),
+    ("Microsoft.XboxGamingOverlay", "Xbox Game Bar"),
+    ("Microsoft.XboxIdentityProvider", "Xbox Identity Provider"),
+    ("Microsoft.XboxSpeechToTextOverlay", "Xbox Speech To Text"),
+    ("Microsoft.YourPhone", "Phone Link"),
+    ("Microsoft.ZuneMusic", "Media Player (Legacy Music)"),
+    ("Microsoft.ZuneVideo", "Movies & TV"),
+    ("MicrosoftTeams", "Microsoft Teams"),
+    ("MicrosoftCorporationII.MicrosoftFamily", "Microsoft Family"),
+];
 
 // ======================== DATA TYPES ========================
 
@@ -58,6 +95,13 @@ pub struct FpingScanResult {
 pub struct CommandResult {
     pub success: bool,
     pub output: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BloatwareItem {
+    pub package_name: String,
+    pub label: String,
+    pub installed: bool,
 }
 
 // ======================== HELPERS ========================
@@ -118,6 +162,134 @@ fn prefix_to_mask(prefix: u32) -> String {
         (mask >> 8) & 0xFF,
         mask & 0xFF
     )
+}
+
+fn ps_escape_single_quoted(input: &str) -> String {
+    input.replace('\'', "''")
+}
+
+fn cache_cleanup_recipe(target: &str) -> Option<(&'static str, &'static str)> {
+    match target {
+        "user_temp" => Some((
+            "User Temp",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Temp\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] User Temp cleaned.'
+"#,
+        )),
+        "windows_temp" => Some((
+            "Windows Temp",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:WINDIR 'Temp\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Windows Temp cleaned.'
+"#,
+        )),
+        "windows_update_cache" => Some((
+            "Windows Update Cache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+Stop-Service -Name bits -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $env:WINDIR 'SoftwareDistribution\Download\*') -Recurse -Force -ErrorAction SilentlyContinue
+Start-Service -Name wuauserv -ErrorAction SilentlyContinue
+Start-Service -Name bits -ErrorAction SilentlyContinue
+Write-Output '[OK] Windows Update cache cleaned.'
+"#,
+        )),
+        "prefetch" => Some((
+            "Prefetch",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:WINDIR 'Prefetch\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Prefetch cleaned.'
+"#,
+        )),
+        "explorer_cache" => Some((
+            "Explorer Cache (thumbnail/icon)",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer\thumbcache_*.db') -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer\iconcache_*.db') -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath ie4uinit.exe -ArgumentList '-ClearIconCache' -NoNewWindow -Wait -ErrorAction SilentlyContinue
+Write-Output '[OK] Explorer thumbnail/icon cache cleaned.'
+"#,
+        )),
+        "edge_cache" => Some((
+            "Microsoft Edge Cache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+$base = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data\Default'
+Remove-Item -Path (Join-Path $base 'Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $base 'Code Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $base 'GPUCache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Microsoft Edge cache cleaned.'
+"#,
+        )),
+        "chrome_cache" => Some((
+            "Google Chrome Cache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+$base = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\Default'
+Remove-Item -Path (Join-Path $base 'Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $base 'Code Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $base 'GPUCache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Google Chrome cache cleaned.'
+"#,
+        )),
+        "firefox_cache" => Some((
+            "Mozilla Firefox Cache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+$profiles = Join-Path $env:LOCALAPPDATA 'Mozilla\Firefox\Profiles'
+Remove-Item -Path "$profiles\*\cache2\*" -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Mozilla Firefox cache cleaned.'
+"#,
+        )),
+        "inet_cache" => Some((
+            "INetCache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\INetCache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] INetCache cleaned.'
+"#,
+        )),
+        "web_cache" => Some((
+            "WebCache",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\WebCache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] WebCache cleaned.'
+"#,
+        )),
+        "crash_dumps" => Some((
+            "Crash Dumps",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'CrashDumps\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Crash dumps cleaned.'
+"#,
+        )),
+        "wer_reports" => Some((
+            "Windows Error Reporting (WER)",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:ProgramData 'Microsoft\Windows\WER\*') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\WER\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] Windows Error Reporting (WER) cache cleaned.'
+"#,
+        )),
+        "d3d_shader_cache" => Some((
+            "DirectX Shader Cache (D3DSCache)",
+            r#"
+$ErrorActionPreference='SilentlyContinue'
+Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'D3DSCache\*') -Recurse -Force -ErrorAction SilentlyContinue
+Write-Output '[OK] DirectX Shader Cache cleaned.'
+"#,
+        )),
+        _ => None,
+    }
 }
 
 fn parse_ping_latency(stdout: &str, elapsed_ms: u32) -> u32 {
@@ -463,6 +635,282 @@ pub async fn ping_host(target: String, count: Option<u32>) -> Result<PingResult,
         success: stdout.contains("Reply from") || stdout.contains("time="),
         latency_ms: latency,
         output: stdout,
+    })
+}
+
+/// Get bloatware candidates and installation status
+#[tauri::command]
+pub async fn get_bloatware_candidates() -> Result<Vec<BloatwareItem>, String> {
+    let ps_script = r#"
+        $names = @()
+        try {
+            $names += Get-AppxPackage -AllUsers -ErrorAction Stop | Select-Object -ExpandProperty Name
+        } catch {
+            $names += Get-AppxPackage -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+        }
+        try {
+            $names += Get-AppxProvisionedPackage -Online -ErrorAction Stop | Select-Object -ExpandProperty DisplayName
+        } catch {}
+        $names |
+            Where-Object { $_ -and $_.Trim().Length -gt 0 } |
+            ForEach-Object { $_.ToLowerInvariant() } |
+            Sort-Object -Unique |
+            ConvertTo-Json -Compress
+    "#;
+
+    let output = run_powershell(ps_script)?;
+    let mut installed = HashSet::new();
+    let parsed = serde_json::from_str::<serde_json::Value>(output.trim())
+        .unwrap_or(serde_json::Value::Array(vec![]));
+
+    match parsed {
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                if let Some(name) = item.as_str() {
+                    installed.insert(name.to_lowercase());
+                }
+            }
+        }
+        serde_json::Value::String(single_name) => {
+            installed.insert(single_name.to_lowercase());
+        }
+        _ => {}
+    }
+
+    let mut items: Vec<BloatwareItem> = BLOATWARE_CANDIDATES
+        .iter()
+        .map(|(package_name, label)| BloatwareItem {
+            package_name: (*package_name).to_string(),
+            label: (*label).to_string(),
+            installed: installed.contains(&package_name.to_lowercase()),
+        })
+        .collect();
+    items.sort_by(|a, b| a.label.cmp(&b.label));
+    Ok(items)
+}
+
+/// Remove selected bloatware packages
+#[tauri::command]
+pub async fn remove_bloatware(packages: Vec<String>) -> Result<CommandResult, String> {
+    if packages.is_empty() {
+        return Err("No packages selected".to_string());
+    }
+
+    let allowed: HashMap<String, &str> = BLOATWARE_CANDIDATES
+        .iter()
+        .map(|(package_name, _)| (package_name.to_lowercase(), *package_name))
+        .collect();
+
+    let mut selected = Vec::new();
+    let mut seen = HashSet::new();
+    for raw in packages {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let lower = trimmed.to_lowercase();
+        let is_safe_token = lower
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-');
+        if !is_safe_token {
+            continue;
+        }
+
+        if let Some(canonical) = allowed.get(&lower) {
+            let canonical_name = (*canonical).to_string();
+            if seen.insert(canonical_name.clone()) {
+                selected.push(canonical_name);
+            }
+        }
+    }
+
+    if selected.is_empty() {
+        return Err("No valid bloatware packages selected".to_string());
+    }
+
+    let mut output_lines = vec![
+        format!("Requested removal for {} package(s).", selected.len()),
+        "Administrative privileges may be required for removal.".to_string(),
+        String::new(),
+    ];
+    let mut removed = 0u32;
+    let mut skipped = 0u32;
+    let mut failed = 0u32;
+
+    for package_name in selected {
+        let escaped_name = ps_escape_single_quoted(&package_name);
+        let script = format!(
+            r#"
+$pkgName = '{escaped_name}'
+$hasFailure = $false
+$removedInstalled = 0
+$removedProvisioned = 0
+
+$installedMatches = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -eq $pkgName }}
+if (-not $installedMatches) {{
+  $installedMatches = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -eq $pkgName }}
+}}
+foreach ($pkg in $installedMatches) {{
+  try {{
+    Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop | Out-Null
+    $removedInstalled++
+  }} catch {{
+    $hasFailure = $true
+    Write-Output "[FAIL] $pkgName installed remove error: $($_.Exception.Message)"
+  }}
+}}
+
+try {{
+  $provisionedMatches = Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object {{ $_.DisplayName -eq $pkgName }}
+  foreach ($prov in $provisionedMatches) {{
+    try {{
+      Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null
+      $removedProvisioned++
+    }} catch {{
+      $hasFailure = $true
+      Write-Output "[FAIL] $pkgName provisioned remove error: $($_.Exception.Message)"
+    }}
+  }}
+}} catch {{
+  $hasFailure = $true
+  Write-Output "[FAIL] $pkgName provisioned query error: $($_.Exception.Message)"
+}}
+
+if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
+  Write-Output "[OK] $pkgName removed installed=$removedInstalled provisioned=$removedProvisioned"
+}} elseif ($hasFailure) {{
+  Write-Output "[WARN] $pkgName no removal completed"
+}} else {{
+  Write-Output "[SKIP] $pkgName not installed"
+}}
+"#
+        );
+
+        match run_powershell(&script) {
+            Ok(script_output) => {
+                let clean_output = script_output.trim();
+                if clean_output.is_empty() {
+                    skipped += 1;
+                    output_lines.push(format!("[SKIP] {} no output returned", package_name));
+                } else {
+                    output_lines.extend(clean_output.lines().map(|line| line.trim_end().to_string()));
+                    let has_fail = clean_output.contains("[FAIL]");
+                    let has_ok = clean_output.contains("[OK]");
+                    let has_skip = clean_output.contains("[SKIP]");
+                    if has_fail {
+                        failed += 1;
+                    } else if has_ok {
+                        removed += 1;
+                    } else if has_skip {
+                        skipped += 1;
+                    } else {
+                        skipped += 1;
+                    }
+                }
+            }
+            Err(err) => {
+                failed += 1;
+                output_lines.push(format!(
+                    "[FAIL] {} command execution failed: {}",
+                    package_name,
+                    err.trim()
+                ));
+            }
+        }
+
+        output_lines.push(String::new());
+    }
+
+    output_lines.push(format!(
+        "Summary: removed={} skipped={} failed={}",
+        removed, skipped, failed
+    ));
+
+    Ok(CommandResult {
+        success: failed == 0,
+        output: output_lines.join("\n"),
+    })
+}
+
+/// Clear selected system/browser cache targets
+#[tauri::command]
+pub async fn clear_cache_targets(targets: Vec<String>) -> Result<CommandResult, String> {
+    if targets.is_empty() {
+        return Err("No cache targets selected".to_string());
+    }
+
+    let mut selected: Vec<(String, &'static str, &'static str)> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for target in targets {
+        let trimmed = target.trim().to_lowercase();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let is_safe_token = trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
+        if !is_safe_token {
+            continue;
+        }
+
+        if seen.contains(&trimmed) {
+            continue;
+        }
+
+        if let Some((label, script)) = cache_cleanup_recipe(&trimmed) {
+            seen.insert(trimmed.clone());
+            selected.push((trimmed, label, script));
+        }
+    }
+
+    if selected.is_empty() {
+        return Err("No valid cache targets selected".to_string());
+    }
+
+    let mut output_lines = vec![
+        format!("Requested cleanup for {} cache target(s).", selected.len()),
+        "Administrative privileges may be required for some targets.".to_string(),
+        String::new(),
+    ];
+    let mut success_count = 0u32;
+    let mut failed_count = 0u32;
+
+    for (_, label, script) in selected {
+        output_lines.push(format!("[TARGET] {}", label));
+        match run_powershell(script) {
+            Ok(raw_output) => {
+                let clean_output = raw_output.trim();
+                if clean_output.is_empty() {
+                    output_lines.push(format!("[OK] {} cleaned.", label));
+                    success_count += 1;
+                } else {
+                    output_lines.extend(clean_output.lines().map(|line| line.trim_end().to_string()));
+                    if clean_output.contains("[FAIL]") {
+                        failed_count += 1;
+                    } else {
+                        success_count += 1;
+                    }
+                }
+            }
+            Err(err) => {
+                failed_count += 1;
+                output_lines.push(format!("[FAIL] {} cleanup error: {}", label, err.trim()));
+            }
+        }
+        output_lines.push(String::new());
+    }
+
+    output_lines.push(format!(
+        "Summary: success={} failed={}",
+        success_count, failed_count
+    ));
+
+    Ok(CommandResult {
+        success: failed_count == 0,
+        output: output_lines.join("\n"),
     })
 }
 

@@ -2,14 +2,14 @@ import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Trash2, Globe, Flame,
   Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
-  ChevronDown, ChevronUp, ArrowDownUp
+  ChevronDown, ChevronUp, ArrowDownUp, X
 } from "lucide-react";
 import {
   getNetworkInterfaces, getRoutingTable, addRoute, deleteRoute,
   flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
   fpingScan,
-  checkInternet,
-  type NetworkInterface, type RouteEntry,
+  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets,
+  type NetworkInterface, type RouteEntry, type BloatwareItem,
 } from "./api";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
@@ -56,6 +56,98 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
   ].join("\n");
 };
 
+type CacheCleanupOption = {
+  id: string;
+  label: string;
+  description: string;
+  defaultChecked: boolean;
+};
+
+const CACHE_CLEANUP_OPTIONS: CacheCleanupOption[] = [
+  {
+    id: "user_temp",
+    label: "User Temp",
+    description: "Clear %LOCALAPPDATA%\\Temp",
+    defaultChecked: true,
+  },
+  {
+    id: "windows_temp",
+    label: "Windows Temp",
+    description: "Clear Windows temporary files",
+    defaultChecked: true,
+  },
+  {
+    id: "windows_update_cache",
+    label: "Windows Update Cache",
+    description: "Clear SoftwareDistribution download cache",
+    defaultChecked: true,
+  },
+  {
+    id: "prefetch",
+    label: "Prefetch",
+    description: "Clear prefetch cache files",
+    defaultChecked: false,
+  },
+  {
+    id: "explorer_cache",
+    label: "Explorer Cache",
+    description: "Clear icon and thumbnail cache",
+    defaultChecked: true,
+  },
+  {
+    id: "edge_cache",
+    label: "Microsoft Edge Cache",
+    description: "Clear Edge browser cache",
+    defaultChecked: false,
+  },
+  {
+    id: "chrome_cache",
+    label: "Google Chrome Cache",
+    description: "Clear Chrome browser cache",
+    defaultChecked: false,
+  },
+  {
+    id: "firefox_cache",
+    label: "Mozilla Firefox Cache",
+    description: "Clear Firefox browser cache",
+    defaultChecked: false,
+  },
+  {
+    id: "inet_cache",
+    label: "INetCache",
+    description: "Clear legacy internet cache",
+    defaultChecked: true,
+  },
+  {
+    id: "web_cache",
+    label: "WebCache",
+    description: "Clear Windows WebCache store",
+    defaultChecked: false,
+  },
+  {
+    id: "crash_dumps",
+    label: "Crash Dumps",
+    description: "Clear local crash dump files",
+    defaultChecked: true,
+  },
+  {
+    id: "wer_reports",
+    label: "Windows Error Reporting (WER)",
+    description: "Clear WER reports and queue",
+    defaultChecked: true,
+  },
+  {
+    id: "d3d_shader_cache",
+    label: "DirectX Shader Cache",
+    description: "Clear D3DSCache",
+    defaultChecked: true,
+  },
+];
+
+const DEFAULT_CACHE_SELECTION = new Set(
+  CACHE_CLEANUP_OPTIONS.filter((option) => option.defaultChecked).map((option) => option.id)
+);
+
 export default function App() {
   const APP_VERSION = "3.6.9";
   const APP_AUTHOR = "Zonzon";
@@ -79,9 +171,9 @@ export default function App() {
   const [pingRunning, setPingRunning] = useState(false);
   const [themeLensActive, setThemeLensActive] = useState(false);
   const [currentLatency, setCurrentLatency] = useState<number>(0);
-  const [toolsOpen, setToolsOpen] = useState(true);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(true);
-  const [pingOpen, setPingOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [pingOpen, setPingOpen] = useState(false);
   const [diagHost, setDiagHost] = useState("google.com");
   const [diagDnsServer, setDiagDnsServer] = useState("8.8.8.8");
   const [diagPort, setDiagPort] = useState("443");
@@ -90,6 +182,22 @@ export default function App() {
   const [confirmMessage, setConfirmMessage] = useState("");
   const [diagnosticView, setDiagnosticView] = useState<"command" | "routing">("command");
   const [routingOutput, setRoutingOutput] = useState("");
+  const [bloatwareModalOpen, setBloatwareModalOpen] = useState(false);
+  const [bloatwareLoading, setBloatwareLoading] = useState(false);
+  const [bloatwareRemoving, setBloatwareRemoving] = useState(false);
+  const [bloatwareItems, setBloatwareItems] = useState<BloatwareItem[]>([]);
+  const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
+  const [cacheModalOpen, setCacheModalOpen] = useState(false);
+  const [cacheCleaning, setCacheCleaning] = useState(false);
+  const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
+    () => new Set(DEFAULT_CACHE_SELECTION)
+  );
+  const [cacheProgressPercent, setCacheProgressPercent] = useState(0);
+  const [cacheProgressText, setCacheProgressText] = useState("Ready.");
+  const selectedCacheTargets = useMemo(
+    () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
+    [selectedCaches]
+  );
 
   // Form state
   const [formDest, setFormDest] = useState("");
@@ -410,6 +518,191 @@ export default function App() {
     }
   }, [appendPingLine, appendPingLines, pingTarget]);
 
+  const loadBloatwareList = useCallback(async () => {
+    setBloatwareLoading(true);
+    try {
+      const items = await getBloatwareCandidates();
+      setBloatwareItems(items);
+      setSelectedBloatware((previous) => {
+        if (previous.size === 0) return previous;
+        const available = new Set(items.map((item) => item.package_name));
+        const next = new Set<string>();
+        previous.forEach((name) => {
+          if (available.has(name)) {
+            next.add(name);
+          }
+        });
+        return next;
+      });
+    } catch (err) {
+      setStatusMsg(`Bloatware list error: ${err}`);
+    } finally {
+      setBloatwareLoading(false);
+    }
+  }, []);
+
+  const handleOpenBloatwareModal = useCallback(() => {
+    setBloatwareModalOpen(true);
+    void loadBloatwareList();
+  }, [loadBloatwareList]);
+
+  const handleCloseBloatwareModal = useCallback(() => {
+    if (bloatwareRemoving) return;
+    setBloatwareModalOpen(false);
+  }, [bloatwareRemoving]);
+
+  const handleToggleBloatware = useCallback((packageName: string) => {
+    setSelectedBloatware((previous) => {
+      const next = new Set(previous);
+      if (next.has(packageName)) {
+        next.delete(packageName);
+      } else {
+        next.add(packageName);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectInstalledBloatware = useCallback(() => {
+    const next = new Set<string>();
+    for (const item of bloatwareItems) {
+      if (item.installed) {
+        next.add(item.package_name);
+      }
+    }
+    setSelectedBloatware(next);
+  }, [bloatwareItems]);
+
+  const handleSelectAllBloatware = useCallback(() => {
+    setSelectedBloatware(new Set(bloatwareItems.map((item) => item.package_name)));
+  }, [bloatwareItems]);
+
+  const handleClearBloatwareSelection = useCallback(() => {
+    setSelectedBloatware(new Set());
+  }, []);
+
+  const executeRemoveSelectedBloatware = useCallback(async () => {
+    const packages = Array.from(selectedBloatware);
+    if (!packages.length) {
+      setStatusMsg("Select at least one app to remove");
+      return;
+    }
+
+    setBloatwareRemoving(true);
+    setDiagnosticView("command");
+    setDiagnosticsOpen(true);
+    setStatusMsg(`Removing ${packages.length} selected app(s)...`);
+    try {
+      const result = await removeBloatware(packages);
+      appendCommandOutput("Remove Apps", result.output);
+      setStatusMsg(
+        result.success
+          ? `Remove Apps completed (${packages.length} apps)`
+          : "Remove Apps completed with warnings"
+      );
+      setSelectedBloatware(new Set());
+      await loadBloatwareList();
+    } catch (err) {
+      appendCommandOutput("Remove Apps", `Error: ${err}`);
+      setStatusMsg(`Remove Apps error: ${err}`);
+    } finally {
+      setBloatwareRemoving(false);
+    }
+  }, [appendCommandOutput, loadBloatwareList, selectedBloatware]);
+
+  const handleOpenCacheModal = useCallback(() => {
+    setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
+    setCacheProgressPercent(0);
+    setCacheProgressText("Ready.");
+    setCacheModalOpen(true);
+  }, []);
+
+  const handleCloseCacheModal = useCallback(() => {
+    if (cacheCleaning) return;
+    setCacheModalOpen(false);
+  }, [cacheCleaning]);
+
+  const handleToggleCache = useCallback((cacheId: string) => {
+    setSelectedCaches((previous) => {
+      const next = new Set(previous);
+      if (next.has(cacheId)) {
+        next.delete(cacheId);
+      } else {
+        next.add(cacheId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllCaches = useCallback(() => {
+    setSelectedCaches(new Set(CACHE_CLEANUP_OPTIONS.map((option) => option.id)));
+  }, []);
+
+  const handleClearCacheSelection = useCallback(() => {
+    setSelectedCaches(new Set());
+  }, []);
+
+  const executeClearSelectedCaches = useCallback(async () => {
+    if (!selectedCacheTargets.length) {
+      setStatusMsg("Select at least one cache target");
+      return;
+    }
+
+    setCacheCleaning(true);
+    setDiagnosticView("command");
+    setDiagnosticsOpen(true);
+    setCacheProgressPercent(0);
+    setCacheProgressText(`Starting cleanup... 0/${selectedCacheTargets.length} (0%)`);
+    setStatusMsg(`Cleaning ${selectedCacheTargets.length} cache target(s)...`);
+    let successCount = 0;
+    let failedCount = 0;
+    try {
+      for (let index = 0; index < selectedCacheTargets.length; index += 1) {
+        const target = selectedCacheTargets[index];
+        const beforePercent = Math.round((index / selectedCacheTargets.length) * 100);
+        setCacheProgressPercent(beforePercent);
+        setCacheProgressText(
+          `Cleaning ${target.label}... ${index}/${selectedCacheTargets.length} (${beforePercent}%)`
+        );
+
+        try {
+          const result = await clearCacheTargets([target.id]);
+          appendCommandOutput(`Clear Cache - ${target.label}`, result.output);
+          if (result.success) {
+            successCount += 1;
+          } else {
+            failedCount += 1;
+          }
+        } catch (err) {
+          failedCount += 1;
+          appendCommandOutput(`Clear Cache - ${target.label}`, `Error: ${err}`);
+        }
+
+        const processed = index + 1;
+        const percent = Math.round((processed / selectedCacheTargets.length) * 100);
+        setCacheProgressPercent(percent);
+        setCacheProgressText(
+          `Processed ${processed}/${selectedCacheTargets.length} (${percent}%)`
+        );
+      }
+
+      setStatusMsg(
+        failedCount === 0
+          ? `Clear Cache completed (${successCount}/${selectedCacheTargets.length})`
+          : `Clear Cache completed with warnings (${failedCount} failed)`
+      );
+      setCacheProgressText(
+        `Done: ${successCount} success, ${failedCount} failed`
+      );
+    } catch (err) {
+      appendCommandOutput("Clear Cache", `Error: ${err}`);
+      setStatusMsg(`Clear Cache error: ${err}`);
+      setCacheProgressText("Cleanup aborted by error.");
+    } finally {
+      setCacheCleaning(false);
+    }
+  }, [appendCommandOutput, selectedCacheTargets]);
+
   const openConfirm = (
     title: string,
     message: string,
@@ -540,6 +833,12 @@ export default function App() {
   const diagnosticsOutputText = diagnosticView === "routing"
     ? (routingOutput || "Routing table output will appear here.")
     : (commandOutputText || "Command output will appear here.");
+  const installedBloatwareCount = useMemo(
+    () => bloatwareItems.filter((item) => item.installed).length,
+    [bloatwareItems]
+  );
+  const selectedBloatwareCount = selectedBloatware.size;
+  const selectedCacheCount = selectedCacheTargets.length;
 
   useEffect(() => {
     localStorage.setItem("ui-theme", theme);
@@ -572,7 +871,7 @@ export default function App() {
     <div className={`app-shell ${theme === "light" ? "theme-light" : "theme-dark"} h-screen flex flex-col font-['Segoe_UI',system-ui,sans-serif] overflow-hidden select-none`}>
       {/* ====== HEADER ====== */}
       <header className="app-header flex items-center justify-between px-5 py-3 border-b shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="brand-logo">
             <Zap className="w-6 h-6" />
           </div>
@@ -584,7 +883,27 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenBloatwareModal}
+            disabled={bloatwareLoading || bloatwareRemoving}
+            className="header-apps-action capsule-btn"
+            title="Open app removal tools"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Remove Apps
+          </button>
+
+          <button
+            onClick={handleOpenCacheModal}
+            disabled={cacheCleaning}
+            className="header-cache-action capsule-btn"
+            title="Open cache cleanup tools"
+          >
+            <Flame className="w-3.5 h-3.5" />
+            Clear Cache
+          </button>
+
           <button
             onClick={handleToggleTheme}
             className="theme-toggle capsule-btn flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition"
@@ -872,6 +1191,229 @@ export default function App() {
         <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{APP_VERSION} | Author {APP_AUTHOR}</span>
       </footer>
 
+      {cacheModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
+          <div className="cache-modal">
+            <div className="cache-modal-header">
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Clear Cache</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Select cache targets, then click Start Cleanup.
+                </p>
+              </div>
+              <button
+                onClick={handleCloseCacheModal}
+                disabled={cacheCleaning}
+                className="cache-close-btn capsule-btn"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="cache-options-grid">
+              {CACHE_CLEANUP_OPTIONS.map((option) => (
+                <label key={option.id} className="cache-option-item">
+                  <input
+                    type="checkbox"
+                    checked={selectedCaches.has(option.id)}
+                    onChange={() => handleToggleCache(option.id)}
+                    disabled={cacheCleaning}
+                    className="w-3.5 h-3.5 rounded accent-blue-500"
+                  />
+                  <div className="min-w-0">
+                    <div className="cache-option-title">{option.label}</div>
+                    <div className="cache-option-desc">{option.description}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="cache-progress-panel">
+              <div className="cache-progress-track">
+                <div
+                  className="cache-progress-fill"
+                  style={{ width: `${cacheProgressPercent}%` }}
+                />
+              </div>
+              <div className="cache-progress-text">
+                {cacheCleaning
+                  ? cacheProgressText
+                  : cacheProgressPercent > 0
+                    ? cacheProgressText
+                    : `Ready. ${selectedCacheCount} cache target(s) selected.`}
+              </div>
+            </div>
+
+            <div className="cache-modal-footer">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSelectAllCaches}
+                  disabled={cacheCleaning}
+                  className="capsule-btn compact-pill cache-tool-btn"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={handleClearCacheSelection}
+                  disabled={cacheCleaning}
+                  className="capsule-btn compact-pill cache-tool-btn"
+                >
+                  Clear Selection
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCloseCacheModal}
+                  disabled={cacheCleaning}
+                  className="capsule-btn px-3 py-1.5 border border-slate-600 text-slate-200 hover:bg-slate-800 transition"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedCacheCount === 0) {
+                      setStatusMsg("Select at least one cache target");
+                      return;
+                    }
+                    openConfirm(
+                      "Start Cache Cleanup",
+                      `Clean ${selectedCacheCount} selected cache target(s)?`,
+                      executeClearSelectedCaches
+                    );
+                  }}
+                  disabled={cacheCleaning || selectedCacheCount === 0}
+                  className="capsule-btn px-3 py-1.5 border border-amber-400/60 bg-amber-600/90 hover:bg-amber-500 text-white transition"
+                >
+                  {cacheCleaning ? "Cleaning..." : `Start Cleanup (${selectedCacheCount})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bloatwareModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
+          <div className="bloatware-modal">
+            <div className="bloatware-modal-header">
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Remove Apps</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Select built-in Windows apps, then remove selected packages.
+                </p>
+              </div>
+              <button
+                onClick={handleCloseBloatwareModal}
+                disabled={bloatwareRemoving}
+                className="bloatware-close-btn capsule-btn"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bloatware-toolbar">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSelectAllBloatware}
+                  disabled={bloatwareLoading || bloatwareRemoving}
+                  className="capsule-btn compact-pill bloatware-tool-btn"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={handleSelectInstalledBloatware}
+                  disabled={bloatwareLoading || bloatwareRemoving}
+                  className="capsule-btn compact-pill bloatware-tool-btn"
+                >
+                  Select Installed
+                </button>
+                <button
+                  onClick={handleClearBloatwareSelection}
+                  disabled={bloatwareLoading || bloatwareRemoving}
+                  className="capsule-btn compact-pill bloatware-tool-btn"
+                >
+                  Clear Selection
+                </button>
+              </div>
+              <span className="text-[0.72rem] text-slate-400">
+                {selectedBloatwareCount} selected | {installedBloatwareCount} installed
+              </span>
+            </div>
+
+            <div className="bloatware-table-shell">
+              {bloatwareLoading ? (
+                <div className="bloatware-empty">Loading bloatware catalog...</div>
+              ) : bloatwareItems.length === 0 ? (
+                <div className="bloatware-empty">No bloatware candidates available.</div>
+              ) : (
+                <table className="bloatware-table">
+                  <thead>
+                    <tr>
+                      <th className="w-14">Pick</th>
+                      <th className="w-48">Application</th>
+                      <th>Package Name</th>
+                      <th className="w-28">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bloatwareItems.map((item) => (
+                      <tr key={item.package_name} className={!item.installed ? "bloatware-row-disabled" : ""}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedBloatware.has(item.package_name)}
+                            onChange={() => handleToggleBloatware(item.package_name)}
+                            disabled={bloatwareRemoving}
+                            className="w-3.5 h-3.5 rounded accent-blue-500"
+                          />
+                        </td>
+                        <td className="font-semibold">{item.label}</td>
+                        <td className="font-mono text-[0.7rem] text-slate-300">{item.package_name}</td>
+                        <td>
+                          <span className={`bloatware-status-chip ${item.installed ? "bloatware-status-installed" : "bloatware-status-missing"}`}>
+                            {item.installed ? "Installed" : "Not installed"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="bloatware-modal-footer">
+              <button
+                onClick={handleCloseBloatwareModal}
+                disabled={bloatwareRemoving}
+                className="capsule-btn px-3 py-1.5 border border-slate-600 text-slate-200 hover:bg-slate-800 transition"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedBloatwareCount === 0) {
+                    setStatusMsg("Select at least one app to remove");
+                    return;
+                  }
+                  openConfirm(
+                    "Remove Selected Apps",
+                    `Remove ${selectedBloatwareCount} selected app(s)? This operation may require Administrator privileges.`,
+                    executeRemoveSelectedBloatware
+                  );
+                }}
+                disabled={bloatwareRemoving || selectedBloatwareCount === 0 || bloatwareLoading}
+                className="capsule-btn px-3 py-1.5 border border-rose-400/60 bg-rose-600/85 hover:bg-rose-500 text-white transition"
+              >
+                {bloatwareRemoving ? "Removing..." : `Remove Selected (${selectedBloatwareCount})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
           <div className="w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 shadow-2xl">
@@ -883,7 +1425,7 @@ export default function App() {
             <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-700">
               <button
                 onClick={onCancelConfirm}
-                className="capsule-btn px-3 py-1.5 border border-slate-600 text-slate-300 hover:bg-slate-800 transition"
+                className="capsule-btn px-3 py-1.5 min-w-[84px] border border-slate-500 bg-slate-700/70 text-white font-semibold hover:bg-slate-600 transition"
               >
                 Cancel
               </button>
