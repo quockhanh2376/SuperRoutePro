@@ -8,7 +8,7 @@ import {
   getNetworkInterfaces, getRoutingTable, addRoute, deleteRoute,
   flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
   fpingScan,
-  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets,
+  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatteryReport,
   type NetworkInterface, type RouteEntry, type BloatwareItem,
 } from "./api";
 
@@ -151,10 +151,7 @@ const DEFAULT_CACHE_SELECTION = new Set(
 export default function App() {
   const APP_VERSION = "5.4";
   const APP_AUTHOR = "Zonzon";
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    if (typeof window === "undefined") return "dark";
-    return localStorage.getItem("ui-theme") === "light" ? "light" : "dark";
-  });
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // State
   const [nics, setNics] = useState<NetworkInterface[]>([]);
@@ -189,8 +186,13 @@ export default function App() {
   const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
   const [removeProgressPercent, setRemoveProgressPercent] = useState(0);
   const [removeProgressText, setRemoveProgressText] = useState("Ready.");
+  const [batteryModalOpen, setBatteryModalOpen] = useState(false);
+  const [batteryLoading, setBatteryLoading] = useState(false);
+  const [batteryReportHtml, setBatteryReportHtml] = useState("");
+  const [batteryReportError, setBatteryReportError] = useState("");
   const [cacheModalOpen, setCacheModalOpen] = useState(false);
   const [cacheCleaning, setCacheCleaning] = useState(false);
+  const [cacheStopPending, setCacheStopPending] = useState(false);
   const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
     () => new Set(DEFAULT_CACHE_SELECTION)
   );
@@ -212,6 +214,7 @@ export default function App() {
   const pingBusyRef = useRef(false);
   const pingSeqRef = useRef(0);
   const lensTimerRef = useRef<number | null>(null);
+  const cacheStopRequestedRef = useRef(false);
   const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
   const pingLogLinesRef = useRef<string[]>([]);
   const commandLogLinesRef = useRef<string[]>([]);
@@ -462,6 +465,32 @@ export default function App() {
     await executeNetCmd("ipconfig /displaydns", "Display DNS Cache");
   }, [executeNetCmd]);
 
+  const loadBatteryReport = useCallback(async () => {
+    setBatteryLoading(true);
+    setBatteryReportError("");
+    try {
+      const report = await getBatteryReport();
+      setBatteryReportHtml(report.html);
+      setStatusMsg("Battery report loaded");
+    } catch (err) {
+      setBatteryReportHtml("");
+      setBatteryReportError(String(err));
+      setStatusMsg(`Battery report error: ${err}`);
+    } finally {
+      setBatteryLoading(false);
+    }
+  }, []);
+
+  const handleOpenBatteryModal = useCallback(() => {
+    setBatteryModalOpen(true);
+    void loadBatteryReport();
+  }, [loadBatteryReport]);
+
+  const handleCloseBatteryModal = useCallback(() => {
+    if (batteryLoading) return;
+    setBatteryModalOpen(false);
+  }, [batteryLoading]);
+
   const handleResetWinHttpProxy = async () => {
     openConfirm(
       "Reset WinHTTP Proxy",
@@ -648,6 +677,8 @@ export default function App() {
     setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
     setCacheProgressPercent(0);
     setCacheProgressText("Ready.");
+    setCacheStopPending(false);
+    cacheStopRequestedRef.current = false;
     setCacheModalOpen(true);
   }, []);
 
@@ -676,6 +707,14 @@ export default function App() {
     setSelectedCaches(new Set());
   }, []);
 
+  const handleForceStopCacheCleanup = useCallback(() => {
+    if (!cacheCleaning || cacheStopPending) return;
+    cacheStopRequestedRef.current = true;
+    setCacheStopPending(true);
+    setStatusMsg("Force stop requested. Waiting for current task to finish...");
+    setCacheProgressText("Stopping... waiting for current task to finish.");
+  }, [cacheCleaning, cacheStopPending]);
+
   const executeClearSelectedCaches = useCallback(async () => {
     if (!selectedCacheTargets.length) {
       setStatusMsg("Select at least one cache target");
@@ -683,6 +722,8 @@ export default function App() {
     }
 
     setCacheCleaning(true);
+    setCacheStopPending(false);
+    cacheStopRequestedRef.current = false;
     setDiagnosticView("command");
     setDiagnosticsOpen(true);
     setCacheProgressPercent(0);
@@ -690,8 +731,13 @@ export default function App() {
     setStatusMsg(`Cleaning ${selectedCacheTargets.length} cache target(s)...`);
     let successCount = 0;
     let failedCount = 0;
+    let processedCount = 0;
     try {
       for (let index = 0; index < selectedCacheTargets.length; index += 1) {
+        if (cacheStopRequestedRef.current) {
+          break;
+        }
+
         const target = selectedCacheTargets[index];
         const beforePercent = Math.round((index / selectedCacheTargets.length) * 100);
         setCacheProgressPercent(beforePercent);
@@ -712,28 +758,42 @@ export default function App() {
           appendCommandOutput(`Clear Cache - ${target.label}`, `Error: ${err}`);
         }
 
-        const processed = index + 1;
-        const percent = Math.round((processed / selectedCacheTargets.length) * 100);
+        processedCount = index + 1;
+        const percent = Math.round((processedCount / selectedCacheTargets.length) * 100);
         setCacheProgressPercent(percent);
         setCacheProgressText(
-          `Processed ${processed}/${selectedCacheTargets.length} (${percent}%)`
+          `Processed ${processedCount}/${selectedCacheTargets.length} (${percent}%)`
         );
+
+        if (cacheStopRequestedRef.current) {
+          break;
+        }
       }
 
-      setStatusMsg(
-        failedCount === 0
-          ? `Clear Cache completed (${successCount}/${selectedCacheTargets.length})`
-          : `Clear Cache completed with warnings (${failedCount} failed)`
-      );
-      setCacheProgressText(
-        `Done: ${successCount} success, ${failedCount} failed`
-      );
+      const stoppedEarly = cacheStopRequestedRef.current && processedCount < selectedCacheTargets.length;
+      if (stoppedEarly) {
+        setStatusMsg(`Cleanup stopped by user (${processedCount}/${selectedCacheTargets.length})`);
+        setCacheProgressText(
+          `Stopped: processed ${processedCount}/${selectedCacheTargets.length}, success ${successCount}, failed ${failedCount}`
+        );
+      } else {
+        setStatusMsg(
+          failedCount === 0
+            ? `Clear Cache completed (${successCount}/${selectedCacheTargets.length})`
+            : `Clear Cache completed with warnings (${failedCount} failed)`
+        );
+        setCacheProgressText(
+          `Done: ${successCount} success, ${failedCount} failed`
+        );
+      }
     } catch (err) {
       appendCommandOutput("Clear Cache", `Error: ${err}`);
       setStatusMsg(`Clear Cache error: ${err}`);
       setCacheProgressText("Cleanup aborted by error.");
     } finally {
       setCacheCleaning(false);
+      setCacheStopPending(false);
+      cacheStopRequestedRef.current = false;
     }
   }, [appendCommandOutput, selectedCacheTargets]);
 
@@ -1097,6 +1157,8 @@ export default function App() {
                 onClick={() => executeNetCmd("netsh winsock reset", "Reset Winsock", { refresh: true })} tone="danger" />
               <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
                 onClick={() => executeNetCmd("netsh advfirewall reset", "Reset Firewall", { refresh: true })} tone="danger" />
+              <ToolBtn icon={Monitor} label="Battery Info" desc="Open battery report in app"
+                onClick={handleOpenBatteryModal} tone="system" />
             </div>
           </Section>
 
@@ -1225,6 +1287,57 @@ export default function App() {
         <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{APP_VERSION} | Author {APP_AUTHOR}</span>
       </footer>
 
+      {batteryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
+          <div className="battery-modal">
+            <div className="battery-modal-header">
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Battery Info</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  View battery report and current battery health in-app.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void loadBatteryReport()}
+                  disabled={batteryLoading}
+                  className="capsule-btn compact-pill battery-refresh-btn"
+                >
+                  {batteryLoading ? "Loading..." : "Refresh"}
+                </button>
+                <button
+                  onClick={handleCloseBatteryModal}
+                  disabled={batteryLoading}
+                  className="battery-close-btn capsule-btn"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="battery-modal-body">
+              {batteryLoading ? (
+                <div className="battery-placeholder">Generating battery report...</div>
+              ) : batteryReportError ? (
+                <div className="battery-placeholder battery-placeholder-error">
+                  Unable to load battery report: {batteryReportError}
+                </div>
+              ) : batteryReportHtml ? (
+                <div className="battery-report-shell">
+                  <iframe
+                    title="Battery Report"
+                    className="battery-report-frame"
+                    srcDoc={batteryReportHtml}
+                  />
+                </div>
+              ) : (
+                <div className="battery-placeholder">No battery report available.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {cacheModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
           <div className="cache-modal">
@@ -1299,6 +1412,15 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-2">
+                {cacheCleaning && (
+                  <button
+                    onClick={handleForceStopCacheCleanup}
+                    disabled={cacheStopPending}
+                    className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
+                  >
+                    {cacheStopPending ? "Stopping..." : "Force Stop"}
+                  </button>
+                )}
                 <button
                   onClick={handleCloseCacheModal}
                   disabled={cacheCleaning}

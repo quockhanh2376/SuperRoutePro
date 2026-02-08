@@ -51,6 +51,10 @@ export interface BloatwareItem {
   installed: boolean;
 }
 
+export interface BatteryReportResult {
+  html: string;
+}
+
 // ======================== API CALLS ========================
 
 export async function getNetworkInterfaces(activeOnly: boolean): Promise<NetworkInterface[]> {
@@ -124,4 +128,8 @@ export async function removeBloatware(packages: string[]): Promise<CommandResult
 
 export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
   return invoke<CommandResult>("clear_cache_targets", { targets });
+}
+
+export async function getBatteryReport(): Promise<BatteryReportResult> {
+  return invoke<BatteryReportResult>("get_battery_report");
 }

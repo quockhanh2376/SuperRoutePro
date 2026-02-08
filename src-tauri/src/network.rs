@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::net::TcpStream;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -102,6 +103,11 @@ pub struct BloatwareItem {
     pub package_name: String,
     pub label: String,
     pub installed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BatteryReportResult {
+    pub html: String,
 }
 
 // ======================== HELPERS ========================
@@ -579,6 +585,7 @@ pub async fn run_network_command(command: String) -> Result<CommandResult, Strin
     let allowed_prefixes = [
         "ipconfig",
         "ipconfig /displaydns",
+        "powercfg /batteryreport",
         "tracert",
         "nslookup",
         "netsh wlan show interface",
@@ -831,6 +838,31 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
         success: failed == 0,
         output: output_lines.join("\n"),
     })
+}
+
+/// Generate and return battery report HTML for in-app preview
+#[tauri::command]
+pub async fn get_battery_report() -> Result<BatteryReportResult, String> {
+    let report_path = std::env::temp_dir().join("SuperRoutePro-BatteryReport.html");
+    let report_path_arg = report_path.to_string_lossy().to_string();
+
+    let _ = run_cmd(
+        "powercfg",
+        &["/batteryreport", "/output", &report_path_arg],
+    )?;
+
+    let html = fs::read_to_string(&report_path).map_err(|e| {
+        format!(
+            "Failed to read battery report file: {} ({})",
+            report_path_arg, e
+        )
+    })?;
+
+    if html.trim().is_empty() {
+        return Err("Battery report is empty".to_string());
+    }
+
+    Ok(BatteryReportResult { html })
 }
 
 /// Clear selected system/browser cache targets
