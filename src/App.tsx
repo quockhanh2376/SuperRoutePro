@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Trash2, Globe, Flame,
-  Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert,
+  Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
   ChevronDown, ChevronUp, ArrowDownUp
 } from "lucide-react";
 import {
@@ -727,7 +727,7 @@ export default function App() {
         </div>
 
         {/* --- RIGHT PANEL --- */}
-        <div className="right-panel overflow-y-auto p-4 space-y-3">
+        <div className="right-panel overflow-y-auto p-3 space-y-2.5">
           {/* Network Fix Tools */}
           <Section
             icon={Wrench}
@@ -735,21 +735,21 @@ export default function App() {
             open={toolsOpen}
             onToggle={() => setToolsOpen(!toolsOpen)}
           >
-            <div className="grid grid-cols-2 gap-2">
-              <ToolBtn icon="DNS" label="Flush DNS" desc="Clear DNS cache"
-                onClick={() => executeNetCmd("ipconfig /flushdns", "Flush DNS")} />
-              <ToolBtn icon="IP" label="Renew IP" desc="Release & renew DHCP"
-                onClick={() => executeNetCmd("ipconfig /release && ipconfig /renew", "Renew IP", { refresh: true })} />
-              <ToolBtn icon="WLAN" label="Wi-Fi Info" desc="Show WLAN interface details"
-                onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} />
-              <ToolBtn icon="TCP" label="Reset TCP/IP" desc="Reset network stack"
-                onClick={() => executeNetCmd("netsh int ip reset", "Reset TCP/IP", { refresh: true })} color="red" />
-              <ToolBtn icon="WS" label="Reset Winsock" desc="Reset socket catalog"
-                onClick={() => executeNetCmd("netsh winsock reset", "Reset Winsock", { refresh: true })} color="red" />
-              <ToolBtn icon="ARP" label="Clear ARP" desc="Flush ARP cache"
-                onClick={() => executeNetCmd("netsh interface ip delete arpcache", "Clear ARP", { refresh: true })} />
-              <ToolBtn icon="FW" label="Reset Firewall" desc="Reset to defaults"
-                onClick={() => executeNetCmd("netsh advfirewall reset", "Reset Firewall", { refresh: true })} color="red" />
+            <div className="tool-grid">
+              <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
+                onClick={() => executeNetCmd("ipconfig /flushdns", "Flush DNS")} tone="safe" />
+              <ToolBtn icon={RefreshCw} label="Renew IP" desc="Release and renew DHCP"
+                onClick={() => executeNetCmd("ipconfig /release && ipconfig /renew", "Renew IP", { refresh: true })} tone="safe" />
+              <ToolBtn icon={Wifi} label="Wi-Fi Info" desc="Show WLAN interface details"
+                onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} tone="system" />
+              <ToolBtn icon={Trash2} label="Clear ARP" desc="Flush ARP cache"
+                onClick={() => executeNetCmd("netsh interface ip delete arpcache", "Clear ARP", { refresh: true })} tone="system" />
+              <ToolBtn icon={Globe} label="Reset TCP/IP" desc="Reset network stack"
+                onClick={() => executeNetCmd("netsh int ip reset", "Reset TCP/IP", { refresh: true })} tone="danger" />
+              <ToolBtn icon={OctagonAlert} label="Reset Winsock" desc="Reset socket catalog"
+                onClick={() => executeNetCmd("netsh winsock reset", "Reset Winsock", { refresh: true })} tone="danger" />
+              <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
+                onClick={() => executeNetCmd("netsh advfirewall reset", "Reset Firewall", { refresh: true })} tone="danger" />
             </div>
           </Section>
 
@@ -759,46 +759,55 @@ export default function App() {
             open={diagnosticsOpen}
             onToggle={() => setDiagnosticsOpen(!diagnosticsOpen)}
           >
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <ToolBtn icon="DNS" label="Display DNS Cache" desc="Show current resolver cache"
-                onClick={handleDisplayDnsCache} />
-              <ToolBtn icon="PX" label="Reset WinHTTP Proxy" desc="Clear system proxy settings"
-                onClick={handleResetWinHttpProxy} />
-              <ToolBtn icon="NIC" label="Restart Adapters" desc="Restart active physical adapters"
-                onClick={handleRestartAdapters} />
-              <ToolBtn icon="TCP" label="Port Connectivity Test" desc="Run Test-NetConnection"
-                onClick={handlePortConnectivityTest} />
+            <div className="tool-grid mb-2">
+              <ToolBtn icon={Monitor} label="Display DNS Cache" desc="Inspect current resolver cache"
+                onClick={handleDisplayDnsCache} tone="safe" compact />
+              <ToolBtn icon={Wrench} label="Reset WinHTTP Proxy" desc="Clear system proxy settings"
+                onClick={handleResetWinHttpProxy} tone="system" compact />
+              <ToolBtn icon={RefreshCw} label="Restart Adapters" desc="Restart active adapters"
+                onClick={handleRestartAdapters} tone="system" compact />
             </div>
-            <div className="grid grid-cols-[1.2fr_1fr] gap-2 mb-2">
-              <input
-                type="text"
-                value={diagHost}
-                onChange={(e) => setDiagHost(e.target.value)}
-                placeholder="Host or IP for diagnostics"
-                className="px-3 py-2 text-sm bg-[#0c1220] border border-slate-700/50 rounded-xl focus:border-blue-500/50 focus:outline-none text-slate-300 placeholder:text-slate-600"
-              />
-              <input
-                type="text"
-                value={diagPort}
-                onChange={(e) => setDiagPort(e.target.value)}
-                placeholder="Port (e.g. 443)"
-                className="px-3 py-2 text-sm bg-[#0c1220] border border-slate-700/50 rounded-xl focus:border-blue-500/50 focus:outline-none text-slate-300 placeholder:text-slate-600"
-              />
-            </div>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <input
-                type="text"
-                value={diagDnsServer}
-                onChange={(e) => setDiagDnsServer(e.target.value)}
-                placeholder="DNS server for nslookup (default 8.8.8.8)"
-                className="px-3 py-2 text-sm bg-[#0c1220] border border-slate-700/50 rounded-xl focus:border-blue-500/50 focus:outline-none text-slate-300 placeholder:text-slate-600"
-              />
-              <button
-                onClick={handleNslookupTest}
-                className="capsule-btn compact-pill bg-cyan-600 hover:bg-cyan-500 text-white font-semibold transition"
-              >
-                NSLookup
-              </button>
+
+            <div className="diag-group">
+              <div className="diag-inline">
+                <input
+                  type="text"
+                  value={diagHost}
+                  onChange={(e) => setDiagHost(e.target.value)}
+                  placeholder="Domain or IP (e.g. google.com)"
+                  className="diag-input"
+                />
+                <input
+                  type="text"
+                  value={diagPort}
+                  onChange={(e) => setDiagPort(e.target.value)}
+                  placeholder="Port"
+                  className="diag-input diag-port"
+                />
+                <button
+                  onClick={handlePortConnectivityTest}
+                  className="diag-action-btn"
+                >
+                  <Activity className="w-3.5 h-3.5" />
+                  Port Test
+                </button>
+              </div>
+              <div className="diag-inline diag-inline-dns">
+                <input
+                  type="text"
+                  value={diagDnsServer}
+                  onChange={(e) => setDiagDnsServer(e.target.value)}
+                  placeholder="DNS server (e.g. 8.8.8.8)"
+                  className="diag-input"
+                />
+                <button
+                  onClick={handleNslookupTest}
+                  className="diag-action-btn diag-action-btn-alt"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  NSLookup
+                </button>
+              </div>
             </div>
           </Section>
 
@@ -809,47 +818,49 @@ export default function App() {
             open={pingOpen}
             onToggle={() => setPingOpen(!pingOpen)}
           >
-            <div className="flex gap-2 mb-2">
+            <div className="segmented-control mb-2">
               <button
                 onClick={() => setPingMode("ping")}
-                className={`capsule-btn compact-pill font-semibold ${pingMode === "ping" ? "bg-blue-600 text-white border-blue-500" : "bg-slate-800/60 text-slate-300 border-slate-600"}`}
+                className={`segment-btn ${pingMode === "ping" ? "segment-btn-active" : ""}`}
               >
                 Ping
               </button>
               <button
                 onClick={() => setPingMode("fping")}
-                className={`capsule-btn compact-pill font-semibold ${pingMode === "fping" ? "bg-indigo-600 text-white border-indigo-500" : "bg-slate-800/60 text-slate-300 border-slate-600"}`}
+                className={`segment-btn ${pingMode === "fping" ? "segment-btn-active" : ""}`}
               >
                 fping
               </button>
             </div>
-            <div className="flex gap-2 mb-3">
+            <div className="ping-action-row mb-3">
               <input
                 type="text"
                 placeholder={pingMode === "fping" ? "8.8.8.8 1.1.1.1 192.168.1.1" : "google.com or 8.8.8.8"}
                 value={pingTarget}
                 onChange={(e) => setPingTarget(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleStartPing()}
-                className="flex-1 px-3 py-2 text-sm bg-[#0c1220] border border-slate-700/50 rounded-lg focus:border-blue-500/50 focus:outline-none text-slate-300 placeholder:text-slate-600"
+                className="diag-input"
               />
               <button
                 onClick={handleStartPing}
                 disabled={pingRunning}
-                className="capsule-btn compact-pill flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900/40 text-white font-semibold transition"
+                className="ping-cmd-btn ping-cmd-start"
               >
                 <Send className="w-4 h-4" /> Start
               </button>
               <button
                 onClick={handleStopPing}
                 disabled={!pingRunning}
-                className="capsule-btn compact-pill bg-red-600 hover:bg-red-500 disabled:bg-red-900/40 text-white font-semibold transition"
+                className="ping-cmd-btn ping-cmd-stop"
               >
+                <OctagonAlert className="w-4 h-4" />
                 Stop
               </button>
               <button
                 onClick={handleTracertFromTarget}
-                className="capsule-btn compact-pill bg-violet-600 hover:bg-violet-500 text-white font-semibold transition"
+                className="ping-cmd-btn ping-cmd-trace"
               >
+                <ArrowDownUp className="w-4 h-4" />
                 Tracert
               </button>
             </div>
@@ -1056,22 +1067,21 @@ const Section = memo(function Section({ icon: Icon, title, open, onToggle, child
   );
 });
 
-const ToolBtn = memo(function ToolBtn({ icon, label, desc, onClick, color }: {
-  icon: string; label: string; desc: string; onClick: () => void; color?: string;
+const ToolBtn = memo(function ToolBtn({ icon: Icon, label, desc, onClick, tone, compact }: {
+  icon: React.ElementType; label: string; desc: string; onClick: () => void; tone?: "safe" | "system" | "danger"; compact?: boolean;
 }) {
+  const toneClass = tone ?? "safe";
   return (
     <button
       onClick={onClick}
-      className={`capsule-btn compact-pill w-full flex items-center gap-2 px-2.5 border transition text-left ${
-        color === "red"
-          ? "bg-red-900/20 border-red-800/30 hover:bg-red-900/40 hover:border-red-700/50"
-          : "bg-slate-800/50 border-slate-700/30 hover:bg-slate-700/50 hover:border-slate-600/50"
-      }`}
+      className={`tool-card tool-card-${toneClass} ${compact ? "tool-card-compact" : ""}`}
     >
-      <span className="tool-badge">{icon}</span>
+      <span className="tool-icon-shell">
+        <Icon className="w-3.5 h-3.5" />
+      </span>
       <div className="min-w-0">
-        <div className="text-[0.74rem] font-bold text-slate-200">{label}</div>
-        <div className="text-[0.56rem] text-slate-500 truncate">{desc}</div>
+        <div className="tool-title">{label}</div>
+        <div className="tool-desc">{desc}</div>
       </div>
     </button>
   );
