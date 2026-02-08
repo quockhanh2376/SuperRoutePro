@@ -1,4 +1,4 @@
-﻿# Super Route Pro v3.6.9
+# Super Route Pro v5.4.0
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
@@ -153,7 +153,7 @@ If this folder is not a git repo yet:
 cd E:\super-route-pro
 git init
 git add .
-git commit -m "chore: initial import Super Route Pro v3.6.9"
+git commit -m "chore: initial import Super Route Pro v5.4.0"
 git branch -M main
 git remote add origin https://github.com/<your-user>/<your-repo>.git
 git push -u origin main
@@ -186,3 +186,4 @@ git push -u origin main
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
 - Version v5.4.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v5.4.0`
+
