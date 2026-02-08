@@ -180,3 +180,9 @@ git push -u origin main
 
 - Some network commands require Administrator privileges on Windows.
 - For stable behavior in diagnostics tools, run the app as Administrator when needed.
+
+## 13) Releases & Download
+
+- All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
+- Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
+- Version v5.4.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v5.4.0`
