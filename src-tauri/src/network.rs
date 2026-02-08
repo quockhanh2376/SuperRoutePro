@@ -958,7 +958,7 @@ pub async fn fping_scan(
         .into_iter()
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
-        .take(128)
+        .take(512)
         .collect();
 
     if clean_targets.is_empty() {

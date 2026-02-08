@@ -705,6 +705,206 @@ html {
   color: #be123c;
 }
 
+.scan-ip-modal {
+  width: min(900px, 100%);
+  max-height: min(80vh, 760px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(71, 85, 105, 0.75);
+  background: rgba(15, 23, 42, 0.97);
+  box-shadow: 0 24px 40px rgba(2, 6, 23, 0.5);
+}
+
+.scan-ip-modal-header {
+  padding: 0.9rem 1rem 0.8rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.scan-ip-close-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(100, 116, 139, 0.6);
+  color: #cbd5e1;
+  background: rgba(30, 41, 59, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scan-ip-subtitle {
+  margin-top: 0.3rem;
+  font-size: 0.7rem;
+  color: #67e8f9;
+  font-weight: 700;
+}
+
+.scan-ip-toolbar {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.scan-ip-truncated-note {
+  color: #fbbf24;
+  font-size: 0.72rem;
+}
+
+.scan-ip-table-shell {
+  margin: 0.8rem 1rem 0.25rem;
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 0.8rem;
+  overflow: auto;
+  background: #0c1220;
+  min-height: 280px;
+}
+
+.scan-ip-empty {
+  padding: 1rem;
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+
+.scan-ip-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.scan-ip-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #1e293b;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  font-weight: 800;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #334155;
+}
+
+.scan-ip-table td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #1e293b;
+  color: #e2e8f0;
+  font-size: 0.78rem;
+}
+
+.scan-ip-table tr:hover {
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.scan-ip-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.6rem;
+  padding: 0.16rem 0.52rem;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.scan-ip-status-up {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(6, 78, 59, 0.35);
+}
+
+.scan-ip-status-down {
+  color: #f59e0b;
+  border-color: rgba(251, 146, 60, 0.52);
+  background: rgba(124, 45, 18, 0.28);
+}
+
+.scan-ip-modal-footer {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.theme-light .scan-ip-modal {
+  border-color: rgba(148, 163, 184, 0.9);
+  background: rgba(248, 250, 252, 0.98);
+  box-shadow: 0 24px 40px rgba(15, 23, 42, 0.24);
+}
+
+.theme-light .scan-ip-modal-header,
+.theme-light .scan-ip-toolbar,
+.theme-light .scan-ip-modal-footer {
+  border-color: rgba(148, 163, 184, 0.7);
+}
+
+.theme-light .scan-ip-close-btn {
+  border-color: rgba(148, 163, 184, 0.8);
+  background: rgba(226, 232, 240, 0.95);
+  color: #0f172a;
+}
+
+.theme-light .scan-ip-subtitle {
+  color: #0f766e;
+}
+
+.theme-light .scan-ip-toolbar {
+  color: #334155;
+}
+
+.theme-light .scan-ip-truncated-note {
+  color: #b45309;
+}
+
+.theme-light .scan-ip-table-shell {
+  border-color: rgba(148, 163, 184, 0.75);
+  background: #ffffff;
+}
+
+.theme-light .scan-ip-table th {
+  background: #dbeafe;
+  color: #334155;
+  border-bottom-color: #94a3b8;
+}
+
+.theme-light .scan-ip-table td {
+  color: #0f172a;
+  border-bottom-color: #cbd5e1;
+}
+
+.theme-light .scan-ip-table tr:hover {
+  background: rgba(219, 234, 254, 0.68);
+}
+
+.theme-light .scan-ip-status-up {
+  color: #047857;
+  border-color: rgba(5, 150, 105, 0.45);
+  background: rgba(209, 250, 229, 0.9);
+}
+
+.theme-light .scan-ip-status-down {
+  color: #c2410c;
+  border-color: rgba(234, 88, 12, 0.5);
+  background: rgba(255, 237, 213, 0.95);
+}
+
+.theme-light .scan-ip-empty {
+  color: #475569;
+}
+
 .cache-modal {
   width: min(860px, 100%);
   max-height: min(78vh, 720px);
@@ -1231,6 +1431,12 @@ html {
   }
 
   .cache-modal-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .scan-ip-toolbar,
+  .scan-ip-modal-footer {
     flex-direction: column;
     align-items: flex-start;
   }

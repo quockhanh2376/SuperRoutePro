@@ -9,7 +9,7 @@ import {
   flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
   fpingScan,
   checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatteryReport,
-  type NetworkInterface, type RouteEntry, type BloatwareItem,
+  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
 } from "./api";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
@@ -54,6 +54,125 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
     divider,
     ...rows,
   ].join("\n");
+};
+
+const IP_SCAN_MAX_TARGETS = 512;
+const IP_SCAN_BATCH_SIZE = 24;
+const FALLBACK_IP_SCAN_PREFIX = 24;
+
+type IpScanPlan = {
+  targets: string[];
+  subnetLabel: string;
+  truncated: boolean;
+  source: "route" | "fallback";
+};
+
+const parseIpv4 = (value: string): number[] | null => {
+  const parts = value.trim().split(".");
+  if (parts.length !== 4) return null;
+  const octets = parts.map((part) => Number.parseInt(part, 10));
+  if (octets.some((octet) => !Number.isFinite(octet) || octet < 0 || octet > 255)) {
+    return null;
+  }
+  return octets;
+};
+
+const ipv4ToInt = (octets: number[]): number =>
+  (
+    ((octets[0] << 24) >>> 0) +
+    ((octets[1] << 16) >>> 0) +
+    ((octets[2] << 8) >>> 0) +
+    (octets[3] >>> 0)
+  ) >>> 0;
+
+const intToIpv4 = (value: number): string =>
+  `${(value >>> 24) & 255}.${(value >>> 16) & 255}.${(value >>> 8) & 255}.${value & 255}`;
+
+const prefixToMaskInt = (prefix: number): number => {
+  if (prefix <= 0) return 0;
+  if (prefix >= 32) return 0xffffffff >>> 0;
+  return (0xffffffff << (32 - prefix)) >>> 0;
+};
+
+const maskToPrefix = (mask: string): number | null => {
+  const octets = parseIpv4(mask);
+  if (!octets) return null;
+  const maskInt = ipv4ToInt(octets);
+  let prefix = 0;
+  let zeroSeen = false;
+  for (let bit = 31; bit >= 0; bit -= 1) {
+    const isOne = ((maskInt >>> bit) & 1) === 1;
+    if (isOne) {
+      if (zeroSeen) return null;
+      prefix += 1;
+    } else {
+      zeroSeen = true;
+    }
+  }
+  return prefix;
+};
+
+const buildIpScanPlan = (nic: NetworkInterface, routes: RouteEntry[]): IpScanPlan | null => {
+  const nicOctets = parseIpv4(nic.ip);
+  if (!nicOctets) return null;
+
+  const nicInt = ipv4ToInt(nicOctets);
+  let networkInt: number | null = null;
+  let prefix: number | null = null;
+  let source: "route" | "fallback" = "fallback";
+
+  const connectedRoute = routes.find((route) => {
+    if (route.interface_index !== nic.index) return false;
+    if (route.gateway !== "0.0.0.0") return false;
+    if (route.destination === "0.0.0.0" || route.netmask === "255.255.255.255") return false;
+    return parseIpv4(route.destination) !== null && parseIpv4(route.netmask) !== null;
+  });
+
+  if (connectedRoute) {
+    const routePrefix = maskToPrefix(connectedRoute.netmask);
+    const routeDestination = parseIpv4(connectedRoute.destination);
+    if (
+      routePrefix !== null &&
+      routePrefix >= 16 &&
+      routePrefix <= 30 &&
+      routeDestination
+    ) {
+      const routeMaskInt = prefixToMaskInt(routePrefix);
+      networkInt = ipv4ToInt(routeDestination) & routeMaskInt;
+      prefix = routePrefix;
+      source = "route";
+    }
+  }
+
+  if (networkInt === null || prefix === null) {
+    prefix = FALLBACK_IP_SCAN_PREFIX;
+    networkInt = nicInt & prefixToMaskInt(prefix);
+    source = "fallback";
+  }
+
+  const hostSpan = 2 ** (32 - prefix);
+  const hostCapacity = Math.max(0, hostSpan - 2);
+  if (hostCapacity <= 0) return null;
+
+  const firstHost = networkInt + 1;
+  const lastHost = networkInt + hostSpan - 2;
+  const selfInRange = nicInt >= firstHost && nicInt <= lastHost;
+  const availableTargets = Math.max(0, hostCapacity - (selfInRange ? 1 : 0));
+  const scanCount = Math.min(IP_SCAN_MAX_TARGETS, availableTargets);
+  const targets: string[] = [];
+
+  for (let offset = 1; offset < hostSpan - 1 && targets.length < scanCount; offset += 1) {
+    const hostInt = (networkInt + offset) >>> 0;
+    if (hostInt === nicInt) continue;
+    targets.push(intToIpv4(hostInt));
+  }
+
+  return {
+    targets,
+    subnetLabel: `${intToIpv4(networkInt)}/${prefix}`,
+    truncated: availableTargets > targets.length,
+    source,
+  };
 };
 
 type CacheCleanupOption = {
@@ -166,6 +285,13 @@ export default function App() {
   const [pingLogVersion, setPingLogVersion] = useState(0);
   const [commandLogVersion, setCommandLogVersion] = useState(0);
   const [pingRunning, setPingRunning] = useState(false);
+  const [ipScanModalOpen, setIpScanModalOpen] = useState(false);
+  const [ipScanRunning, setIpScanRunning] = useState(false);
+  const [ipScanStopPending, setIpScanStopPending] = useState(false);
+  const [ipScanPlan, setIpScanPlan] = useState<IpScanPlan | null>(null);
+  const [ipScanResults, setIpScanResults] = useState<FpingHostResult[]>([]);
+  const [ipScanProgressPercent, setIpScanProgressPercent] = useState(0);
+  const [ipScanProgressText, setIpScanProgressText] = useState("Ready.");
   const [themeLensActive, setThemeLensActive] = useState(false);
   const [currentLatency, setCurrentLatency] = useState<number>(0);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -215,6 +341,7 @@ export default function App() {
   const pingSeqRef = useRef(0);
   const lensTimerRef = useRef<number | null>(null);
   const cacheStopRequestedRef = useRef(false);
+  const ipScanStopRequestedRef = useRef(false);
   const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
   const pingLogLinesRef = useRef<string[]>([]);
   const commandLogLinesRef = useRef<string[]>([]);
@@ -530,6 +657,108 @@ export default function App() {
       `Port Test ${host}:${port}`
     );
   }, [diagHost, diagPort, executeNetCmd, sanitizeHostToken]);
+
+  const resolveIpScanPlan = useCallback((): IpScanPlan | null => {
+    if (!selectedNic) return null;
+    const plan = buildIpScanPlan(selectedNic, routes);
+    if (!plan || plan.targets.length === 0) return null;
+    return plan;
+  }, [routes, selectedNic]);
+
+  const runIpScan = useCallback(async (plan: IpScanPlan) => {
+    if (ipScanRunning) return;
+    setIpScanRunning(true);
+    setIpScanStopPending(false);
+    ipScanStopRequestedRef.current = false;
+    setIpScanResults([]);
+    setIpScanProgressPercent(0);
+    setIpScanProgressText(`Starting scan on ${plan.subnetLabel}...`);
+    setStatusMsg(`Scan IP started on ${plan.subnetLabel}`);
+
+    const totalTargets = plan.targets.length;
+    let processed = 0;
+    let reachable = 0;
+    const collected: FpingHostResult[] = [];
+
+    try {
+      for (let offset = 0; offset < totalTargets; offset += IP_SCAN_BATCH_SIZE) {
+        if (ipScanStopRequestedRef.current) {
+          break;
+        }
+
+        const batchTargets = plan.targets.slice(offset, offset + IP_SCAN_BATCH_SIZE);
+        const result = await fpingScan(batchTargets, 700);
+        collected.push(...result.hosts);
+        processed += batchTargets.length;
+        reachable += result.received;
+        setIpScanResults([...collected]);
+
+        const percent = Math.round((processed / totalTargets) * 100);
+        setIpScanProgressPercent(percent);
+        setIpScanProgressText(
+          `Scanning ${processed}/${totalTargets} hosts... Reachable ${reachable}`
+        );
+      }
+
+      const stoppedEarly = ipScanStopRequestedRef.current && processed < totalTargets;
+      if (stoppedEarly) {
+        setStatusMsg(`Scan IP stopped (${processed}/${totalTargets})`);
+        setIpScanProgressText(`Stopped: scanned ${processed}/${totalTargets}, reachable ${reachable}`);
+      } else {
+        setStatusMsg(`Scan IP done: ${reachable}/${totalTargets} reachable`);
+        setIpScanProgressText(`Done: scanned ${totalTargets} hosts, reachable ${reachable}`);
+      }
+    } catch (err) {
+      setStatusMsg(`Scan IP error: ${err}`);
+      setIpScanProgressText(`Scan failed: ${err}`);
+    } finally {
+      setIpScanRunning(false);
+      setIpScanStopPending(false);
+      ipScanStopRequestedRef.current = false;
+    }
+  }, [ipScanRunning]);
+
+  const handleOpenIpScanModal = useCallback(() => {
+    const plan = resolveIpScanPlan();
+    if (!plan) {
+      setStatusMsg("Select an active NIC first to scan subnet hosts");
+      return;
+    }
+    setIpScanPlan(plan);
+    setIpScanModalOpen(true);
+    setIpScanResults([]);
+    setIpScanProgressPercent(0);
+    if (plan.source === "fallback") {
+      setIpScanProgressText(`Using fallback ${plan.subnetLabel} range from selected NIC.`);
+    } else {
+      setIpScanProgressText(`Ready to scan ${plan.targets.length} hosts on ${plan.subnetLabel}.`);
+    }
+  }, [resolveIpScanPlan]);
+
+  const handleStartIpScan = useCallback(() => {
+    if (ipScanRunning) return;
+    const plan = resolveIpScanPlan();
+    if (!plan) {
+      setStatusMsg("Select an active NIC first to scan subnet hosts");
+      setIpScanProgressText("Cannot build scan plan from current selection.");
+      return;
+    }
+    setIpScanPlan(plan);
+    void runIpScan(plan);
+  }, [ipScanRunning, resolveIpScanPlan, runIpScan]);
+
+  const handleForceStopIpScan = useCallback(() => {
+    if (!ipScanRunning || ipScanStopPending) return;
+    ipScanStopRequestedRef.current = true;
+    setIpScanStopPending(true);
+    setStatusMsg("Force stop requested for IP scan...");
+    setIpScanProgressText("Stopping scan... waiting for current batch.");
+  }, [ipScanRunning, ipScanStopPending]);
+
+  const handleCloseIpScanModal = useCallback(() => {
+    if (ipScanRunning) return;
+    setIpScanModalOpen(false);
+  }, [ipScanRunning]);
 
   const handleTracertFromTarget = useCallback(async () => {
     const target = pingTarget
@@ -931,6 +1160,21 @@ export default function App() {
     () => bloatwareItems.filter((item) => item.installed).length,
     [bloatwareItems]
   );
+  const ipScanReachableCount = useMemo(
+    () => ipScanResults.filter((item) => item.success).length,
+    [ipScanResults]
+  );
+  const ipScanDisplayRows = useMemo(
+    () =>
+      [...ipScanResults].sort((left, right) => {
+        if (left.success !== right.success) {
+          return left.success ? -1 : 1;
+        }
+        return left.target.localeCompare(right.target);
+      }),
+    [ipScanResults]
+  );
+  const ipScanScannedCount = ipScanResults.length;
   const selectedBloatwareCount = selectedBloatware.size;
   const selectedCacheCount = selectedCacheTargets.length;
 
@@ -1175,6 +1419,8 @@ export default function App() {
                 onClick={handleResetWinHttpProxy} tone="system" compact />
               <ToolBtn icon={RefreshCw} label="Restart Adapters" desc="Restart active adapters"
                 onClick={handleRestartAdapters} tone="system" compact />
+              <ToolBtn icon={Search} label="Scan IP" desc="Scan active subnet hosts"
+                onClick={handleOpenIpScanModal} tone="safe" compact />
             </div>
 
             <div className="diag-group">
@@ -1333,6 +1579,125 @@ export default function App() {
               ) : (
                 <div className="battery-placeholder">No battery report available.</div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ipScanModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
+          <div className="scan-ip-modal">
+            <div className="scan-ip-modal-header">
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Scan IP</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Scan active hosts in the selected interface subnet.
+                </p>
+                {ipScanPlan && (
+                  <p className="scan-ip-subtitle">
+                    NIC {selectedNic?.index ?? "-"} | {selectedNic?.ip ?? "-"} | {ipScanPlan.subnetLabel} | {ipScanPlan.targets.length} targets
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={handleCloseIpScanModal}
+                disabled={ipScanRunning}
+                className="scan-ip-close-btn capsule-btn"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="scan-ip-toolbar">
+              <span>
+                {ipScanScannedCount} scanned | {ipScanReachableCount} reachable
+              </span>
+              {ipScanPlan?.truncated && (
+                <span className="scan-ip-truncated-note">
+                  Target list limited to {ipScanPlan.targets.length} hosts
+                </span>
+              )}
+            </div>
+
+            <div className="scan-ip-table-shell">
+              {ipScanDisplayRows.length === 0 ? (
+                <div className="scan-ip-empty">
+                  {ipScanRunning ? "Scanning hosts..." : "No scan results yet. Click Start Scan."}
+                </div>
+              ) : (
+                <table className="scan-ip-table">
+                  <thead>
+                    <tr>
+                      <th className="w-12">#</th>
+                      <th>Host</th>
+                      <th className="w-28">Status</th>
+                      <th className="w-24">Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ipScanDisplayRows.map((host, index) => (
+                      <tr key={`${host.target}-${index}`}>
+                        <td className="font-mono">{index + 1}</td>
+                        <td className="font-mono">{host.target}</td>
+                        <td>
+                          <span className={`scan-ip-status-chip ${host.success ? "scan-ip-status-up" : "scan-ip-status-down"}`}>
+                            {host.success ? "Reachable" : "Timeout"}
+                          </span>
+                        </td>
+                        <td className="font-mono">{host.success ? `${host.latency_ms} ms` : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="cache-progress-panel">
+              <div className="cache-progress-track">
+                <div
+                  className="cache-progress-fill"
+                  style={{ width: `${ipScanProgressPercent}%` }}
+                />
+                <span className="cache-progress-value">{ipScanProgressPercent}%</span>
+              </div>
+              <div className="cache-progress-text">
+                {ipScanRunning
+                  ? ipScanProgressText
+                  : ipScanProgressPercent > 0
+                    ? ipScanProgressText
+                    : ipScanPlan
+                      ? `Ready. ${ipScanPlan.targets.length} host target(s).`
+                      : "Ready."}
+              </div>
+            </div>
+
+            <div className="scan-ip-modal-footer">
+              <button
+                onClick={handleStartIpScan}
+                disabled={ipScanRunning || !ipScanPlan}
+                className="capsule-btn compact-pill cache-tool-btn"
+              >
+                {ipScanScannedCount > 0 ? "Rescan" : "Start Scan"}
+              </button>
+              <div className="flex items-center gap-2">
+                {ipScanRunning && (
+                  <button
+                    onClick={handleForceStopIpScan}
+                    disabled={ipScanStopPending}
+                    className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
+                  >
+                    {ipScanStopPending ? "Stopping..." : "Force Stop"}
+                  </button>
+                )}
+                <button
+                  onClick={handleCloseIpScanModal}
+                  disabled={ipScanRunning}
+                  className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>
