@@ -1,0 +1,59 @@
+# =========================
+# Dependencies
+# =========================
+node_modules/
+
+# =========================
+# Frontend Build Outputs
+# =========================
+dist/
+dist-ssr/
+*.local
+
+# =========================
+# Rust / Tauri Build Outputs
+# =========================
+src-tauri/target/
+src-tauri/.cargo-check/
+.cargo-check/
+.cargo-check*/
+
+# =========================
+# Local Binaries / Installers
+# =========================
+SuperRoute.exe
+*.exe
+*.msi
+*.nsis.zip
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Editor / OS
+# =========================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,0 +1,8 @@
+# Rust build outputs
+/target/
+
+# Tauri generated schema files
+/gen/schemas
+
+# Local scratch/check targets
+/.cargo-check/
