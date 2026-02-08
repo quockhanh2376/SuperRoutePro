@@ -149,7 +149,7 @@ const DEFAULT_CACHE_SELECTION = new Set(
 );
 
 export default function App() {
-  const APP_VERSION = "3.6.9";
+  const APP_VERSION = "5.4";
   const APP_AUTHOR = "Zonzon";
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     if (typeof window === "undefined") return "dark";
@@ -187,6 +187,8 @@ export default function App() {
   const [bloatwareRemoving, setBloatwareRemoving] = useState(false);
   const [bloatwareItems, setBloatwareItems] = useState<BloatwareItem[]>([]);
   const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
+  const [removeProgressPercent, setRemoveProgressPercent] = useState(0);
+  const [removeProgressText, setRemoveProgressText] = useState("Ready.");
   const [cacheModalOpen, setCacheModalOpen] = useState(false);
   const [cacheCleaning, setCacheCleaning] = useState(false);
   const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
@@ -542,6 +544,8 @@ export default function App() {
   }, []);
 
   const handleOpenBloatwareModal = useCallback(() => {
+    setRemoveProgressPercent(0);
+    setRemoveProgressText("Ready.");
     setBloatwareModalOpen(true);
     void loadBloatwareList();
   }, [loadBloatwareList]);
@@ -591,24 +595,54 @@ export default function App() {
     setBloatwareRemoving(true);
     setDiagnosticView("command");
     setDiagnosticsOpen(true);
+    setRemoveProgressPercent(0);
+    setRemoveProgressText(`Starting removal... 0/${packages.length} (0%)`);
     setStatusMsg(`Removing ${packages.length} selected app(s)...`);
+    let successCount = 0;
+    let failedCount = 0;
     try {
-      const result = await removeBloatware(packages);
-      appendCommandOutput("Remove Apps", result.output);
+      for (let index = 0; index < packages.length; index += 1) {
+        const packageName = packages[index];
+        const appLabel = bloatwareItems.find((item) => item.package_name === packageName)?.label ?? packageName;
+        const beforePercent = Math.round((index / packages.length) * 100);
+        setRemoveProgressPercent(beforePercent);
+        setRemoveProgressText(`Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`);
+
+        try {
+          const result = await removeBloatware([packageName]);
+          appendCommandOutput(`Remove Apps - ${appLabel}`, result.output);
+          if (result.success) {
+            successCount += 1;
+          } else {
+            failedCount += 1;
+          }
+        } catch (err) {
+          failedCount += 1;
+          appendCommandOutput(`Remove Apps - ${appLabel}`, `Error: ${err}`);
+        }
+
+        const processed = index + 1;
+        const percent = Math.round((processed / packages.length) * 100);
+        setRemoveProgressPercent(percent);
+        setRemoveProgressText(`Processed ${processed}/${packages.length} (${percent}%)`);
+      }
+
       setStatusMsg(
-        result.success
-          ? `Remove Apps completed (${packages.length} apps)`
-          : "Remove Apps completed with warnings"
+        failedCount === 0
+          ? `Remove Apps completed (${successCount}/${packages.length})`
+          : `Remove Apps completed with warnings (${failedCount} failed)`
       );
+      setRemoveProgressText(`Done: ${successCount} success, ${failedCount} failed`);
       setSelectedBloatware(new Set());
       await loadBloatwareList();
     } catch (err) {
       appendCommandOutput("Remove Apps", `Error: ${err}`);
       setStatusMsg(`Remove Apps error: ${err}`);
+      setRemoveProgressText("Removal aborted by error.");
     } finally {
       setBloatwareRemoving(false);
     }
-  }, [appendCommandOutput, loadBloatwareList, selectedBloatware]);
+  }, [appendCommandOutput, bloatwareItems, loadBloatwareList, selectedBloatware]);
 
   const handleOpenCacheModal = useCallback(() => {
     setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
@@ -1235,6 +1269,7 @@ export default function App() {
                   className="cache-progress-fill"
                   style={{ width: `${cacheProgressPercent}%` }}
                 />
+                <span className="cache-progress-value">{cacheProgressPercent}%</span>
               </div>
               <div className="cache-progress-text">
                 {cacheCleaning
@@ -1267,7 +1302,7 @@ export default function App() {
                 <button
                   onClick={handleCloseCacheModal}
                   disabled={cacheCleaning}
-                  className="capsule-btn px-3 py-1.5 border border-slate-600 text-slate-200 hover:bg-slate-800 transition"
+                  className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"
                 >
                   Close
                 </button>
@@ -1384,11 +1419,28 @@ export default function App() {
               )}
             </div>
 
+            <div className="remove-progress-panel">
+              <div className="remove-progress-track">
+                <div
+                  className="remove-progress-fill"
+                  style={{ width: `${removeProgressPercent}%` }}
+                />
+                <span className="remove-progress-value">{removeProgressPercent}%</span>
+              </div>
+              <div className="remove-progress-text">
+                {bloatwareRemoving
+                  ? removeProgressText
+                  : removeProgressPercent > 0
+                    ? removeProgressText
+                    : `Ready. ${selectedBloatwareCount} app(s) selected.`}
+              </div>
+            </div>
+
             <div className="bloatware-modal-footer">
               <button
                 onClick={handleCloseBloatwareModal}
                 disabled={bloatwareRemoving}
-                className="capsule-btn px-3 py-1.5 border border-slate-600 text-slate-200 hover:bg-slate-800 transition"
+                className="bloatware-footer-close-btn capsule-btn px-3 py-1.5 transition"
               >
                 Close
               </button>
@@ -1421,7 +1473,7 @@ export default function App() {
               <OctagonAlert className="w-4 h-4 text-amber-400" />
               <h3 className="text-sm font-bold text-slate-100">{confirmTitle}</h3>
             </div>
-            <div className="px-4 py-4 text-sm text-slate-300">{confirmMessage}</div>
+            <div className="confirm-dialog-body px-4 py-4 text-sm">{confirmMessage}</div>
             <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-700">
               <button
                 onClick={onCancelConfirm}
