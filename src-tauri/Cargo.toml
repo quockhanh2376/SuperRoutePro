@@ -1,6 +1,6 @@
 [package]
 name = "super-route-pro"
-version = "5.4.0"
+version = "6.3.0"
 description = "Super Route Pro - Network Routing Manager"
 authors = ["Zonzon"]
 edition = "2021"
@@ -21,3 +21,4 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
