@@ -268,7 +268,7 @@ const DEFAULT_CACHE_SELECTION = new Set(
 );
 
 export default function App() {
-  const APP_VERSION = "5.4";
+  const APP_VERSION = "6.3.0";
   const APP_AUTHOR = "Zonzon";
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
