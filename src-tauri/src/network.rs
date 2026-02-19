@@ -110,6 +110,21 @@ pub struct BatteryReportResult {
     pub html: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BatterySummaryResult {
+    pub present: bool,
+    pub status: String,
+    pub charge_percent: Option<u32>,
+    pub design_capacity_mwh: Option<u32>,
+    pub full_charge_capacity_mwh: Option<u32>,
+    pub health_percent: Option<f32>,
+    pub wear_percent: Option<f32>,
+    pub cycle_count: Option<u32>,
+    pub estimated_runtime_minutes: Option<u32>,
+    pub estimated_runtime_full_minutes: Option<u32>,
+    pub note: String,
+}
+
 // ======================== HELPERS ========================
 
 fn run_powershell(script: &str) -> Result<String, String> {
@@ -863,6 +878,145 @@ pub async fn get_battery_report() -> Result<BatteryReportResult, String> {
     }
 
     Ok(BatteryReportResult { html })
+}
+
+/// Get battery health summary focused on wear level and estimated lifetime.
+#[tauri::command]
+pub async fn get_battery_summary() -> Result<BatterySummaryResult, String> {
+    let ps_script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+
+$battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $battery) {
+  [PSCustomObject]@{
+    present = $false
+    status = 'No battery detected'
+    charge_percent = $null
+    design_capacity_mwh = $null
+    full_charge_capacity_mwh = $null
+    health_percent = $null
+    wear_percent = $null
+    cycle_count = $null
+    estimated_runtime_minutes = $null
+    estimated_runtime_full_minutes = $null
+    note = 'This machine may be desktop-only or battery telemetry is unavailable.'
+  } | ConvertTo-Json -Compress
+  exit 0
+}
+
+$staticData = Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -ErrorAction SilentlyContinue | Select-Object -First 1
+$fullCapacity = Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -ErrorAction SilentlyContinue | Select-Object -First 1
+$cycleInfo = Get-CimInstance -Namespace root\wmi -ClassName BatteryCycleCount -ErrorAction SilentlyContinue | Select-Object -First 1
+
+$chargePercent = if ($battery.EstimatedChargeRemaining -ge 0) { [int]$battery.EstimatedChargeRemaining } else { $null }
+$runtimeMinutes = if ($battery.EstimatedRunTime -gt 0 -and $battery.EstimatedRunTime -lt 71582) { [int]$battery.EstimatedRunTime } else { $null }
+$runtimeFullMinutes = if ($runtimeMinutes -and $chargePercent -and $chargePercent -gt 0) {
+  [int][math]::Round(($runtimeMinutes * 100.0) / $chargePercent)
+} else {
+  $null
+}
+
+$designCapacity = if ($staticData -and $staticData.DesignedCapacity -gt 0) { [int]$staticData.DesignedCapacity } else { $null }
+$fullChargeCapacity = if ($fullCapacity -and $fullCapacity.FullChargedCapacity -gt 0) { [int]$fullCapacity.FullChargedCapacity } else { $null }
+
+$healthPercent = if ($designCapacity -and $fullChargeCapacity -and $designCapacity -gt 0) {
+  [math]::Round(($fullChargeCapacity * 100.0) / $designCapacity, 1)
+} else {
+  $null
+}
+$wearPercent = if ($healthPercent -ne $null) { [math]::Round((100.0 - $healthPercent), 1) } else { $null }
+$cycleCount = if ($cycleInfo -and $cycleInfo.CycleCount -ge 0) { [int]$cycleInfo.CycleCount } else { $null }
+
+$statusMap = @{
+  1 = 'Discharging'
+  2 = 'Connected to AC'
+  3 = 'Fully charged'
+  4 = 'Low'
+  5 = 'Critical'
+  6 = 'Charging'
+  7 = 'Charging (high)'
+  8 = 'Charging (low)'
+  9 = 'Charging (critical)'
+  11 = 'Partially charged'
+}
+
+$statusCode = [int]$battery.BatteryStatus
+$statusText = if ($statusMap.ContainsKey($statusCode)) {
+  $statusMap[$statusCode]
+} else {
+  "Status code $statusCode"
+}
+
+[PSCustomObject]@{
+  present = $true
+  status = $statusText
+  charge_percent = $chargePercent
+  design_capacity_mwh = $designCapacity
+  full_charge_capacity_mwh = $fullChargeCapacity
+  health_percent = $healthPercent
+  wear_percent = $wearPercent
+  cycle_count = $cycleCount
+  estimated_runtime_minutes = $runtimeMinutes
+  estimated_runtime_full_minutes = $runtimeFullMinutes
+  note = 'Wear level is computed from full charge capacity versus design capacity.'
+} | ConvertTo-Json -Compress
+"#;
+
+    let output = run_powershell(ps_script)?;
+    let value: serde_json::Value = serde_json::from_str(output.trim())
+        .map_err(|e| format!("Battery summary JSON parse error: {}", e))?;
+
+    let get_optional_u32 = |key: &str| -> Option<u32> {
+        value
+            .get(key)
+            .and_then(|v| match v {
+                serde_json::Value::Number(n) => n
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .or_else(|| n.as_i64().and_then(|n| if n >= 0 { u32::try_from(n as u64).ok() } else { None })),
+                serde_json::Value::String(s) => s.trim().parse::<u32>().ok(),
+                _ => None,
+            })
+    };
+
+    let get_optional_f32 = |key: &str| -> Option<f32> {
+        value
+            .get(key)
+            .and_then(|v| match v {
+                serde_json::Value::Number(n) => n.as_f64().map(|n| n as f32),
+                serde_json::Value::String(s) => s.trim().parse::<f32>().ok(),
+                _ => None,
+            })
+    };
+
+    let present = value
+        .get("present")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let status = value
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string();
+    let note = value
+        .get("note")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(BatterySummaryResult {
+        present,
+        status,
+        charge_percent: get_optional_u32("charge_percent"),
+        design_capacity_mwh: get_optional_u32("design_capacity_mwh"),
+        full_charge_capacity_mwh: get_optional_u32("full_charge_capacity_mwh"),
+        health_percent: get_optional_f32("health_percent"),
+        wear_percent: get_optional_f32("wear_percent"),
+        cycle_count: get_optional_u32("cycle_count"),
+        estimated_runtime_minutes: get_optional_u32("estimated_runtime_minutes"),
+        estimated_runtime_full_minutes: get_optional_u32("estimated_runtime_full_minutes"),
+        note,
+    })
 }
 
 /// Clear selected system/browser cache targets

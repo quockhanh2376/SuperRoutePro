@@ -9,8 +9,8 @@ import {
   getNetworkInterfaces, getRoutingTable, addRoute, deleteRoute,
   flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
   fpingScan,
-  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatteryReport,
-  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
+  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatterySummary,
+  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult, type BatterySummaryResult,
 } from "./api";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
@@ -60,6 +60,42 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
 const IP_SCAN_MAX_TARGETS = 512;
 const IP_SCAN_BATCH_SIZE = 24;
 const FALLBACK_IP_SCAN_PREFIX = 24;
+const DONATE_QR_IMAGE_PATH = "/donate-qr-vpbank.png";
+
+const formatBatteryPercent = (value: number | null | undefined, fractionDigits = 1): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "--";
+  }
+  return `${value.toFixed(fractionDigits)}%`;
+};
+
+const formatBatteryCapacity = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "--";
+  }
+  return `${value.toLocaleString("en-US")} mWh`;
+};
+
+const formatBatteryMinutes = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || value <= 0) {
+    return "--";
+  }
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  if (hours <= 0) {
+    return `${minutes} min`;
+  }
+  return `${hours}h ${minutes}m`;
+};
+
+const getBatteryWearLevel = (wearPercent: number | null | undefined): string => {
+  if (wearPercent === null || wearPercent === undefined || Number.isNaN(wearPercent)) {
+    return "Unknown";
+  }
+  if (wearPercent <= 15) return "Good";
+  if (wearPercent <= 30) return "Moderate";
+  return "High wear";
+};
 
 type IpScanPlan = {
   targets: string[];
@@ -315,8 +351,10 @@ export default function App() {
   const [removeProgressText, setRemoveProgressText] = useState("Ready.");
   const [batteryModalOpen, setBatteryModalOpen] = useState(false);
   const [batteryLoading, setBatteryLoading] = useState(false);
-  const [batteryReportHtml, setBatteryReportHtml] = useState("");
-  const [batteryReportError, setBatteryReportError] = useState("");
+  const [batterySummary, setBatterySummary] = useState<BatterySummaryResult | null>(null);
+  const [batterySummaryError, setBatterySummaryError] = useState("");
+  const [donateModalOpen, setDonateModalOpen] = useState(false);
+  const [donateQrLoadError, setDonateQrLoadError] = useState(false);
   const [cacheModalOpen, setCacheModalOpen] = useState(false);
   const [cacheCleaning, setCacheCleaning] = useState(false);
   const [cacheStopPending, setCacheStopPending] = useState(false);
@@ -616,17 +654,22 @@ export default function App() {
     await executeNetCmd("ipconfig /displaydns", "Display DNS Cache");
   }, [executeNetCmd]);
 
-  const loadBatteryReport = useCallback(async () => {
+  const loadBatterySummary = useCallback(async () => {
     setBatteryLoading(true);
-    setBatteryReportError("");
+    setBatterySummaryError("");
     try {
-      const report = await getBatteryReport();
-      setBatteryReportHtml(report.html);
-      setStatusMsg("Battery report loaded");
+      const summary = await getBatterySummary();
+      setBatterySummary(summary);
+      if (summary.present) {
+        const wearLabel = getBatteryWearLevel(summary.wear_percent);
+        setStatusMsg(`Battery summary loaded (${wearLabel})`);
+      } else {
+        setStatusMsg("Battery summary loaded (no battery detected)");
+      }
     } catch (err) {
-      setBatteryReportHtml("");
-      setBatteryReportError(String(err));
-      setStatusMsg(`Battery report error: ${err}`);
+      setBatterySummary(null);
+      setBatterySummaryError(String(err));
+      setStatusMsg(`Battery summary error: ${err}`);
     } finally {
       setBatteryLoading(false);
     }
@@ -634,13 +677,22 @@ export default function App() {
 
   const handleOpenBatteryModal = useCallback(() => {
     setBatteryModalOpen(true);
-    void loadBatteryReport();
-  }, [loadBatteryReport]);
+    void loadBatterySummary();
+  }, [loadBatterySummary]);
 
   const handleCloseBatteryModal = useCallback(() => {
     if (batteryLoading) return;
     setBatteryModalOpen(false);
   }, [batteryLoading]);
+
+  const handleOpenDonateModal = useCallback(() => {
+    setDonateQrLoadError(false);
+    setDonateModalOpen(true);
+  }, []);
+
+  const handleCloseDonateModal = useCallback(() => {
+    setDonateModalOpen(false);
+  }, []);
 
   const handleResetWinHttpProxy = async () => {
     openConfirm(
@@ -1425,7 +1477,7 @@ export default function App() {
                 onClick={() => executeNetCmd("netsh winsock reset", "Reset Winsock", { refresh: true })} tone="danger" />
               <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
                 onClick={() => executeNetCmd("netsh advfirewall reset", "Reset Firewall", { refresh: true })} tone="danger" />
-              <ToolBtn icon={Monitor} label="Battery Info" desc="Open battery report in app"
+              <ToolBtn icon={Monitor} label="Battery Info" desc="View battery wear and lifetime summary"
                 onClick={handleOpenBatteryModal} tone="system" />
             </div>
           </Section>
@@ -1553,9 +1605,66 @@ export default function App() {
 
       {/* ====== FOOTER ====== */}
       <footer className="app-footer flex items-center justify-between px-5 py-1.5 border-t shrink-0">
-        <span className="text-[0.65rem] text-slate-500">{statusMsg}</span>
+        <div className="app-footer-left">
+          <span className="text-[0.65rem] text-slate-500">{statusMsg}</span>
+          <button
+            onClick={handleOpenDonateModal}
+            className="donate-footer-btn capsule-btn"
+            title="Donate to the author Zozon"
+          >
+            Donate
+          </button>
+        </div>
         <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{appVersion} | Author {APP_AUTHOR}</span>
       </footer>
+
+      {donateModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4"
+          onClick={handleCloseDonateModal}
+        >
+          <div
+            className="donate-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Donate to the author Zozon"
+          >
+            <div className="donate-modal-header">
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Donate</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Donate to the author Zozon.
+                </p>
+              </div>
+              <button
+                onClick={handleCloseDonateModal}
+                className="donate-close-btn capsule-btn"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="donate-modal-body">
+              <div className="donate-qr-shell">
+                <img
+                  src={DONATE_QR_IMAGE_PATH}
+                  alt="Donate QR code"
+                  className={`donate-qr-image ${donateQrLoadError ? "hidden" : ""}`}
+                  onLoad={() => setDonateQrLoadError(false)}
+                  onError={() => setDonateQrLoadError(true)}
+                />
+                {donateQrLoadError && (
+                  <div className="donate-qr-missing">
+                    Unable to load donate QR image at <code>{DONATE_QR_IMAGE_PATH}</code>.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {batteryModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
@@ -1564,12 +1673,12 @@ export default function App() {
               <div>
                 <h3 className="text-base font-bold text-slate-100">Battery Info</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  View battery report and current battery health in-app.
+                  Summary focused on wear level and estimated battery lifetime.
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => void loadBatteryReport()}
+                  onClick={() => void loadBatterySummary()}
                   disabled={batteryLoading}
                   className="capsule-btn compact-pill battery-refresh-btn"
                 >
@@ -1587,21 +1696,80 @@ export default function App() {
             </div>
             <div className="battery-modal-body">
               {batteryLoading ? (
-                <div className="battery-placeholder">Generating battery report...</div>
-              ) : batteryReportError ? (
+                <div className="battery-placeholder">Loading battery summary...</div>
+              ) : batterySummaryError ? (
                 <div className="battery-placeholder battery-placeholder-error">
-                  Unable to load battery report: {batteryReportError}
+                  Unable to load battery summary: {batterySummaryError}
                 </div>
-              ) : batteryReportHtml ? (
-                <div className="battery-report-shell">
-                  <iframe
-                    title="Battery Report"
-                    className="battery-report-frame"
-                    srcDoc={batteryReportHtml}
-                  />
+              ) : batterySummary ? (
+                <div className="battery-summary-shell">
+                  {!batterySummary.present ? (
+                    <div className="battery-placeholder">
+                      {batterySummary.note || "No battery detected on this machine."}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="battery-summary-primary-grid">
+                        <div className="battery-summary-card battery-summary-card-health">
+                          <div className="battery-summary-label">Health Remaining</div>
+                          <div className="battery-summary-value">
+                            {formatBatteryPercent(batterySummary.health_percent)}
+                          </div>
+                          <div className="battery-summary-hint">
+                            Full charge / design capacity
+                          </div>
+                        </div>
+                        <div className="battery-summary-card battery-summary-card-wear">
+                          <div className="battery-summary-label">Wear Level</div>
+                          <div className="battery-summary-value">
+                            {formatBatteryPercent(batterySummary.wear_percent)}
+                          </div>
+                          <div className="battery-summary-hint">
+                            {getBatteryWearLevel(batterySummary.wear_percent)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="battery-summary-grid">
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Current Charge</span>
+                          <span className="battery-stat-value">{formatBatteryPercent(batterySummary.charge_percent, 0)}</span>
+                        </div>
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Remaining Runtime</span>
+                          <span className="battery-stat-value">{formatBatteryMinutes(batterySummary.estimated_runtime_minutes)}</span>
+                        </div>
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Runtime At Full (est.)</span>
+                          <span className="battery-stat-value">{formatBatteryMinutes(batterySummary.estimated_runtime_full_minutes)}</span>
+                        </div>
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Cycle Count</span>
+                          <span className="battery-stat-value">
+                            {batterySummary.cycle_count === null || batterySummary.cycle_count === undefined ? "--" : batterySummary.cycle_count}
+                          </span>
+                        </div>
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Design Capacity</span>
+                          <span className="battery-stat-value">{formatBatteryCapacity(batterySummary.design_capacity_mwh)}</span>
+                        </div>
+                        <div className="battery-stat">
+                          <span className="battery-stat-title">Full Charge Capacity</span>
+                          <span className="battery-stat-value">{formatBatteryCapacity(batterySummary.full_charge_capacity_mwh)}</span>
+                        </div>
+                      </div>
+
+                      <div className="battery-summary-status-row">
+                        <span className="battery-status-chip">{batterySummary.status}</span>
+                        <span className="battery-summary-note">
+                          {batterySummary.note}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
-                <div className="battery-placeholder">No battery report available.</div>
+                <div className="battery-placeholder">No battery summary available.</div>
               )}
             </div>
           </div>

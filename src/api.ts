@@ -55,6 +55,20 @@ export interface BatteryReportResult {
   html: string;
 }
 
+export interface BatterySummaryResult {
+  present: boolean;
+  status: string;
+  charge_percent: number | null;
+  design_capacity_mwh: number | null;
+  full_charge_capacity_mwh: number | null;
+  health_percent: number | null;
+  wear_percent: number | null;
+  cycle_count: number | null;
+  estimated_runtime_minutes: number | null;
+  estimated_runtime_full_minutes: number | null;
+  note: string;
+}
+
 // ======================== API CALLS ========================
 
 export async function getNetworkInterfaces(activeOnly: boolean): Promise<NetworkInterface[]> {
@@ -132,4 +146,8 @@ export async function clearCacheTargets(targets: string[]): Promise<CommandResul
 
 export async function getBatteryReport(): Promise<BatteryReportResult> {
   return invoke<BatteryReportResult>("get_battery_report");
+}
+
+export async function getBatterySummary(): Promise<BatterySummaryResult> {
+  return invoke<BatterySummaryResult>("get_battery_summary");
 }

@@ -4,7 +4,7 @@ use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
     flush_routes, set_default_gateway, run_network_command, ping_host,
     check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
-    clear_cache_targets, get_battery_report,
+    clear_cache_targets, get_battery_report, get_battery_summary,
 };
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -22,6 +22,8 @@ const REQUIRED_COMMANDS: [&str; 5] = ["route", "netsh", "ipconfig", "ping", "pow
 const WEBVIEW2_CLIENT_GUID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 #[cfg(target_os = "windows")]
 const DEV_DISABLE_ERROR_DIALOG_ENV: &str = "SRP_DEV_NO_DIALOG";
+#[cfg(target_os = "windows")]
+const DEV_ALLOW_NON_ADMIN_ENV: &str = "SRP_DEV_ALLOW_NON_ADMIN";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,6 +48,7 @@ pub fn run() {
             remove_bloatware,
             clear_cache_targets,
             get_battery_report,
+            get_battery_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -54,6 +57,7 @@ pub fn run() {
 #[cfg(target_os = "windows")]
 fn validate_runtime_environment() -> Result<(), String> {
     let mut failures: Vec<String> = Vec::new();
+    let allow_non_admin_in_dev = cfg!(debug_assertions) || env_flag_enabled(DEV_ALLOW_NON_ADMIN_ENV);
 
     match detect_windows_build_number() {
         Some(build) if build >= MIN_WINDOWS_BUILD => {}
@@ -65,11 +69,27 @@ fn validate_runtime_environment() -> Result<(), String> {
 
     match is_running_as_admin() {
         Some(true) => {}
-        Some(false) => failures.push(
-            "The app must run with Administrator privileges to manage routes and NIC settings."
-                .to_string(),
-        ),
-        None => failures.push("Unable to verify Administrator privileges.".to_string()),
+        Some(false) => {
+            if allow_non_admin_in_dev {
+                eprintln!(
+                    "[DEV] Running without Administrator privileges. Route/NIC management commands may fail until elevated."
+                );
+            } else {
+                failures.push(
+                    "The app must run with Administrator privileges to manage routes and NIC settings."
+                        .to_string(),
+                );
+            }
+        }
+        None => {
+            if allow_non_admin_in_dev {
+                eprintln!(
+                    "[DEV] Unable to verify Administrator privileges. Continuing because debug/dev mode is active."
+                );
+            } else {
+                failures.push("Unable to verify Administrator privileges.".to_string());
+            }
+        }
     }
 
     if !has_webview2_runtime() {
