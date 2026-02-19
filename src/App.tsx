@@ -1,4 +1,5 @@
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Trash2, Globe, Flame,
   Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
@@ -268,8 +269,8 @@ const DEFAULT_CACHE_SELECTION = new Set(
 );
 
 export default function App() {
-  const APP_VERSION = "6.3.0";
   const APP_AUTHOR = "Zonzon";
+  const [appVersion, setAppVersion] = useState("dev");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // State
@@ -328,6 +329,29 @@ export default function App() {
     () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
     [selectedCaches]
   );
+
+  useEffect(() => {
+    let active = true;
+
+    const loadAppVersion = async () => {
+      try {
+        const version = await getVersion();
+        if (active) {
+          setAppVersion(version);
+        }
+      } catch {
+        if (active) {
+          setAppVersion("dev");
+        }
+      }
+    };
+
+    void loadAppVersion();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Form state
   const [formDest, setFormDest] = useState("");
@@ -1216,7 +1240,7 @@ export default function App() {
           <div>
             <h1 className="title-text text-lg font-bold tracking-tight">SUPER ROUTE PRO</h1>
             <p className="version-text text-[0.8rem] font-semibold -mt-0.5">
-              SuperRoute Pro V.{APP_VERSION} | Author {APP_AUTHOR}
+              SuperRoute Pro V.{appVersion} | Author {APP_AUTHOR}
             </p>
           </div>
         </div>
@@ -1530,7 +1554,7 @@ export default function App() {
       {/* ====== FOOTER ====== */}
       <footer className="app-footer flex items-center justify-between px-5 py-1.5 border-t shrink-0">
         <span className="text-[0.65rem] text-slate-500">{statusMsg}</span>
-        <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{APP_VERSION} | Author {APP_AUTHOR}</span>
+        <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{appVersion} | Author {APP_AUTHOR}</span>
       </footer>
 
       {batteryModalOpen && (

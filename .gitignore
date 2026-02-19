@@ -25,6 +25,8 @@ SuperRoute.exe
 *.exe
 *.msi
 *.nsis.zip
+release-artifacts/
+*.code-workspace
 
 # =========================
 # Logs

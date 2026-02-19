@@ -96,90 +96,121 @@ super-route-pro/
 
 Install these first:
 
+- Windows 10/11 x64
 - Node.js 20+
 - npm 10+
 - Rust toolchain (`rustup`, `cargo`)
-- WebView2 Runtime (Windows 11 usually already has it)
-- Microsoft C++ build tools (for Tauri/Rust native build on Windows)
+- Microsoft Visual Studio C++ Build Tools (2022)
 
-## 8) Run and Test
+Notes:
 
-Install dependencies:
+- Release installers are configured with WebView2 `offlineInstaller`, so target machines do not need WebView2 preinstalled.
+- The app is an admin-level networking tool. It will request Administrator privileges at runtime.
 
-```powershell
-npm install
-```
-
-Run desktop app in dev mode:
+## 8) Run and Validate Locally
 
 ```powershell
+npm ci
 npm run tauri dev
 ```
 
-Build frontend only:
+Run full build checks before release:
 
 ```powershell
-npm run build
+npm run check
 ```
 
-Validate Rust backend:
+## 9) Build Release Locally
+
+Version bump in one command (updates all 3 files together):
 
 ```powershell
-cd src-tauri
-cargo check
+npm run version:patch
+# or:
+# npm run version:minor
+# npm run version:major
+# npm run version:bump -- 6.4.0
 ```
 
-## 9) Build Release
-
-Build installers/executables via Tauri:
+One-command ship flow (bump + commit + tag + push):
 
 ```powershell
-npm run tauri build
+npm run release:patch
+# or:
+# npm run release:minor
+# npm run release:major
+# npm run release:ship -- 6.4.0
 ```
 
-Typical outputs:
+Notes:
 
-- Installer bundles:
-  - `src-tauri/target/release/bundle/nsis/`
-  - `src-tauri/target/release/bundle/msi/`
-- Release exe (bin name from Cargo):
-  - `src-tauri/target/release/SuperRoute.exe`
-
-## 10) Push Entire Project to GitHub
-
-If this folder is not a git repo yet:
+- `release:*` runs `npm run check` by default before commit/tag.
+- It requires a clean working tree by default for safe release commits.
+- Dry-run preview:
 
 ```powershell
-cd E:\super-route-pro
-git init
-git add .
-git commit -m "chore: initial import Super Route Pro v6.3.0"
-git branch -M main
-git remote add origin https://github.com/<your-user>/<your-repo>.git
-git push -u origin main
+npm run release:ship -- patch -DryRun
 ```
 
-If remote repo already exists and has commits:
+Recommended one-command release build:
 
 ```powershell
-git remote add origin https://github.com/<your-user>/<your-repo>.git
-# if origin already exists, run: git remote set-url origin <url>
-git fetch origin
-git pull --rebase origin main
-git push -u origin main
+npm run release:local
 ```
 
-## 11) Pre-Push Checklist
+This script will:
 
-- Run `npm run build`
-- Run `cargo check` in `src-tauri`
-- Confirm no secrets/API keys are committed
-- Confirm large generated files are ignored (`node_modules`, `dist`, `src-tauri/target`)
+- Run `npm ci` (unless you pass `-SkipInstall`)
+- Build Tauri bundles (`NSIS` + `MSI`) and portable `SuperRoute.exe`
+- Collect all artifacts into `release-artifacts/vX.Y.Z/`
+- Generate `SHA256SUMS.txt`
 
-## 12) Notes
+Optional:
 
-- Some network commands require Administrator privileges on Windows.
-- For stable behavior in diagnostics tools, run the app as Administrator when needed.
+```powershell
+npm run release:local -- -VersionTag v6.3.0 -SkipInstall
+```
+
+## 10) Automated GitHub Release
+
+Workflows included:
+
+- `.github/workflows/ci.yml`
+  - Runs on push/PR, validates frontend + Rust build.
+- `.github/workflows/release.yml`
+  - Runs on tag push (`v*`), builds installers, uploads artifacts, and publishes GitHub release assets.
+
+Release flow:
+
+```powershell
+npm run release:patch
+# (or minor/major/specific version)
+```
+
+Generated release assets:
+
+- `Super Route Pro_<version>_x64-setup.exe` (NSIS)
+- `Super Route Pro_<version>_x64_en-US.msi` (MSI)
+- `SuperRoute.exe` (portable)
+- `SHA256SUMS.txt`
+
+## 11) Install On A New Machine
+
+1. Download installer from GitHub Releases.
+2. Run installer as Administrator.
+3. Launch app (UAC prompt is expected).
+4. Use `SHA256SUMS.txt` to verify integrity if required.
+
+## 12) Pre-Release Checklist
+
+- Keep versions aligned in:
+  - `package.json`
+  - `src-tauri/Cargo.toml`
+  - `src-tauri/tauri.conf.json`
+- Run `npm run check`
+- Run `npm run release:local`
+- Verify at least one clean-machine install test (VM recommended)
+- Confirm no generated artifacts are committed (`node_modules`, `dist`, `src-tauri/target`, `release-artifacts`)
 
 ## 13) Releases & Download
 

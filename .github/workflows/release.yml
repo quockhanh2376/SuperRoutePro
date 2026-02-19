@@ -1,0 +1,88 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri bundles
+        run: npm run tauri build
+
+      - name: Collect bundle paths
+        id: bundle
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $exe = Get-Item "src-tauri/target/release/SuperRoute.exe"
+
+          if (-not $nsis) { throw "NSIS installer not found." }
+          if (-not $msi) { throw "MSI installer not found." }
+          if (-not $exe) { throw "Portable executable not found." }
+
+          "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+          "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $targets = @(
+            "${{ steps.bundle.outputs.nsis_path }}",
+            "${{ steps.bundle.outputs.msi_path }}",
+            "${{ steps.bundle.outputs.exe_path }}"
+          )
+
+          $lines = foreach ($target in $targets) {
+            $item = Get-Item $target
+            $hash = (Get-FileHash -Path $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($item.Name)"
+          }
+
+          Set-Content -Path "SHA256SUMS.txt" -Value $lines -Encoding ascii
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuperRoutePro-windows-installers
+          path: |
+            ${{ steps.bundle.outputs.nsis_path }}
+            ${{ steps.bundle.outputs.msi_path }}
+            ${{ steps.bundle.outputs.exe_path }}
+            SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.bundle.outputs.nsis_path }}
+            ${{ steps.bundle.outputs.msi_path }}
+            ${{ steps.bundle.outputs.exe_path }}
+            SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
