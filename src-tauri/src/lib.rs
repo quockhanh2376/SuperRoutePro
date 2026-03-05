@@ -2,7 +2,8 @@ mod network;
 
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
-    flush_routes, set_default_gateway, run_network_command, ping_host,
+    flush_routes, set_default_gateway, set_wan_persist_on_startup, get_wan_persist_on_startup_status,
+    run_network_command, ping_host,
     check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
     clear_cache_targets, get_battery_report, get_battery_summary,
 };
@@ -40,6 +41,8 @@ pub fn run() {
             delete_route,
             flush_routes,
             set_default_gateway,
+            set_wan_persist_on_startup,
+            get_wan_persist_on_startup_status,
             run_network_command,
             ping_host,
             fping_scan,

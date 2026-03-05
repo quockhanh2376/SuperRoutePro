@@ -9,6 +9,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const WAN_PERSIST_TASK_NAME: &str = "SuperRoutePro-PersistWAN";
+const WAN_PERSIST_DIR: &str = r"C:\ProgramData\SuperRoutePro";
+const WAN_PERSIST_SCRIPT_PATH: &str = r"C:\ProgramData\SuperRoutePro\persist-wan.ps1";
 const BLOATWARE_CANDIDATES: [(&str, &str); 29] = [
     ("Clipchamp.Clipchamp", "Clipchamp"),
     ("Microsoft.BingNews", "Microsoft News"),
@@ -187,6 +190,73 @@ fn prefix_to_mask(prefix: u32) -> String {
 
 fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
+}
+
+fn is_task_not_found_error(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("cannot find the file specified")
+        || lower.contains("cannot find the task")
+        || lower.contains("the system cannot find the file specified")
+}
+
+fn build_wan_persist_script(interface_index: u32) -> String {
+    r#"
+$ErrorActionPreference='SilentlyContinue'
+$targetIf = __TARGET_IF__
+$gateway = (Get-NetIPConfiguration -InterfaceIndex $targetIf -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty IPv4DefaultGateway -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty NextHop -ErrorAction SilentlyContinue |
+    Select-Object -First 1)
+
+if (-not $gateway) {
+    $gateway = (Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -InterfaceIndex $targetIf -ErrorAction SilentlyContinue |
+        Sort-Object RouteMetric |
+        Select-Object -ExpandProperty NextHop -First 1)
+}
+
+if (-not $gateway) {
+    Write-Output "No gateway found for interface index $targetIf. Skip startup WAN apply."
+    exit 0
+}
+
+$routes = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue
+foreach ($route in $routes) {
+    if ($route.InterfaceIndex -eq $targetIf) {
+        continue
+    }
+
+    $params = @{
+        AddressFamily = 'IPv4'
+        DestinationPrefix = '0.0.0.0/0'
+        InterfaceIndex = $route.InterfaceIndex
+        NextHop = $route.NextHop
+        Confirm = $false
+        ErrorAction = 'SilentlyContinue'
+    }
+
+    if ($route.PolicyStore) {
+        $params['PolicyStore'] = [string]$route.PolicyStore
+    }
+
+    Remove-NetRoute @params | Out-Null
+}
+
+route delete 0.0.0.0 | Out-Null
+route -p add 0.0.0.0 mask 0.0.0.0 $gateway metric 1 if $targetIf | Out-Null
+
+Write-Output "Startup WAN applied on interface $targetIf via gateway $gateway."
+"#
+    .replace("__TARGET_IF__", &interface_index.to_string())
+}
+
+fn ensure_wan_persist_script(interface_index: u32) -> Result<(), String> {
+    fs::create_dir_all(WAN_PERSIST_DIR)
+        .map_err(|e| format!("Failed to create {}: {}", WAN_PERSIST_DIR, e))?;
+    fs::write(
+        WAN_PERSIST_SCRIPT_PATH,
+        build_wan_persist_script(interface_index),
+    )
+    .map_err(|e| format!("Failed to write {}: {}", WAN_PERSIST_SCRIPT_PATH, e))
 }
 
 fn cache_cleanup_recipe(target: &str) -> Option<(&'static str, &'static str)> {
@@ -564,8 +634,43 @@ pub async fn set_default_gateway(
     gateway: String,
     interface_index: String,
 ) -> Result<CommandResult, String> {
-    // Raise metric of all existing default routes
-    let _ = run_powershell("Set-NetRoute -DestinationPrefix 0.0.0.0/0 -RouteMetric 500");
+    let target_interface_index = interface_index
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| "Invalid interface index".to_string())?;
+
+    // Remove default routes from every other NIC so only the selected interface remains WAN.
+    let cleanup_script = r#"
+$ErrorActionPreference='SilentlyContinue'
+$targetIf = __TARGET_IF__
+$removed = 0
+$routes = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue
+foreach ($route in $routes) {
+    if ($route.InterfaceIndex -eq $targetIf) {
+        continue
+    }
+
+    $params = @{
+        AddressFamily = 'IPv4'
+        DestinationPrefix = '0.0.0.0/0'
+        InterfaceIndex = $route.InterfaceIndex
+        NextHop = $route.NextHop
+        Confirm = $false
+        ErrorAction = 'SilentlyContinue'
+    }
+
+    if ($route.PolicyStore) {
+        $params['PolicyStore'] = [string]$route.PolicyStore
+    }
+
+    Remove-NetRoute @params | Out-Null
+    $removed++
+}
+
+Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
+"#
+    .replace("__TARGET_IF__", &target_interface_index.to_string());
+    let cleanup_output = run_powershell(&cleanup_script)?;
 
     // Delete existing default route
     let _ = run_cmd("route", &["delete", "0.0.0.0"]);
@@ -589,8 +694,89 @@ pub async fn set_default_gateway(
 
     Ok(CommandResult {
         success: true,
-        output: result,
+        output: format!("{}\n{}", cleanup_output.trim(), result.trim()),
     })
+}
+
+/// Enable/disable WAN persist task that reapplies selected interface as default gateway on startup.
+#[tauri::command]
+pub async fn set_wan_persist_on_startup(
+    interface_index: String,
+    enabled: bool,
+) -> Result<CommandResult, String> {
+    if enabled {
+        let target_interface_index = interface_index
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| "Invalid interface index".to_string())?;
+
+        ensure_wan_persist_script(target_interface_index)?;
+
+        let task_command = format!(
+            r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{}""#,
+            WAN_PERSIST_SCRIPT_PATH
+        );
+        let create_output = run_cmd(
+            "schtasks",
+            &[
+                "/Create",
+                "/TN",
+                WAN_PERSIST_TASK_NAME,
+                "/SC",
+                "ONSTART",
+                "/RL",
+                "HIGHEST",
+                "/RU",
+                "SYSTEM",
+                "/TR",
+                &task_command,
+                "/F",
+            ],
+        )?;
+
+        return Ok(CommandResult {
+            success: true,
+            output: format!(
+                "Persist on startup enabled for interface {}.\n{}",
+                target_interface_index,
+                create_output.trim()
+            ),
+        });
+    }
+
+    let delete_output = match run_cmd(
+        "schtasks",
+        &["/Delete", "/TN", WAN_PERSIST_TASK_NAME, "/F"],
+    ) {
+        Ok(output) => output,
+        Err(err) => {
+            if is_task_not_found_error(&err) {
+                "Startup task was already removed.".to_string()
+            } else {
+                return Err(err);
+            }
+        }
+    };
+
+    Ok(CommandResult {
+        success: true,
+        output: format!("Persist on startup disabled.\n{}", delete_output.trim()),
+    })
+}
+
+/// Returns whether WAN persist startup task currently exists.
+#[tauri::command]
+pub async fn get_wan_persist_on_startup_status() -> Result<bool, String> {
+    match run_cmd("schtasks", &["/Query", "/TN", WAN_PERSIST_TASK_NAME]) {
+        Ok(_) => Ok(true),
+        Err(err) => {
+            if is_task_not_found_error(&err) {
+                Ok(false)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 /// Run a network fix command (flush DNS, renew IP, etc.)

@@ -8,7 +8,7 @@ import {
 import {
   getNetworkInterfaces, getRoutingTable, addRoute, deleteRoute,
   flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
-  fpingScan,
+  fpingScan, getWanPersistOnStartupStatus, setWanPersistOnStartup,
   checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatterySummary,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult, type BatterySummaryResult,
 } from "./api";
@@ -308,6 +308,8 @@ export default function App() {
   const APP_AUTHOR = "Zonzon";
   const [appVersion, setAppVersion] = useState("dev");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [persistWanOnStartup, setPersistWanOnStartup] = useState(false);
+  const [persistWanLoading, setPersistWanLoading] = useState(true);
 
   // State
   const [nics, setNics] = useState<NetworkInterface[]>([]);
@@ -386,6 +388,36 @@ export default function App() {
 
     void loadAppVersion();
 
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const savedPreference = localStorage.getItem("wan-persist-on-startup");
+    if (savedPreference === "true") {
+      setPersistWanOnStartup(true);
+    } else if (savedPreference === "false") {
+      setPersistWanOnStartup(false);
+    }
+
+    const loadPersistStatus = async () => {
+      try {
+        const enabled = await getWanPersistOnStartupStatus();
+        if (active) {
+          setPersistWanOnStartup(enabled);
+        }
+      } catch {
+        // Keep local preference when startup task query fails.
+      } finally {
+        if (active) {
+          setPersistWanLoading(false);
+        }
+      }
+    };
+
+    void loadPersistStatus();
     return () => {
       active = false;
     };
@@ -521,12 +553,17 @@ export default function App() {
     setStatusMsg("Setting default gateway...");
     try {
       await setDefaultGateway(selectedNic.gateway, selectedNic.index);
-      setStatusMsg("Default gateway set!");
+      await setWanPersistOnStartup(selectedNic.index, persistWanOnStartup);
+      setStatusMsg(
+        persistWanOnStartup
+          ? "Default gateway set. Persist on startup enabled."
+          : "Default gateway set. Persist on startup disabled."
+      );
       loadData();
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [loadData, selectedNic]);
+  }, [loadData, persistWanOnStartup, selectedNic]);
 
   const executeFlush = useCallback(async () => {
     setStatusMsg("Flushing routes...");
@@ -1258,6 +1295,10 @@ export default function App() {
     localStorage.setItem("ui-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem("wan-persist-on-startup", persistWanOnStartup ? "true" : "false");
+  }, [persistWanOnStartup]);
+
   const handleToggleTheme = () => {
     if (lensTimerRef.current) {
       window.clearTimeout(lensTimerRef.current);
@@ -1421,7 +1462,7 @@ export default function App() {
                 color="blue"
                 onClick={() => openConfirm(
                   "Set Default Gateway",
-                  `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?`,
+                  `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?\nPersist on startup: ${persistWanOnStartup ? "ON" : "OFF"}.`,
                   executeSetInternet
                 )}
               />
@@ -1435,6 +1476,21 @@ export default function App() {
                   executeFlush
                 )}
               />
+            </div>
+            <div className="wan-persist-row">
+              <label className="wan-persist-option">
+                <input
+                  type="checkbox"
+                  checked={persistWanOnStartup}
+                  onChange={(event) => setPersistWanOnStartup(event.target.checked)}
+                  disabled={persistWanLoading}
+                  className="w-3.5 h-3.5 rounded accent-blue-500"
+                />
+                <span>Persist on startup</span>
+              </label>
+              <span className="wan-persist-hint">
+                Auto create/remove startup task when you click WAN
+              </span>
             </div>
           </div>
 

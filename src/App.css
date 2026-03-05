@@ -84,6 +84,36 @@ html {
   color: #064e3b;
 }
 
+.wan-persist-row {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.wan-persist-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
+.wan-persist-hint {
+  font-size: 0.64rem;
+  color: #64748b;
+}
+
+.theme-light .wan-persist-option {
+  color: #0f172a;
+}
+
+.theme-light .wan-persist-hint {
+  color: #475569;
+}
+
 .title-text {
   color: #ffffff;
 }
