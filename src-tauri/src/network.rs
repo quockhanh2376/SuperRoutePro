@@ -3,12 +3,15 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::net::TcpStream;
 use std::os::windows::process::CommandExt;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const DEFAULT_CMD_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_POWERSHELL_TIMEOUT_SECS: u64 = 45;
+const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
 const WAN_PERSIST_TASK_NAME: &str = "SuperRoutePro-PersistWAN";
 const WAN_PERSIST_DIR: &str = r"C:\ProgramData\SuperRoutePro";
 const WAN_PERSIST_SCRIPT_PATH: &str = r"C:\ProgramData\SuperRoutePro\persist-wan.ps1";
@@ -130,12 +133,53 @@ pub struct BatterySummaryResult {
 
 // ======================== HELPERS ========================
 
-fn run_powershell(script: &str) -> Result<String, String> {
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+fn run_process_blocking(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+        .spawn()
+        .map_err(|e| format!("Failed to spawn {}: {}", program, e))?;
+
+    let started = Instant::now();
+    loop {
+        match child
+            .try_wait()
+            .map_err(|e| format!("Failed waiting for {}: {}", program, e))?
+        {
+            Some(_) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|e| format!("Failed to collect output for {}: {}", program, e));
+            }
+            None => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "Command timed out after {}s: {} {}",
+                        timeout.as_secs(),
+                        program,
+                        args.join(" ")
+                    ));
+                }
+                thread::sleep(Duration::from_millis(80));
+            }
+        }
+    }
+}
+
+fn run_powershell_blocking(script: &str, timeout: Duration) -> Result<String, String> {
+    let output = run_process_blocking(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+        timeout,
+    )?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -151,12 +195,8 @@ fn run_powershell(script: &str) -> Result<String, String> {
     }
 }
 
-fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+fn run_cmd_blocking(program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
+    let output = run_process_blocking(program, args, timeout)?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -168,6 +208,48 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
     } else {
         Err(stderr)
     }
+}
+
+async fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
+    let program_owned = program.to_string();
+    let args_owned: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
+        run_cmd_blocking(
+            &program_owned,
+            &args_refs,
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        )
+    })
+    .await
+    .map_err(|err| format!("Command task join error: {}", err))?
+}
+
+async fn run_powershell(script: &str) -> Result<String, String> {
+    let script_owned = script.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_powershell_blocking(
+            &script_owned,
+            Duration::from_secs(DEFAULT_POWERSHELL_TIMEOUT_SECS),
+        )
+    })
+    .await
+    .map_err(|err| format!("PowerShell task join error: {}", err))?
+}
+
+async fn run_process(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<Output, String> {
+    let program_owned = program.to_string();
+    let args_owned: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
+        run_process_blocking(&program_owned, &args_refs, timeout)
+    })
+    .await
+    .map_err(|err| format!("Process task join error: {}", err))?
 }
 
 fn prefix_to_mask(prefix: u32) -> String {
@@ -400,10 +482,15 @@ fn parse_ping_latency(stdout: &str, elapsed_ms: u32) -> u32 {
 
 fn ping_once_target(target: String, timeout_ms: &str) -> FpingHostResult {
     let start = Instant::now();
-    let output = Command::new("ping")
-        .args(["-n", "1", "-w", timeout_ms, &target])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let timeout_budget_ms = timeout_ms
+        .parse::<u64>()
+        .unwrap_or(1200)
+        .saturating_add(1500);
+    let output = run_process_blocking(
+        "ping",
+        &["-n", "1", "-w", timeout_ms, &target],
+        Duration::from_millis(timeout_budget_ms),
+    );
 
     match output {
         Ok(out) => {
@@ -438,7 +525,7 @@ pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInte
         ConvertTo-Json -Compress
     "#;
 
-    let output = run_powershell(ps_script)?;
+    let output = run_powershell(ps_script).await?;
     let data: serde_json::Value =
         serde_json::from_str(&output).map_err(|e| format!("JSON parse error: {}", e))?;
 
@@ -515,7 +602,7 @@ pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
         ConvertTo-Json -Compress
     "#;
 
-    let output = run_powershell(ps_script)?;
+    let output = run_powershell(ps_script).await?;
     let data: serde_json::Value =
         serde_json::from_str(&output).map_err(|e| format!("JSON parse error: {}", e))?;
 
@@ -577,7 +664,7 @@ pub async fn add_route(
     interface_index: Option<String>,
 ) -> Result<CommandResult, String> {
     // First try to delete existing route
-    let _ = run_cmd("route", &["delete", &destination, "mask", &mask]);
+    let _ = run_cmd("route", &["delete", &destination, "mask", &mask]).await;
 
     let mut args = vec![
         "route",
@@ -600,7 +687,7 @@ pub async fn add_route(
         }
     }
 
-    let result = run_cmd(args[0], &args[1..])?;
+    let result = run_cmd(args[0], &args[1..]).await?;
 
     Ok(CommandResult {
         success: true,
@@ -611,7 +698,7 @@ pub async fn add_route(
 /// Delete a route
 #[tauri::command]
 pub async fn delete_route(destination: String, mask: String) -> Result<CommandResult, String> {
-    let result = run_cmd("route", &["delete", &destination, "mask", &mask])?;
+    let result = run_cmd("route", &["delete", &destination, "mask", &mask]).await?;
     Ok(CommandResult {
         success: true,
         output: result,
@@ -621,7 +708,7 @@ pub async fn delete_route(destination: String, mask: String) -> Result<CommandRe
 /// Flush all routes
 #[tauri::command]
 pub async fn flush_routes() -> Result<CommandResult, String> {
-    let result = run_cmd("route", &["-f"])?;
+    let result = run_cmd("route", &["-f"]).await?;
     Ok(CommandResult {
         success: true,
         output: result,
@@ -670,10 +757,10 @@ foreach ($route in $routes) {
 Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
 "#
     .replace("__TARGET_IF__", &target_interface_index.to_string());
-    let cleanup_output = run_powershell(&cleanup_script)?;
+    let cleanup_output = run_powershell(&cleanup_script).await?;
 
     // Delete existing default route
-    let _ = run_cmd("route", &["delete", "0.0.0.0"]);
+    let _ = run_cmd("route", &["delete", "0.0.0.0"]).await;
 
     // Add new default route with low metric
     let result = run_cmd(
@@ -690,7 +777,8 @@ Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
             "if",
             &interface_index,
         ],
-    )?;
+    )
+    .await?;
 
     Ok(CommandResult {
         success: true,
@@ -732,7 +820,8 @@ pub async fn set_wan_persist_on_startup(
                 &task_command,
                 "/F",
             ],
-        )?;
+        )
+        .await?;
 
         return Ok(CommandResult {
             success: true,
@@ -747,7 +836,9 @@ pub async fn set_wan_persist_on_startup(
     let delete_output = match run_cmd(
         "schtasks",
         &["/Delete", "/TN", WAN_PERSIST_TASK_NAME, "/F"],
-    ) {
+    )
+    .await
+    {
         Ok(output) => output,
         Err(err) => {
             if is_task_not_found_error(&err) {
@@ -767,7 +858,7 @@ pub async fn set_wan_persist_on_startup(
 /// Returns whether WAN persist startup task currently exists.
 #[tauri::command]
 pub async fn get_wan_persist_on_startup_status() -> Result<bool, String> {
-    match run_cmd("schtasks", &["/Query", "/TN", WAN_PERSIST_TASK_NAME]) {
+    match run_cmd("schtasks", &["/Query", "/TN", WAN_PERSIST_TASK_NAME]).await {
         Ok(_) => Ok(true),
         Err(err) => {
             if is_task_not_found_error(&err) {
@@ -807,11 +898,12 @@ pub async fn run_network_command(command: String) -> Result<CommandResult, Strin
         return Err("Command not allowed".to_string());
     }
 
-    let output = Command::new("cmd")
-        .args(["/C", &command])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run command: {}", e))?;
+    let output = run_process(
+        "cmd",
+        &["/C", &command],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+    )
+    .await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -828,10 +920,8 @@ pub async fn ping_host(target: String, count: Option<u32>) -> Result<PingResult,
     let n = count.unwrap_or(1).to_string();
 
     let start = Instant::now();
-    let output = Command::new("ping")
-        .args(["-n", &n, "-w", "2000", &target])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
+    let output = run_process("ping", &["-n", &n, "-w", "2000", &target], Duration::from_secs(8))
+        .await
         .map_err(|e| format!("Ping failed: {}", e))?;
 
     let elapsed = start.elapsed().as_millis() as u32;
@@ -866,7 +956,7 @@ pub async fn get_bloatware_candidates() -> Result<Vec<BloatwareItem>, String> {
             ConvertTo-Json -Compress
     "#;
 
-    let output = run_powershell(ps_script)?;
+    let output = run_powershell(ps_script).await?;
     let mut installed = HashSet::new();
     let parsed = serde_json::from_str::<serde_json::Value>(output.trim())
         .unwrap_or(serde_json::Value::Array(vec![]));
@@ -995,7 +1085,7 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
 "#
         );
 
-        match run_powershell(&script) {
+        match run_powershell(&script).await {
             Ok(script_output) => {
                 let clean_output = script_output.trim();
                 if clean_output.is_empty() {
@@ -1050,7 +1140,8 @@ pub async fn get_battery_report() -> Result<BatteryReportResult, String> {
     let _ = run_cmd(
         "powercfg",
         &["/batteryreport", "/output", &report_path_arg],
-    )?;
+    )
+    .await?;
 
     let html = fs::read_to_string(&report_path).map_err(|e| {
         format!(
@@ -1148,7 +1239,7 @@ $statusText = if ($statusMap.ContainsKey($statusCode)) {
 } | ConvertTo-Json -Compress
 "#;
 
-    let output = run_powershell(ps_script)?;
+    let output = run_powershell(ps_script).await?;
     let value: serde_json::Value = serde_json::from_str(output.trim())
         .map_err(|e| format!("Battery summary JSON parse error: {}", e))?;
 
@@ -1252,7 +1343,7 @@ pub async fn clear_cache_targets(targets: Vec<String>) -> Result<CommandResult, 
 
     for (_, label, script) in selected {
         output_lines.push(format!("[TARGET] {}", label));
-        match run_powershell(script) {
+        match run_powershell(script).await {
             Ok(raw_output) => {
                 let clean_output = raw_output.trim();
                 if clean_output.is_empty() {

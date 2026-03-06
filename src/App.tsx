@@ -575,7 +575,6 @@ export default function App() {
   const [formGw, setFormGw] = useState("");
   const [formMetric, setFormMetric] = useState("10");
 
-  const monitorRef = useRef(true);
   const pingLoopRef = useRef<number | null>(null);
   const pingBusyRef = useRef(false);
   const pingSeqRef = useRef(0);
@@ -616,41 +615,115 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // Internet monitor
+  // Internet monitor with adaptive polling and cancellation-safe updates.
   useEffect(() => {
-    monitorRef.current = true;
-    const interval = setInterval(async () => {
-      if (!monitorRef.current) return;
+    let stopped = false;
+    let timerId: number | null = null;
+    let inFlight = false;
+    let successStreak = 0;
+    let failureStreak = 0;
+
+    const computeDelay = (online: boolean): number => {
+      if (!online) {
+        return Math.min(12000, 2500 + failureStreak * 1200);
+      }
+      if (successStreak >= 6) return 15000;
+      if (successStreak >= 3) return 9000;
+      return 5000;
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      if (stopped) return;
+      timerId = window.setTimeout(() => {
+        void tick();
+      }, delayMs);
+    };
+
+    const tick = async () => {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      let online = false;
       try {
-        const online = await checkInternet();
+        online = await checkInternet();
+        if (stopped) return;
         setIsOnline(online);
       } catch {
+        if (stopped) return;
+        online = false;
         setIsOnline(false);
+      } finally {
+        if (online) {
+          successStreak += 1;
+          failureStreak = 0;
+        } else {
+          failureStreak += 1;
+          successStreak = 0;
+        }
+        inFlight = false;
+        scheduleNext(computeDelay(online));
       }
-    }, 5000);
-    checkInternet().then(setIsOnline).catch(() => setIsOnline(false));
+    };
+
+    void tick();
     return () => {
-      monitorRef.current = false;
-      clearInterval(interval);
+      stopped = true;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
     };
   }, []);
 
-  // Latency monitor
+  // Latency monitor with adaptive polling and cancellation-safe updates.
   useEffect(() => {
-    monitorRef.current = true;
-    const interval = setInterval(async () => {
-      if (!monitorRef.current) return;
+    let stopped = false;
+    let timerId: number | null = null;
+    let inFlight = false;
+    let failureStreak = 0;
+
+    const computeDelay = (success: boolean, latencyMs: number): number => {
+      if (!success) {
+        return Math.min(7000, 1800 + failureStreak * 700);
+      }
+      if (latencyMs <= 40) return 5000;
+      if (latencyMs <= 90) return 3500;
+      if (latencyMs <= 180) return 2500;
+      return 1800;
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      if (stopped) return;
+      timerId = window.setTimeout(() => {
+        void tick();
+      }, delayMs);
+    };
+
+    const tick = async () => {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      let success = false;
+      let latency = 0;
       try {
         const result = await pingHost("8.8.8.8", 1);
-        const ms = result.success ? result.latency_ms : 0;
-        setCurrentLatency(ms);
+        if (stopped) return;
+        success = result.success;
+        latency = success ? result.latency_ms : 0;
+        setCurrentLatency(latency);
       } catch {
+        if (stopped) return;
         setCurrentLatency(0);
+      } finally {
+        failureStreak = success ? 0 : failureStreak + 1;
+        inFlight = false;
+        scheduleNext(computeDelay(success, latency));
       }
-    }, 2000);
+    };
+
+    void tick();
     return () => {
-      monitorRef.current = false;
-      clearInterval(interval);
+      stopped = true;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
     };
   }, []);
 

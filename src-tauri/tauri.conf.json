@@ -41,6 +41,7 @@
         "type": "offlineInstaller",
         "silent": true
       },
+      "allowDowngrades": false,
       "nsis": {
         "installMode": "perMachine",
         "installerHooks": "./installer-hooks.nsh"
