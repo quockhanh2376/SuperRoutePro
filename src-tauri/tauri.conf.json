@@ -42,9 +42,12 @@
         "silent": true
       },
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerHooks": "./installer-hooks.nsh"
+      },
+      "wix": {
+        "upgradeCode": "f9b59dfe-76b0-5fe7-af11-e2a9cde1d1e0"
       }
     }
   }
 }
-
