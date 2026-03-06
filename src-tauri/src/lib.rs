@@ -25,10 +25,16 @@ const WEBVIEW2_CLIENT_GUID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 const DEV_DISABLE_ERROR_DIALOG_ENV: &str = "SRP_DEV_NO_DIALOG";
 #[cfg(target_os = "windows")]
 const DEV_ALLOW_NON_ADMIN_ENV: &str = "SRP_DEV_ALLOW_NON_ADMIN";
+#[cfg(target_os = "windows")]
+const RELAUNCH_AS_ADMIN_SIGNAL: &str = "__SRP_RELAUNCH_AS_ADMIN__";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(reason) = validate_runtime_environment() {
+        #[cfg(target_os = "windows")]
+        if reason == RELAUNCH_AS_ADMIN_SIGNAL {
+            return;
+        }
         block_app_start(&reason);
     }
 
@@ -78,10 +84,12 @@ fn validate_runtime_environment() -> Result<(), String> {
                     "[DEV] Running without Administrator privileges. Route/NIC management commands may fail until elevated."
                 );
             } else {
-                failures.push(
-                    "The app must run with Administrator privileges to manage routes and NIC settings."
-                        .to_string(),
-                );
+                match relaunch_as_admin() {
+                    Ok(()) => return Err(RELAUNCH_AS_ADMIN_SIGNAL.to_string()),
+                    Err(err) => failures.push(format!(
+                        "The app must run with Administrator privileges to manage routes and NIC settings. Auto-elevation failed: {err}"
+                    )),
+                }
             }
         }
         None => {
@@ -159,6 +167,40 @@ fn run_hidden(program: &str, args: &[&str]) -> Option<std::process::Output> {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()
+}
+
+#[cfg(target_os = "windows")]
+fn relaunch_as_admin() -> Result<(), String> {
+    let exe_path = std::env::current_exe()
+        .map_err(|err| format!("Unable to detect executable path: {err}"))?;
+    let exe_escaped = exe_path
+        .to_string_lossy()
+        .replace('\'', "''");
+    let script = format!("Start-Process -FilePath '{}' -Verb RunAs", exe_escaped);
+    let output = run_hidden(
+        "powershell",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script.as_str(),
+        ],
+    )
+    .ok_or_else(|| "Unable to invoke elevation command.".to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stderr.is_empty() {
+            Err(stderr)
+        } else if !stdout.is_empty() {
+            Err(stdout)
+        } else {
+            Err("Elevation command returned an unknown error.".to_string())
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
