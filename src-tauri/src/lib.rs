@@ -7,6 +7,7 @@ use network::{
     check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
     clear_cache_targets, get_battery_report, get_battery_summary,
 };
+use tauri::{Manager, WebviewWindowBuilder};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
@@ -40,6 +41,25 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let main_window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .expect("main window config should exist");
+
+            let webview_data_dir = app.path().app_local_data_dir()?.join("main-webview");
+            std::fs::create_dir_all(&webview_data_dir)?;
+
+            WebviewWindowBuilder::from_config(app.handle(), &main_window_config)?
+                .data_directory(webview_data_dir)
+                .build()?;
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_network_interfaces,
             get_routing_table,
@@ -290,6 +310,26 @@ fn show_windows_error_dialog(title: &str, message: &str) {
             message_wide.as_ptr(),
             title_wide.as_ptr(),
             MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    #[test]
+    fn main_window_is_opted_out_of_auto_creation() {
+        let config_text =
+            std::fs::read_to_string("tauri.conf.json").expect("tauri.conf.json should be readable");
+        let config: Value =
+            serde_json::from_str(&config_text).expect("tauri.conf.json should contain valid JSON");
+
+        let create = config["app"]["windows"][0]["create"].as_bool();
+        assert_eq!(
+            create,
+            Some(false),
+            "main window must be created from Rust setup so we can set a writable WebView2 data directory"
         );
     }
 }

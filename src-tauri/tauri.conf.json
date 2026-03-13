@@ -12,6 +12,8 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "Super Route Pro",
         "width": 1200,
         "height": 885,
