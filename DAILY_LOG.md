@@ -5,6 +5,14 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-14 - Release v9.0.4 (UI Layout refinements)
+
+**Done**
+- Moved the Lock/Unlock button into the primary header of the app to save vertical space.
+- Removed the secondary top bar to ensure the app fits better on 14-inch laptop screens without being cut off at the bottom.
+- Bumped app versions to `9.0.4` across the frontend and backend.
+- Released version `9.0.4` on GitHub.
+
 ## 2026-03-14 - Release v9.0.3 (Repair Mode UI Simplification)
 
 **Done**
