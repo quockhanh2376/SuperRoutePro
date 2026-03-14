@@ -1,6 +1,6 @@
 fn main() {
-    // Only embed admin manifest for release builds
-    // In debug/dev mode, run the terminal as admin manually
+    // Embed the packaged app manifest for release builds.
+    // The UI process stays asInvoker; privilege elevation moves to repair-specific flows.
     #[cfg(target_os = "windows")]
     {
         if std::env::var("PROFILE").unwrap_or_default() == "release" {

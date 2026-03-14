@@ -24,18 +24,10 @@ const REQUIRED_COMMANDS: [&str; 5] = ["route", "netsh", "ipconfig", "ping", "pow
 const WEBVIEW2_CLIENT_GUID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 #[cfg(target_os = "windows")]
 const DEV_DISABLE_ERROR_DIALOG_ENV: &str = "SRP_DEV_NO_DIALOG";
-#[cfg(target_os = "windows")]
-const DEV_ALLOW_NON_ADMIN_ENV: &str = "SRP_DEV_ALLOW_NON_ADMIN";
-#[cfg(target_os = "windows")]
-const RELAUNCH_AS_ADMIN_SIGNAL: &str = "__SRP_RELAUNCH_AS_ADMIN__";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Err(reason) = validate_runtime_environment() {
-        #[cfg(target_os = "windows")]
-        if reason == RELAUNCH_AS_ADMIN_SIGNAL {
-            return;
-        }
         block_app_start(&reason);
     }
 
@@ -86,7 +78,6 @@ pub fn run() {
 #[cfg(target_os = "windows")]
 fn validate_runtime_environment() -> Result<(), String> {
     let mut failures: Vec<String> = Vec::new();
-    let allow_non_admin_in_dev = cfg!(debug_assertions) || env_flag_enabled(DEV_ALLOW_NON_ADMIN_ENV);
 
     match detect_windows_build_number() {
         Some(build) if build >= MIN_WINDOWS_BUILD => {}
@@ -94,33 +85,6 @@ fn validate_runtime_environment() -> Result<(), String> {
             "Windows build {build} detected. This app supports Windows 10/11 (build >= {MIN_WINDOWS_BUILD})."
         )),
         None => failures.push("Unable to detect Windows build number.".to_string()),
-    }
-
-    match is_running_as_admin() {
-        Some(true) => {}
-        Some(false) => {
-            if allow_non_admin_in_dev {
-                eprintln!(
-                    "[DEV] Running without Administrator privileges. Route/NIC management commands may fail until elevated."
-                );
-            } else {
-                match relaunch_as_admin() {
-                    Ok(()) => return Err(RELAUNCH_AS_ADMIN_SIGNAL.to_string()),
-                    Err(err) => failures.push(format!(
-                        "The app must run with Administrator privileges to manage routes and NIC settings. Auto-elevation failed: {err}"
-                    )),
-                }
-            }
-        }
-        None => {
-            if allow_non_admin_in_dev {
-                eprintln!(
-                    "[DEV] Unable to verify Administrator privileges. Continuing because debug/dev mode is active."
-                );
-            } else {
-                failures.push("Unable to verify Administrator privileges.".to_string());
-            }
-        }
     }
 
     if !has_webview2_runtime() {
@@ -190,40 +154,6 @@ fn run_hidden(program: &str, args: &[&str]) -> Option<std::process::Output> {
 }
 
 #[cfg(target_os = "windows")]
-fn relaunch_as_admin() -> Result<(), String> {
-    let exe_path = std::env::current_exe()
-        .map_err(|err| format!("Unable to detect executable path: {err}"))?;
-    let exe_escaped = exe_path
-        .to_string_lossy()
-        .replace('\'', "''");
-    let script = format!("Start-Process -FilePath '{}' -Verb RunAs", exe_escaped);
-    let output = run_hidden(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script.as_str(),
-        ],
-    )
-    .ok_or_else(|| "Unable to invoke elevation command.".to_string())?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !stderr.is_empty() {
-            Err(stderr)
-        } else if !stdout.is_empty() {
-            Err(stdout)
-        } else {
-            Err("Elevation command returned an unknown error.".to_string())
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
 fn detect_windows_build_number() -> Option<u32> {
     let output = run_hidden(
         "powershell",
@@ -243,26 +173,6 @@ fn detect_windows_build_number() -> Option<u32> {
         .trim()
         .parse::<u32>()
         .ok()
-}
-
-#[cfg(target_os = "windows")]
-fn is_running_as_admin() -> Option<bool> {
-    let output = run_hidden(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-        ],
-    )?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let value = String::from_utf8_lossy(&output.stdout);
-    Some(value.trim().eq_ignore_ascii_case("true"))
 }
 
 #[cfg(target_os = "windows")]
@@ -330,6 +240,36 @@ mod tests {
             create,
             Some(false),
             "main window must be created from Rust setup so we can set a writable WebView2 data directory"
+        );
+    }
+
+    #[test]
+    fn startup_contract_keeps_ui_as_standard_user_process() {
+        let manifest_text = std::fs::read_to_string("super-route-pro.exe.manifest")
+            .expect("manifest should be readable");
+        assert!(
+            manifest_text.contains(r#"<requestedExecutionLevel level="asInvoker" uiAccess="false"/>"#),
+            "UI manifest must stay asInvoker so the app can start inside the logged-in standard-user session"
+        );
+
+        let lib_text = std::fs::read_to_string("src/lib.rs").expect("lib.rs should be readable");
+        let production_code = lib_text
+            .split("#[cfg(test)]")
+            .next()
+            .expect("lib.rs should contain production code before tests");
+        assert!(
+            !production_code.contains("RELAUNCH_AS_ADMIN_SIGNAL"),
+            "UI startup should not relaunch the full app as admin"
+        );
+        assert!(
+            !production_code.contains("relaunch_as_admin()"),
+            "UI startup should not call relaunch_as_admin during app boot"
+        );
+
+        let build_text = std::fs::read_to_string("build.rs").expect("build.rs should be readable");
+        assert!(
+            !build_text.contains("admin manifest"),
+            "build script should not describe the UI process as using an admin manifest"
         );
     }
 }
