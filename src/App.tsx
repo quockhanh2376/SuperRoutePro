@@ -14,7 +14,7 @@ import {
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSetWanPersistOnStartup, runRepairMachineAction,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
-  type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus, type RepairTargetUser,
+  type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
 } from "./api";
 import {
   getProfileSensitiveActionHint,
@@ -471,7 +471,6 @@ export default function App() {
     target_sid: null,
     requires_unlock: true,
   });
-  const [repairTargets, setRepairTargets] = useState<RepairTargetUser[]>([]);
   const [selectedRepairTargetSid, setSelectedRepairTargetSid] = useState<string | null>(null);
   const [repairLoading, setRepairLoading] = useState(true);
   const [repairUnlocking, setRepairUnlocking] = useState(false);
@@ -597,18 +596,25 @@ export default function App() {
     };
   }, []);
 
+  const loadRepairTargets = useCallback(async () => {
+    try {
+      const targets = await listRepairTargets();
+      if (targets.length > 0) {
+        const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
+        setSelectedRepairTargetSid(activeTarget.sid);
+        console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
+      }
+    } catch (err) {
+      console.warn("Could not load repair targets:", err);
+    }
+  }, []);
+
   const refreshRepairContext = useCallback(async () => {
     setRepairLoading(true);
     try {
-      const [sessionStatus, targets] = await Promise.all([
-        getRepairSessionStatus(),
-        listRepairTargets(),
-      ]);
+      const sessionStatus = await getRepairSessionStatus();
       setRepairSession(sessionStatus);
-      setRepairTargets(targets);
-      setSelectedRepairTargetSid((previous) =>
-        previous && targets.some((target) => target.sid === previous) ? previous : null
-      );
+      await loadRepairTargets();
     } catch (err) {
       setStatusMsg(`Repair context error: ${err}`);
     } finally {
@@ -1698,9 +1704,6 @@ export default function App() {
     locked: repairSession.locked,
     selectedTargetSid: selectedRepairTargetSid,
   });
-  const selectedRepairTarget = repairTargets.find(
-    (target) => target.sid === selectedRepairTargetSid
-  ) ?? null;
   const helpContent = HELP_GUIDE_CONTENT[helpLanguage];
 
   useEffect(() => {
@@ -1809,46 +1812,20 @@ export default function App() {
             {repairModeBadgeLabel}
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-slate-300">
-            <span className="uppercase tracking-wider text-slate-500">Target User</span>
-            <select
-              value={selectedRepairTargetSid ?? ""}
-              onChange={(event) => setSelectedRepairTargetSid(event.target.value || null)}
-              disabled={repairLoading}
-              className="px-2.5 py-1.5 rounded-md bg-[#0c1220] border border-slate-700/50 text-slate-200 min-w-[260px]"
-            >
-              <option value="">Select target user...</option>
-              {repairTargets.map((target) => (
-                <option key={target.sid} value={target.sid}>
-                  {target.account_name}{target.is_loaded ? " (active)" : ""} - {target.sid}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedRepairTarget && (
-            <div className="text-xs text-slate-400 truncate max-w-[520px]" title={selectedRepairTarget.profile_path}>
-              {selectedRepairTarget.account_name}: {selectedRepairTarget.profile_path}
-            </div>
-          )}
-
           <div className="ml-auto flex items-center gap-2">
-            {repairSession.locked ? (
-              <button
-                onClick={handleUnlockRepair}
-                disabled={repairUnlocking || repairLoading}
-                className="capsule-btn px-3 py-1.5 text-xs font-semibold bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
-              >
-                {repairUnlocking ? "Unlocking..." : "Unlock Repair Mode"}
-              </button>
-            ) : (
-              <button
-                onClick={handleLockRepair}
-                className="capsule-btn px-3 py-1.5 text-xs font-semibold bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
-              >
-                Lock Repair Mode
-              </button>
-            )}
+            <button
+              onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
+              disabled={repairUnlocking || repairLoading}
+              className={`capsule-btn px-3 py-1.5 text-xs font-semibold ${
+                repairSession.locked
+                  ? "bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
+                  : "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
+              }`}
+            >
+              {repairSession.locked 
+                ? (repairUnlocking ? "Unlocking..." : "Unlock Repair Mode")
+                : "Lock Repair Mode"}
+            </button>
           </div>
         </div>
         {profileSensitiveActionHint && (
