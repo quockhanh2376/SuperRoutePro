@@ -62,13 +62,10 @@ if (-not $SkipInstall) {
     npm ci
 }
 
-Write-Step "Building Tauri release bundles (NSIS + MSI)"
+Write-Step "Building Tauri release bundles (NSIS)"
 npm run tauri build
 
 $nsisInstaller = Get-ChildItem (Join-Path $repoRoot "src-tauri/target/release/bundle/nsis/*-setup.exe") |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-$msiInstaller = Get-ChildItem (Join-Path $repoRoot "src-tauri/target/release/bundle/msi/*.msi") |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 $portableExe = Get-Item (Join-Path $repoRoot "src-tauri/target/release/SuperRoute.exe") -ErrorAction SilentlyContinue
@@ -76,20 +73,16 @@ $portableExe = Get-Item (Join-Path $repoRoot "src-tauri/target/release/SuperRout
 if (-not $nsisInstaller) {
     throw "NSIS installer was not found under src-tauri/target/release/bundle/nsis."
 }
-if (-not $msiInstaller) {
-    throw "MSI installer was not found under src-tauri/target/release/bundle/msi."
-}
 if (-not $portableExe) {
     throw "Portable executable was not found at src-tauri/target/release/SuperRoute.exe."
 }
 
 Write-Step "Collecting release artifacts in $releaseDir"
 $copiedNsis = Copy-Item $nsisInstaller.FullName -Destination $releaseDir -Force -PassThru
-$copiedMsi = Copy-Item $msiInstaller.FullName -Destination $releaseDir -Force -PassThru
 $copiedExe = Copy-Item $portableExe.FullName -Destination $releaseDir -Force -PassThru
 
 $checksumFile = Join-Path $releaseDir "SHA256SUMS.txt"
-$checksums = @($copiedNsis, $copiedMsi, $copiedExe) | ForEach-Object {
+$checksums = @($copiedNsis, $copiedExe) | ForEach-Object {
     $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $($_.Name)"
 }
@@ -100,6 +93,5 @@ Write-Host "Version Tag : $VersionTag" -ForegroundColor Green
 Write-Host "Output Dir  : $releaseDir" -ForegroundColor Green
 Write-Host "Artifacts   :" -ForegroundColor Green
 Write-Host "  - $($copiedNsis.Name)"
-Write-Host "  - $($copiedMsi.Name)"
 Write-Host "  - $($copiedExe.Name)"
 Write-Host "  - $(Split-Path -Leaf $checksumFile)"

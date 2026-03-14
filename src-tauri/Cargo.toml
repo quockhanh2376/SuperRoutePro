@@ -1,6 +1,7 @@
 [package]
 name = "super-route-pro"
 version = "9.0.1"
+default-run = "SuperRoute"
 description = "Super Route Pro - Network Routing Manager"
 authors = ["Zonzon"]
 edition = "2021"

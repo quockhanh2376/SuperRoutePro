@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "prepare:repair-sidecars": "powershell -ExecutionPolicy Bypass -File scripts/prepare-repair-sidecars.ps1",
     "check:frontend": "npm run build",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
     "check": "npm run check:frontend && npm run check:rust",

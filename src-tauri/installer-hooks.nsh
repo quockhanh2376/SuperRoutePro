@@ -1,4 +1,31 @@
+!define SRP_REPAIR_SERVICE_NAME "SuperRouteRepairService"
+!define SRP_REPAIR_SERVICE_DISPLAY_NAME "Super Route Pro Repair Service"
+
+!macro SRP_STOP_REPAIR_SERVICE
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" stop "${SRP_REPAIR_SERVICE_NAME}"' $R0
+!macroend
+
+!macro SRP_DELETE_REPAIR_SERVICE
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" delete "${SRP_REPAIR_SERVICE_NAME}"' $R0
+!macroend
+
+!macro SRP_CREATE_REPAIR_SERVICE
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" create "${SRP_REPAIR_SERVICE_NAME}" binPath= "\"$INSTDIR\SuperRouteRepairService.exe\"" start= auto DisplayName= "${SRP_REPAIR_SERVICE_DISPLAY_NAME}"' $R0
+  ExecWait '"$SYSDIR\sc.exe" description "${SRP_REPAIR_SERVICE_NAME}" "Privileged repair actions for Super Route Pro."' $R1
+!macroend
+
+!macro SRP_START_REPAIR_SERVICE
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" start "${SRP_REPAIR_SERVICE_NAME}"' $R0
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
+  !insertmacro SRP_STOP_REPAIR_SERVICE
+  !insertmacro SRP_DELETE_REPAIR_SERVICE
+
   ; Force old version removal before new files are copied.
   ClearErrors
   ReadRegStr $R7 SHCTX "${UNINSTKEY}" "UninstallString"
@@ -18,4 +45,16 @@
   Abort
 
 nsis_hook_done:
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  !insertmacro SRP_STOP_REPAIR_SERVICE
+  !insertmacro SRP_DELETE_REPAIR_SERVICE
+  !insertmacro SRP_CREATE_REPAIR_SERVICE
+  !insertmacro SRP_START_REPAIR_SERVICE
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro SRP_STOP_REPAIR_SERVICE
+  !insertmacro SRP_DELETE_REPAIR_SERVICE
 !macroend
