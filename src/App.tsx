@@ -6,12 +6,22 @@ import {
   ChevronDown, ChevronUp, ArrowDownUp, X, CircleHelp
 } from "lucide-react";
 import {
-  getNetworkInterfaces, getRoutingTable, addRoute, deleteRoute,
-  flushRoutes, setDefaultGateway, runNetworkCommand, pingHost,
-  fpingScan, getWanPersistOnStartupStatus, setWanPersistOnStartup,
-  checkInternet, getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatterySummary,
-  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult, type BatterySummaryResult,
+  getNetworkInterfaces, getRoutingTable,
+  runNetworkCommand, pingHost,
+  fpingScan, getWanPersistOnStartupStatus, checkInternet,
+  getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatterySummary,
+  getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
+  repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
+  repairSetWanPersistOnStartup, runRepairMachineAction,
+  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
+  type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus, type RepairTargetUser,
 } from "./api";
+import {
+  getProfileSensitiveActionHint,
+  getRepairModeBadgeLabel,
+  isMachineRepairEnabled,
+  isProfileSensitiveActionEnabled,
+} from "./repairModeModel";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -455,6 +465,16 @@ export default function App() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [statusMsg, setStatusMsg] = useState("System Ready");
+  const [repairSession, setRepairSession] = useState<RepairSessionStatus>({
+    locked: true,
+    connected: false,
+    target_sid: null,
+    requires_unlock: true,
+  });
+  const [repairTargets, setRepairTargets] = useState<RepairTargetUser[]>([]);
+  const [selectedRepairTargetSid, setSelectedRepairTargetSid] = useState<string | null>(null);
+  const [repairLoading, setRepairLoading] = useState(true);
+  const [repairUnlocking, setRepairUnlocking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pingTarget, setPingTarget] = useState("1.1.1.1");
   const [pingMode, setPingMode] = useState<"ping" | "fping">("ping");
@@ -507,6 +527,14 @@ export default function App() {
   const selectedCacheTargets = useMemo(
     () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
     [selectedCaches]
+  );
+  const repairAppInstanceId = useMemo(
+    () => globalThis.crypto?.randomUUID?.() ?? `srp-ui-${Date.now()}`,
+    []
+  );
+  const repairConnectionId = useMemo(
+    () => globalThis.crypto?.randomUUID?.() ?? `srp-conn-${Date.now()}`,
+    []
   );
 
   useEffect(() => {
@@ -568,6 +596,29 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  const refreshRepairContext = useCallback(async () => {
+    setRepairLoading(true);
+    try {
+      const [sessionStatus, targets] = await Promise.all([
+        getRepairSessionStatus(),
+        listRepairTargets(),
+      ]);
+      setRepairSession(sessionStatus);
+      setRepairTargets(targets);
+      setSelectedRepairTargetSid((previous) =>
+        previous && targets.some((target) => target.sid === previous) ? previous : null
+      );
+    } catch (err) {
+      setStatusMsg(`Repair context error: ${err}`);
+    } finally {
+      setRepairLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRepairContext();
+  }, [refreshRepairContext]);
 
   // Form state
   const [formDest, setFormDest] = useState("");
@@ -734,6 +785,30 @@ export default function App() {
     setFormGw(nic.gateway);
   }, []);
 
+  const handleUnlockRepair = useCallback(async () => {
+    setRepairUnlocking(true);
+    setStatusMsg("Unlocking Repair Mode...");
+    try {
+      const status = await unlockRepairMode(repairAppInstanceId, repairConnectionId);
+      setRepairSession(status);
+      setStatusMsg("Repair Mode unlocked for this app session.");
+    } catch (err) {
+      setStatusMsg(`Repair unlock error: ${err}`);
+    } finally {
+      setRepairUnlocking(false);
+    }
+  }, [repairAppInstanceId, repairConnectionId]);
+
+  const handleLockRepair = useCallback(async () => {
+    try {
+      const status = await lockRepairMode();
+      setRepairSession(status);
+      setStatusMsg("Repair Mode locked.");
+    } catch (err) {
+      setStatusMsg(`Repair lock error: ${err}`);
+    }
+  }, []);
+
   const handleAddRoute = useCallback(async () => {
     if (!formDest || !formGw) {
       setStatusMsg("Please fill Destination and Gateway");
@@ -741,13 +816,23 @@ export default function App() {
     }
     setStatusMsg("Adding route...");
     try {
-      await addRoute(formDest, formMask, formGw, formMetric, selectedNic?.index);
-      setStatusMsg("Route added successfully!");
-      loadData();
+      const result = await repairAddRoute(
+        formDest,
+        formMask,
+        formGw,
+        formMetric,
+        selectedNic?.index
+      );
+      await handleRepairCommandResult("Add Route", result, {
+        appendOutput: true,
+        refresh: true,
+        successMessage: "Route added successfully!",
+        failureMessage: "Add Route - Failed",
+      });
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [formDest, formGw, formMask, formMetric, selectedNic?.index, loadData]);
+  }, [formDest, formGw, formMask, formMetric, handleRepairCommandResult, selectedNic?.index]);
 
   const handleDeleteRoute = useCallback(async () => {
     if (!formDest) {
@@ -756,13 +841,17 @@ export default function App() {
     }
     setStatusMsg("Deleting route...");
     try {
-      await deleteRoute(formDest, formMask);
-      setStatusMsg("Route deleted!");
-      loadData();
+      const result = await repairDeleteRoute(formDest, formMask);
+      await handleRepairCommandResult("Delete Route", result, {
+        appendOutput: true,
+        refresh: true,
+        successMessage: "Route deleted!",
+        failureMessage: "Delete Route - Failed",
+      });
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [formDest, formMask, loadData]);
+  }, [formDest, formMask, handleRepairCommandResult]);
 
   const executeSetInternet = useCallback(async () => {
     if (!selectedNic || !selectedNic.gateway) {
@@ -771,29 +860,47 @@ export default function App() {
     }
     setStatusMsg("Setting default gateway...");
     try {
-      await setDefaultGateway(selectedNic.gateway, selectedNic.index);
-      await setWanPersistOnStartup(selectedNic.index, persistWanOnStartup);
-      setStatusMsg(
+      const gatewayResult = await repairSetDefaultGateway(selectedNic.gateway, selectedNic.index);
+      const gatewayApplied = await handleRepairCommandResult("Set Default Gateway", gatewayResult, {
+        appendOutput: true,
+        successMessage: "Default gateway set.",
+        failureMessage: "Set Default Gateway - Failed",
+      });
+      if (!gatewayApplied) {
+        return;
+      }
+
+      const persistResult = await repairSetWanPersistOnStartup(
+        selectedNic.index,
         persistWanOnStartup
-          ? "Default gateway set. Persist on startup enabled."
-          : "Default gateway set. Persist on startup disabled."
       );
-      loadData();
+      await handleRepairCommandResult("Persist WAN On Startup", persistResult, {
+        appendOutput: true,
+        refresh: true,
+        successMessage: persistWanOnStartup
+          ? "Default gateway set. Persist on startup enabled."
+          : "Default gateway set. Persist on startup disabled.",
+        failureMessage: "Persist WAN On Startup - Failed",
+      });
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [loadData, persistWanOnStartup, selectedNic]);
+  }, [handleRepairCommandResult, persistWanOnStartup, selectedNic]);
 
   const executeFlush = useCallback(async () => {
     setStatusMsg("Flushing routes...");
     try {
-      await flushRoutes();
-      setStatusMsg("All routes flushed!");
-      loadData();
+      const result = await repairFlushRoutes();
+      await handleRepairCommandResult("Flush Routes", result, {
+        appendOutput: true,
+        refresh: true,
+        successMessage: "All routes flushed!",
+        failureMessage: "Flush Routes - Failed",
+      });
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [loadData]);
+  }, [handleRepairCommandResult]);
 
   const schedulePingLogRender = useCallback(() => {
     if (pingRenderRafRef.current !== null) return;
@@ -853,6 +960,50 @@ export default function App() {
     const lines = [`[${stamp}] ${title}`, ...cleanOutput.split(/\r?\n/), ""];
     appendCommandLines(lines);
   }, [appendCommandLines]);
+
+  async function handleRepairCommandResult(
+    title: string,
+    result: { success: boolean; output: string; requires_unlock: boolean },
+    options?: { refresh?: boolean; appendOutput?: boolean; successMessage?: string; failureMessage?: string },
+  ) {
+    if (options?.appendOutput !== false) {
+      appendCommandOutput(title, result.output);
+    }
+
+    if (result.requires_unlock) {
+      setStatusMsg("Unlock Repair Mode first to run admin fixes.");
+      const status = await getRepairSessionStatus();
+      setRepairSession(status);
+      return false;
+    }
+
+    setStatusMsg(
+      result.success
+        ? (options?.successMessage ?? `${title} - Success!`)
+        : (options?.failureMessage ?? `${title} - Failed`)
+    );
+
+    if (result.success && options?.refresh) {
+      await loadData();
+    }
+    return result.success;
+  }
+
+  async function executeRepairAction(
+    action: RepairMachineAction,
+    title: string,
+    options?: { refresh?: boolean }
+  ) {
+    setDiagnosticView("command");
+    setStatusMsg(`Running ${title}...`);
+    try {
+      const result = await runRepairMachineAction(action);
+      await handleRepairCommandResult(title, result, { appendOutput: true, refresh: options?.refresh });
+    } catch (err) {
+      appendCommandOutput(title, `Error: ${err}`);
+      setStatusMsg(`Error: ${err}`);
+    }
+  }
 
   const executeNetCmd = useCallback(async (
     cmd: string,
@@ -962,7 +1113,7 @@ export default function App() {
     openConfirm(
       "Reset WinHTTP Proxy",
       "Reset WinHTTP proxy settings to direct access?",
-      () => executeNetCmd("netsh winhttp reset proxy", "Reset WinHTTP Proxy", { refresh: true })
+      () => executeRepairAction("ResetWinHttpProxy", "Reset WinHTTP Proxy", { refresh: true })
     );
   };
 
@@ -970,11 +1121,7 @@ export default function App() {
     openConfirm(
       "Restart Active Adapters",
       "Restart active physical network adapters now?",
-      () => executeNetCmd(
-        "powershell -NoProfile -Command Get-NetAdapter -Physical ^| Where-Object {$_.Status -eq 'Up'} ^| Restart-NetAdapter -Confirm:$false",
-        "Restart Active Adapters",
-        { refresh: true }
-      )
+      () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", { refresh: true })
     );
   };
 
@@ -1517,6 +1664,19 @@ export default function App() {
   const ipScanScannedCount = ipScanResults.length;
   const selectedBloatwareCount = selectedBloatware.size;
   const selectedCacheCount = selectedCacheTargets.length;
+  const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
+  const profileSensitiveActionEnabled = isProfileSensitiveActionEnabled({
+    locked: repairSession.locked,
+    selectedTargetSid: selectedRepairTargetSid,
+  });
+  const repairModeBadgeLabel = getRepairModeBadgeLabel(repairSession.locked);
+  const profileSensitiveActionHint = getProfileSensitiveActionHint({
+    locked: repairSession.locked,
+    selectedTargetSid: selectedRepairTargetSid,
+  });
+  const selectedRepairTarget = repairTargets.find(
+    (target) => target.sid === selectedRepairTargetSid
+  ) ?? null;
   const helpContent = HELP_GUIDE_CONTENT[helpLanguage];
 
   useEffect(() => {
@@ -1573,7 +1733,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleOpenBloatwareModal}
-            disabled={bloatwareLoading || bloatwareRemoving}
+            disabled={!profileSensitiveActionEnabled || bloatwareLoading || bloatwareRemoving}
             className="header-apps-action capsule-btn"
             title="Open app removal tools"
           >
@@ -1583,7 +1743,7 @@ export default function App() {
 
           <button
             onClick={handleOpenCacheModal}
-            disabled={cacheCleaning}
+            disabled={!profileSensitiveActionEnabled || cacheCleaning}
             className="header-cache-action capsule-btn"
             title="Open cache cleanup tools"
           >
@@ -1614,6 +1774,65 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      <div className="px-5 py-2 border-b shrink-0 bg-slate-900/80 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className={`capsule-btn compact-pill text-xs font-semibold ${
+            repairSession.locked
+              ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+              : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+          }`}>
+            {repairModeBadgeLabel}
+          </div>
+
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <span className="uppercase tracking-wider text-slate-500">Target User</span>
+            <select
+              value={selectedRepairTargetSid ?? ""}
+              onChange={(event) => setSelectedRepairTargetSid(event.target.value || null)}
+              disabled={repairLoading}
+              className="px-2.5 py-1.5 rounded-md bg-[#0c1220] border border-slate-700/50 text-slate-200 min-w-[260px]"
+            >
+              <option value="">Select target user...</option>
+              {repairTargets.map((target) => (
+                <option key={target.sid} value={target.sid}>
+                  {target.account_name}{target.is_loaded ? " (active)" : ""} - {target.sid}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedRepairTarget && (
+            <div className="text-xs text-slate-400 truncate max-w-[520px]" title={selectedRepairTarget.profile_path}>
+              {selectedRepairTarget.account_name}: {selectedRepairTarget.profile_path}
+            </div>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            {repairSession.locked ? (
+              <button
+                onClick={handleUnlockRepair}
+                disabled={repairUnlocking || repairLoading}
+                className="capsule-btn px-3 py-1.5 text-xs font-semibold bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
+              >
+                {repairUnlocking ? "Unlocking..." : "Unlock Repair Mode"}
+              </button>
+            ) : (
+              <button
+                onClick={handleLockRepair}
+                className="capsule-btn px-3 py-1.5 text-xs font-semibold bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
+              >
+                Lock Repair Mode
+              </button>
+            )}
+          </div>
+        </div>
+        {profileSensitiveActionHint && (
+          <p className="mt-2 text-[0.72rem] text-amber-300">
+            {profileSensitiveActionHint}
+          </p>
+        )}
+      </div>
 
       {/* ====== MAIN CONTENT ====== */}
       <div className="content-grid flex-1 overflow-hidden">
@@ -1686,12 +1905,25 @@ export default function App() {
               <Field label="Metric" value={formMetric} onChange={setFormMetric} placeholder="10" />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <ActionBtn icon={Plus} label="ADD" color="emerald" onClick={handleAddRoute} />
-              <ActionBtn icon={Trash2} label="DEL" color="red" onClick={handleDeleteRoute} />
+              <ActionBtn
+                icon={Plus}
+                label="ADD"
+                color="emerald"
+                onClick={handleAddRoute}
+                disabled={!machineRepairEnabled}
+              />
+              <ActionBtn
+                icon={Trash2}
+                label="DEL"
+                color="red"
+                onClick={handleDeleteRoute}
+                disabled={!machineRepairEnabled}
+              />
               <ActionBtn
                 icon={Globe}
                 label="WAN"
                 color="blue"
+                disabled={!machineRepairEnabled}
                 onClick={() => openConfirm(
                   "Set Default Gateway",
                   `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?\nPersist on startup: ${persistWanOnStartup ? "ON" : "OFF"}.`,
@@ -1702,6 +1934,7 @@ export default function App() {
                 icon={Flame}
                 label="FLUSH"
                 color="orange"
+                disabled={!machineRepairEnabled}
                 onClick={() => openConfirm(
                   "Clear All Routes",
                   "Clear ALL routes? This action is dangerous.",
@@ -1752,19 +1985,19 @@ export default function App() {
           >
             <div className="tool-grid">
               <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
-                onClick={() => executeNetCmd("ipconfig /flushdns", "Flush DNS")} tone="safe" />
+                onClick={() => executeRepairAction("FlushDns", "Flush DNS")} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={RefreshCw} label="Renew IP" desc="Release and renew DHCP"
-                onClick={() => executeNetCmd("ipconfig /release && ipconfig /renew", "Renew IP", { refresh: true })} tone="safe" />
+                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true })} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Wifi} label="Wi-Fi Info" desc="Show WLAN interface details"
                 onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} tone="system" />
               <ToolBtn icon={Trash2} label="Clear ARP" desc="Flush ARP cache"
-                onClick={() => executeNetCmd("netsh interface ip delete arpcache", "Clear ARP", { refresh: true })} tone="system" />
+                onClick={() => executeRepairAction("ClearArpCache", "Clear ARP", { refresh: true })} tone="system" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Globe} label="Reset TCP/IP" desc="Reset network stack"
-                onClick={() => executeNetCmd("netsh int ip reset", "Reset TCP/IP", { refresh: true })} tone="danger" />
+                onClick={() => executeRepairAction("ResetTcpIp", "Reset TCP/IP", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
               <ToolBtn icon={OctagonAlert} label="Reset Winsock" desc="Reset socket catalog"
-                onClick={() => executeNetCmd("netsh winsock reset", "Reset Winsock", { refresh: true })} tone="danger" />
+                onClick={() => executeRepairAction("ResetWinsock", "Reset Winsock", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
-                onClick={() => executeNetCmd("netsh advfirewall reset", "Reset Firewall", { refresh: true })} tone="danger" />
+                onClick={() => executeRepairAction("ResetFirewall", "Reset Firewall", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Monitor} label="Battery Info" desc="View battery wear and lifetime summary"
                 onClick={handleOpenBatteryModal} tone="system" />
             </div>
@@ -1780,9 +2013,9 @@ export default function App() {
               <ToolBtn icon={Monitor} label="Display DNS Cache" desc="Inspect current resolver cache"
                 onClick={handleDisplayDnsCache} tone="safe" compact />
               <ToolBtn icon={Wrench} label="Reset WinHTTP Proxy" desc="Clear system proxy settings"
-                onClick={handleResetWinHttpProxy} tone="system" compact />
+                onClick={handleResetWinHttpProxy} tone="system" compact disabled={!machineRepairEnabled} />
               <ToolBtn icon={RefreshCw} label="Restart Adapters" desc="Restart active adapters"
-                onClick={handleRestartAdapters} tone="system" compact />
+                onClick={handleRestartAdapters} tone="system" compact disabled={!machineRepairEnabled} />
               <ToolBtn icon={Search} label="Scan IP" desc="Scan active subnet hosts"
                 onClick={handleOpenIpScanModal} tone="safe" compact />
             </div>
@@ -2647,8 +2880,8 @@ const Field = memo(function Field({ label, value, onChange, placeholder }: {
   );
 });
 
-const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick }: {
-  icon: React.ElementType; label: string; color: string; onClick: () => void;
+const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick, disabled = false }: {
+  icon: React.ElementType; label: string; color: string; onClick: () => void; disabled?: boolean;
 }) {
   const colors: Record<string, string> = {
     emerald: "bg-emerald-600/80 hover:bg-emerald-500 border-emerald-700/50",
@@ -2660,7 +2893,8 @@ const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick }:
   return (
     <button
       onClick={onClick}
-      className={`capsule-btn min-w-[72px] px-2.5 flex items-center justify-center gap-1.5 py-1.5 text-[0.76rem] font-bold text-white border transition ${colors[color] || colors.blue}`}
+      disabled={disabled}
+      className={`capsule-btn min-w-[72px] px-2.5 flex items-center justify-center gap-1.5 py-1.5 text-[0.76rem] font-bold text-white border transition disabled:opacity-45 disabled:cursor-not-allowed ${colors[color] || colors.blue}`}
     >
       <Icon className="w-3.5 h-3.5" /> {label}
     </button>
@@ -2687,14 +2921,15 @@ const Section = memo(function Section({ icon: Icon, title, open, onToggle, child
   );
 });
 
-const ToolBtn = memo(function ToolBtn({ icon: Icon, label, desc, onClick, tone, compact }: {
-  icon: React.ElementType; label: string; desc: string; onClick: () => void; tone?: "safe" | "system" | "danger"; compact?: boolean;
+const ToolBtn = memo(function ToolBtn({ icon: Icon, label, desc, onClick, tone, compact, disabled = false }: {
+  icon: React.ElementType; label: string; desc: string; onClick: () => void; tone?: "safe" | "system" | "danger"; compact?: boolean; disabled?: boolean;
 }) {
   const toneClass = tone ?? "safe";
   return (
     <button
       onClick={onClick}
-      className={`tool-card tool-card-${toneClass} ${compact ? "tool-card-compact" : ""}`}
+      disabled={disabled}
+      className={`tool-card tool-card-${toneClass} ${compact ? "tool-card-compact" : ""} disabled:opacity-45 disabled:cursor-not-allowed`}
     >
       <span className="tool-icon-shell">
         <Icon className="w-3.5 h-3.5" />
