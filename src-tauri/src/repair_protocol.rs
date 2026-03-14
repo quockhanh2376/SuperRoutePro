@@ -41,7 +41,11 @@ pub enum RepairServiceRequest {
     GetServiceHealth,
     GetRepairSessionStatus,
     UnlockRepairSession(UnlockRepairSessionRequest),
+    LockRepairSession,
+    Shutdown,
     RunMachineAction(RepairMachineAction),
+    RunProfileCleanup(ProfileCleanupRequest),
+    RunAppxRemoval(AppxRemovalRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +61,7 @@ pub struct UnlockRepairSessionRequest {
     pub app_instance_id: String,
     pub connection_id: String,
     pub nonce: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +75,17 @@ pub struct RepairCommandResult {
     pub success: bool,
     pub output: String,
     pub requires_unlock: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepairIpcRequest {
+    pub auth_token: String,
+    pub request: RepairServiceRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepairIpcResponse {
+    pub response: RepairServiceResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

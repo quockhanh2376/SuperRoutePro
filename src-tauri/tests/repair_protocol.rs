@@ -6,8 +6,9 @@ use super_route_pro_lib::repair_ipc::{
     handle_request,
 };
 use super_route_pro_lib::repair_protocol::{
-    AddRouteRequest, AppxRemovalRequest, RepairCommandResult, RepairMachineAction, RepairServiceHealth,
-    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+    AddRouteRequest, AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairIpcRequest,
+    RepairIpcResponse, RepairMachineAction, RepairServiceHealth, RepairServiceRequest,
+    RepairServiceResponse, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use super_route_pro_lib::repair_actions::validate_appx_removal_request;
 use super_route_pro_lib::repair_session::RepairSessionManager;
@@ -174,4 +175,64 @@ fn appx_removal_request_rejects_missing_target_and_non_whitelisted_packages() {
         remove_provisioned: true,
     };
     assert!(validate_appx_removal_request(&invalid_package).is_err());
+}
+
+#[test]
+fn repair_ipc_envelope_carries_auth_token_and_privileged_profile_requests() {
+    let request = RepairIpcRequest {
+        auth_token: "unlock-token".to_string(),
+        request: RepairServiceRequest::RunProfileCleanup(ProfileCleanupRequest {
+            target_sid: "S-1-5-21-1001".to_string(),
+            targets: vec!["user_temp".to_string(), "edge_cache".to_string()],
+        }),
+    };
+
+    let encoded = encode_message(&request).expect("ipc request should encode");
+    let decoded: RepairIpcRequest = decode_message(&encoded).expect("ipc request should decode");
+
+    assert_eq!(decoded.auth_token, "unlock-token");
+    match decoded.request {
+        RepairServiceRequest::RunProfileCleanup(cleanup) => {
+            assert_eq!(cleanup.target_sid, "S-1-5-21-1001");
+            assert_eq!(cleanup.targets, vec!["user_temp", "edge_cache"]);
+        }
+        _ => panic!("expected profile cleanup request"),
+    }
+}
+
+#[test]
+fn unlock_request_serializes_host_port_for_the_elevated_helper() {
+    let request = UnlockRepairSessionRequest {
+        app_instance_id: "app-1".to_string(),
+        connection_id: "conn-1".to_string(),
+        nonce: "unlock-token".to_string(),
+        port: 44561,
+    };
+
+    let json = serde_json::to_value(&request).expect("unlock request should serialize");
+    assert_eq!(json["port"], 44561);
+}
+
+#[test]
+fn repair_ipc_response_round_trips_machine_action_results() {
+    let response = RepairIpcResponse {
+        response: RepairServiceResponse::RepairAction(RepairCommandResult {
+            success: true,
+            output: "Reset completed".to_string(),
+            requires_unlock: false,
+        }),
+    };
+
+    let encoded = encode_message(&response).expect("ipc response should encode");
+    let decoded: RepairIpcResponse =
+        decode_message(&encoded).expect("ipc response should decode");
+
+    match decoded.response {
+        RepairServiceResponse::RepairAction(result) => {
+            assert!(result.success);
+            assert_eq!(result.output, "Reset completed");
+            assert!(!result.requires_unlock);
+        }
+        _ => panic!("expected repair action response"),
+    }
 }

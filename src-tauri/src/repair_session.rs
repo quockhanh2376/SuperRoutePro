@@ -50,6 +50,15 @@ impl RepairSessionManager {
         app_instance_id: impl Into<String>,
         connection_id: impl Into<String>,
     ) -> UnlockRepairSessionRequest {
+        self.issue_unlock_request_for_port(app_instance_id, connection_id, 0)
+    }
+
+    pub fn issue_unlock_request_for_port(
+        &mut self,
+        app_instance_id: impl Into<String>,
+        connection_id: impl Into<String>,
+        port: u16,
+    ) -> UnlockRepairSessionRequest {
         let app_instance_id = app_instance_id.into();
         let connection_id = connection_id.into();
         let nonce = format!("unlock-{}", NEXT_UNLOCK_NONCE.fetch_add(1, Ordering::Relaxed));
@@ -62,6 +71,7 @@ impl RepairSessionManager {
             app_instance_id,
             connection_id,
             nonce,
+            port,
         }
     }
 

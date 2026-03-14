@@ -69,33 +69,29 @@ fn ps_escape_single_quoted(input: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-async fn run_powershell_script(script: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script.as_str()])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|err| format!("Failed to run PowerShell cleanup command: {err}"))?;
+fn run_powershell_script_blocking(script: String) -> Result<String, String> {
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script.as_str()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|err| format!("Failed to run PowerShell cleanup command: {err}"))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-        if output.status.success() {
-            Ok(stdout)
-        } else if !stdout.trim().is_empty() {
-            Ok(stdout)
-        } else {
-            Err(stderr)
-        }
-    })
-    .await
-    .map_err(|err| format!("PowerShell task join error: {err}"))?
+    if output.status.success() {
+        Ok(stdout)
+    } else if !stdout.trim().is_empty() {
+        Ok(stdout)
+    } else {
+        Err(stderr)
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-async fn run_powershell_script(_script: String) -> Result<String, String> {
+fn run_powershell_script_blocking(_script: String) -> Result<String, String> {
     Err("Repair actions are only available on Windows.".to_string())
 }
 
@@ -285,6 +281,62 @@ pub fn validate_appx_removal_request(request: &AppxRemovalRequest) -> Result<(),
     Ok(())
 }
 
+pub fn run_machine_action_blocking(
+    session_status: &RepairSessionStatus,
+    action: RepairMachineAction,
+) -> Result<RepairCommandResult, String> {
+    if session_status.locked {
+        return Ok(locked_result());
+    }
+
+    let result = match action {
+        RepairMachineAction::AddRoute(request) => network::add_route_blocking(
+            request.destination,
+            request.mask,
+            request.gateway,
+            request.metric,
+            request.interface_index,
+        )?,
+        RepairMachineAction::DeleteRoute(request) => {
+            network::delete_route_blocking(request.destination, request.mask)?
+        }
+        RepairMachineAction::FlushRoutes => network::flush_routes_blocking()?,
+        RepairMachineAction::SetDefaultGateway(request) => {
+            network::set_default_gateway_blocking(request.gateway, request.interface_index)?
+        }
+        RepairMachineAction::SetWanPersistOnStartup(request) => {
+            network::set_wan_persist_on_startup_blocking(request.interface_index, request.enabled)?
+        }
+        RepairMachineAction::FlushDns => {
+            network::run_network_command_blocking("ipconfig /flushdns".to_string())?
+        }
+        RepairMachineAction::RenewDhcpLease => network::run_network_command_blocking(
+            "ipconfig /release && ipconfig /renew".to_string(),
+        )?,
+        RepairMachineAction::ClearArpCache => network::run_network_command_blocking(
+            "netsh interface ip delete arpcache".to_string(),
+        )?,
+        RepairMachineAction::ResetTcpIp => {
+            network::run_network_command_blocking("netsh int ip reset".to_string())?
+        }
+        RepairMachineAction::ResetWinsock => {
+            network::run_network_command_blocking("netsh winsock reset".to_string())?
+        }
+        RepairMachineAction::ResetFirewall => {
+            network::run_network_command_blocking("netsh advfirewall reset".to_string())?
+        }
+        RepairMachineAction::ResetWinHttpProxy => network::run_network_command_blocking(
+            "netsh winhttp reset proxy".to_string(),
+        )?,
+        RepairMachineAction::RestartActiveAdapters => network::run_network_command_blocking(
+            "powershell -NoProfile -Command Get-NetAdapter -Physical ^| Where-Object {$_.Status -eq 'Up'} ^| Restart-NetAdapter -Confirm:$false"
+                .to_string(),
+        )?,
+    };
+
+    Ok(from_network_result(result))
+}
+
 pub async fn add_route(
     session_status: &RepairSessionStatus,
     destination: String,
@@ -356,63 +408,13 @@ pub async fn run_machine_action(
     session_status: &RepairSessionStatus,
     action: RepairMachineAction,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(locked_result());
-    }
-
-    let result = match action {
-        RepairMachineAction::AddRoute(request) => {
-            network::add_route(
-                request.destination,
-                request.mask,
-                request.gateway,
-                request.metric,
-                request.interface_index,
-            )
-            .await?
-        }
-        RepairMachineAction::DeleteRoute(request) => {
-            network::delete_route(request.destination, request.mask).await?
-        }
-        RepairMachineAction::FlushRoutes => network::flush_routes().await?,
-        RepairMachineAction::SetDefaultGateway(request) => {
-            network::set_default_gateway(request.gateway, request.interface_index).await?
-        }
-        RepairMachineAction::SetWanPersistOnStartup(request) => {
-            network::set_wan_persist_on_startup(request.interface_index, request.enabled).await?
-        }
-        RepairMachineAction::FlushDns => {
-            network::run_network_command("ipconfig /flushdns".to_string()).await?
-        }
-        RepairMachineAction::RenewDhcpLease => {
-            network::run_network_command("ipconfig /release && ipconfig /renew".to_string()).await?
-        }
-        RepairMachineAction::ClearArpCache => {
-            network::run_network_command("netsh interface ip delete arpcache".to_string()).await?
-        }
-        RepairMachineAction::ResetTcpIp => {
-            network::run_network_command("netsh int ip reset".to_string()).await?
-        }
-        RepairMachineAction::ResetWinsock => {
-            network::run_network_command("netsh winsock reset".to_string()).await?
-        }
-        RepairMachineAction::ResetFirewall => {
-            network::run_network_command("netsh advfirewall reset".to_string()).await?
-        }
-        RepairMachineAction::ResetWinHttpProxy => {
-            network::run_network_command("netsh winhttp reset proxy".to_string()).await?
-        }
-        RepairMachineAction::RestartActiveAdapters => network::run_network_command(
-            "powershell -NoProfile -Command Get-NetAdapter -Physical ^| Where-Object {$_.Status -eq 'Up'} ^| Restart-NetAdapter -Confirm:$false"
-                .to_string(),
-        )
-        .await?,
-    };
-
-    Ok(from_network_result(result))
+    let session = session_status.clone();
+    tauri::async_runtime::spawn_blocking(move || run_machine_action_blocking(&session, action))
+        .await
+        .map_err(|err| format!("Repair machine action task join error: {err}"))?
 }
 
-pub async fn clear_profile_caches(
+pub fn clear_profile_caches_blocking(
     session_status: &RepairSessionStatus,
     request: ProfileCleanupRequest,
 ) -> Result<RepairCommandResult, String> {
@@ -446,7 +448,7 @@ pub async fn clear_profile_caches(
             continue;
         };
 
-        match run_powershell_script(script).await {
+        match run_powershell_script_blocking(script) {
             Ok(script_output) => {
                 let clean_output = script_output.trim();
                 if clean_output.is_empty() {
@@ -481,7 +483,17 @@ pub async fn clear_profile_caches(
     })
 }
 
-pub async fn remove_appx_for_target(
+pub async fn clear_profile_caches(
+    session_status: &RepairSessionStatus,
+    request: ProfileCleanupRequest,
+) -> Result<RepairCommandResult, String> {
+    let session = session_status.clone();
+    tauri::async_runtime::spawn_blocking(move || clear_profile_caches_blocking(&session, request))
+        .await
+        .map_err(|err| format!("Profile cleanup task join error: {err}"))?
+}
+
+pub fn remove_appx_for_target_blocking(
     session_status: &RepairSessionStatus,
     request: AppxRemovalRequest,
 ) -> Result<RepairCommandResult, String> {
@@ -577,7 +589,7 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
 "#
         );
 
-        match run_powershell_script(script).await {
+        match run_powershell_script_blocking(script) {
             Ok(script_output) => {
                 let clean_output = script_output.trim();
                 if clean_output.is_empty() {
@@ -622,4 +634,14 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
         output: output_lines.join("\n"),
         requires_unlock: false,
     })
+}
+
+pub async fn remove_appx_for_target(
+    session_status: &RepairSessionStatus,
+    request: AppxRemovalRequest,
+) -> Result<RepairCommandResult, String> {
+    let session = session_status.clone();
+    tauri::async_runtime::spawn_blocking(move || remove_appx_for_target_blocking(&session, request))
+        .await
+        .map_err(|err| format!("Appx removal task join error: {err}"))?
 }

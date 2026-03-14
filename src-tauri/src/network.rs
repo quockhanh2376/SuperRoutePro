@@ -654,17 +654,18 @@ pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
     Ok(routes)
 }
 
-/// Add a persistent route
-#[tauri::command]
-pub async fn add_route(
+pub fn add_route_blocking(
     destination: String,
     mask: String,
     gateway: String,
     metric: String,
     interface_index: Option<String>,
 ) -> Result<CommandResult, String> {
-    // First try to delete existing route
-    let _ = run_cmd("route", &["delete", &destination, "mask", &mask]).await;
+    let _ = run_cmd_blocking(
+        "route",
+        &["delete", &destination, "mask", &mask],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    );
 
     let mut args = vec![
         "route",
@@ -687,37 +688,75 @@ pub async fn add_route(
         }
     }
 
-    let result = run_cmd(args[0], &args[1..]).await?;
+    let result = run_cmd_blocking(
+        args[0],
+        &args[1..],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
 
     Ok(CommandResult {
         success: true,
         output: result,
     })
+}
+
+/// Add a persistent route
+#[tauri::command]
+pub async fn add_route(
+    destination: String,
+    mask: String,
+    gateway: String,
+    metric: String,
+    interface_index: Option<String>,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        add_route_blocking(destination, mask, gateway, metric, interface_index)
+    })
+    .await
+    .map_err(|err| format!("Route add task join error: {err}"))?
 }
 
 /// Delete a route
-#[tauri::command]
-pub async fn delete_route(destination: String, mask: String) -> Result<CommandResult, String> {
-    let result = run_cmd("route", &["delete", &destination, "mask", &mask]).await?;
+pub fn delete_route_blocking(destination: String, mask: String) -> Result<CommandResult, String> {
+    let result = run_cmd_blocking(
+        "route",
+        &["delete", &destination, "mask", &mask],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
     Ok(CommandResult {
         success: true,
         output: result,
     })
+}
+
+#[tauri::command]
+pub async fn delete_route(destination: String, mask: String) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || delete_route_blocking(destination, mask))
+        .await
+        .map_err(|err| format!("Route delete task join error: {err}"))?
 }
 
 /// Flush all routes
-#[tauri::command]
-pub async fn flush_routes() -> Result<CommandResult, String> {
-    let result = run_cmd("route", &["-f"]).await?;
+pub fn flush_routes_blocking() -> Result<CommandResult, String> {
+    let result = run_cmd_blocking(
+        "route",
+        &["-f"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
     Ok(CommandResult {
         success: true,
         output: result,
     })
 }
 
-/// Set a NIC as default internet gateway
 #[tauri::command]
-pub async fn set_default_gateway(
+pub async fn flush_routes() -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(flush_routes_blocking)
+        .await
+        .map_err(|err| format!("Route flush task join error: {err}"))?
+}
+
+pub fn set_default_gateway_blocking(
     gateway: String,
     interface_index: String,
 ) -> Result<CommandResult, String> {
@@ -726,7 +765,6 @@ pub async fn set_default_gateway(
         .parse::<u32>()
         .map_err(|_| "Invalid interface index".to_string())?;
 
-    // Remove default routes from every other NIC so only the selected interface remains WAN.
     let cleanup_script = r#"
 $ErrorActionPreference='SilentlyContinue'
 $targetIf = __TARGET_IF__
@@ -757,13 +795,18 @@ foreach ($route in $routes) {
 Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
 "#
     .replace("__TARGET_IF__", &target_interface_index.to_string());
-    let cleanup_output = run_powershell(&cleanup_script).await?;
+    let cleanup_output = run_powershell_blocking(
+        &cleanup_script,
+        Duration::from_secs(DEFAULT_POWERSHELL_TIMEOUT_SECS),
+    )?;
 
-    // Delete existing default route
-    let _ = run_cmd("route", &["delete", "0.0.0.0"]).await;
+    let _ = run_cmd_blocking(
+        "route",
+        &["delete", "0.0.0.0"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    );
 
-    // Add new default route with low metric
-    let result = run_cmd(
+    let result = run_cmd_blocking(
         "route",
         &[
             "-p",
@@ -777,8 +820,8 @@ Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
             "if",
             &interface_index,
         ],
-    )
-    .await?;
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
 
     Ok(CommandResult {
         success: true,
@@ -786,9 +829,20 @@ Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
     })
 }
 
-/// Enable/disable WAN persist task that reapplies selected interface as default gateway on startup.
+/// Set a NIC as default internet gateway
 #[tauri::command]
-pub async fn set_wan_persist_on_startup(
+pub async fn set_default_gateway(
+    gateway: String,
+    interface_index: String,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_default_gateway_blocking(gateway, interface_index)
+    })
+    .await
+    .map_err(|err| format!("Default gateway task join error: {err}"))?
+}
+
+pub fn set_wan_persist_on_startup_blocking(
     interface_index: String,
     enabled: bool,
 ) -> Result<CommandResult, String> {
@@ -804,7 +858,7 @@ pub async fn set_wan_persist_on_startup(
             r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{}""#,
             WAN_PERSIST_SCRIPT_PATH
         );
-        let create_output = run_cmd(
+        let create_output = run_cmd_blocking(
             "schtasks",
             &[
                 "/Create",
@@ -820,8 +874,8 @@ pub async fn set_wan_persist_on_startup(
                 &task_command,
                 "/F",
             ],
-        )
-        .await?;
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        )?;
 
         return Ok(CommandResult {
             success: true,
@@ -833,12 +887,11 @@ pub async fn set_wan_persist_on_startup(
         });
     }
 
-    let delete_output = match run_cmd(
+    let delete_output = match run_cmd_blocking(
         "schtasks",
         &["/Delete", "/TN", WAN_PERSIST_TASK_NAME, "/F"],
-    )
-    .await
-    {
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    ) {
         Ok(output) => output,
         Err(err) => {
             if is_task_not_found_error(&err) {
@@ -853,6 +906,19 @@ pub async fn set_wan_persist_on_startup(
         success: true,
         output: format!("Persist on startup disabled.\n{}", delete_output.trim()),
     })
+}
+
+/// Enable/disable WAN persist task that reapplies selected interface as default gateway on startup.
+#[tauri::command]
+pub async fn set_wan_persist_on_startup(
+    interface_index: String,
+    enabled: bool,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_wan_persist_on_startup_blocking(interface_index, enabled)
+    })
+    .await
+    .map_err(|err| format!("Persist-on-startup task join error: {err}"))?
 }
 
 /// Returns whether WAN persist startup task currently exists.
@@ -870,10 +936,7 @@ pub async fn get_wan_persist_on_startup_status() -> Result<bool, String> {
     }
 }
 
-/// Run a network fix command (flush DNS, renew IP, etc.)
-#[tauri::command]
-pub async fn run_network_command(command: String) -> Result<CommandResult, String> {
-    // Whitelist of allowed commands for security
+pub fn run_network_command_blocking(command: String) -> Result<CommandResult, String> {
     let allowed_prefixes = [
         "ipconfig",
         "ipconfig /displaydns",
@@ -898,12 +961,11 @@ pub async fn run_network_command(command: String) -> Result<CommandResult, Strin
         return Err("Command not allowed".to_string());
     }
 
-    let output = run_process(
+    let output = run_process_blocking(
         "cmd",
         &["/C", &command],
         Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
-    )
-    .await?;
+    )?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -912,6 +974,14 @@ pub async fn run_network_command(command: String) -> Result<CommandResult, Strin
         success: output.status.success(),
         output: if stdout.is_empty() { stderr } else { stdout },
     })
+}
+
+/// Run a network fix command (flush DNS, renew IP, etc.)
+#[tauri::command]
+pub async fn run_network_command(command: String) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_network_command_blocking(command))
+        .await
+        .map_err(|err| format!("Network command task join error: {err}"))?
 }
 
 /// Ping a host and return latency

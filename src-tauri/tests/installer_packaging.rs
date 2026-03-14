@@ -6,7 +6,7 @@ fn read_json(path: &str) -> Value {
 }
 
 #[test]
-fn installer_packaging_bundles_repair_sidecars_and_service_hooks() {
+fn installer_packaging_bundles_the_elevated_repair_broker_sidecar() {
     let tauri_config = read_json("tauri.conf.json");
     let package_json = read_json("../package.json");
     let cargo_toml = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml should be readable");
@@ -25,12 +25,13 @@ fn installer_packaging_bundles_repair_sidecars_and_service_hooks() {
         })
         .collect();
     assert!(
-        external_bin_values.contains(&"binaries/SuperRouteRepairService"),
-        "repair service sidecar should be bundled with the installer"
-    );
-    assert!(
         external_bin_values.contains(&"binaries/SuperRouteRepairBroker"),
         "repair broker sidecar should be bundled with the installer"
+    );
+    assert_eq!(
+        external_bin_values.len(),
+        1,
+        "the release bundle should only stage the elevated repair broker sidecar"
     );
 
     let bundle_targets = tauri_config["bundle"]["targets"]
@@ -42,7 +43,7 @@ fn installer_packaging_bundles_repair_sidecars_and_service_hooks() {
             .map(|value| value.as_str().unwrap_or_default())
             .collect::<Vec<_>>(),
         vec!["nsis"],
-        "release packaging should only ship the installer path that manages the repair service correctly"
+        "release packaging should only ship the installer path used for the elevated repair broker flow"
     );
 
     let before_build_command = tauri_config["build"]["beforeBuildCommand"]
@@ -66,19 +67,7 @@ fn installer_packaging_bundles_repair_sidecars_and_service_hooks() {
     );
 
     assert!(
-        installer_hooks.contains("NSIS_HOOK_POSTINSTALL"),
-        "installer hooks should register and start the repair service after install"
-    );
-    assert!(
-        installer_hooks.contains("NSIS_HOOK_PREUNINSTALL"),
-        "installer hooks should stop and remove the repair service before uninstall"
-    );
-    assert!(
-        installer_hooks.contains("SuperRouteRepairService"),
-        "installer hooks should reference the repair service binary and service name"
-    );
-    assert!(
-        installer_hooks.contains("sc.exe"),
-        "installer hooks should manage the Windows service through sc.exe"
+        !installer_hooks.contains("NSIS_HOOK_POSTINSTALL"),
+        "installer hooks should no longer try to install a placeholder Windows service"
     );
 }
