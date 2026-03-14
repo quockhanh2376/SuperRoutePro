@@ -5,6 +5,19 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-14 - Release v9.0.6 (Header Control Visual Sync)
+
+**Done**
+- Removed the inline `Status: LOCKED/UNLOCKED` text under the Repair Mode button to declutter the header.
+- Restyled the Lock/Unlock button so Locked and Unlocked states are differentiated directly by button color.
+- Moved the zoom controls into the primary header and updated their visual style to match the main action buttons.
+- Removed the divider between the zoom and Repair Mode controls for a cleaner unified header group.
+- Improved the light-mode `Command` chip so its blue color and label contrast are easier to read.
+- Updated `DAILY_LOG.md` so NotebookLM can stay aligned with the current release work.
+
+**Next Steps**
+- Run End-to-End testing of the standard user UI with local admin credentials.
+
 ## 2026-03-14 - Release v9.0.5 (Responsive UI Zoom Controls)
 
 **Done**

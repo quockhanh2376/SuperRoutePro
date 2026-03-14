@@ -1787,26 +1787,47 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex flex-col items-center gap-0.5 mr-1">
+          <div className="zoom-control-header" title="Adjust interface zoom">
             <button
-              onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
-              disabled={repairUnlocking || repairLoading}
-              className={`capsule-btn px-3 py-1 text-xs font-semibold ${
-                repairSession.locked
-                  ? "bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
-                  : "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
-              }`}
+              type="button"
+              onClick={handleZoomOut}
+              disabled={zoomLevel <= ZOOM_MIN}
+              className="zoom-btn-header"
+              title="Zoom out"
             >
-              {repairSession.locked 
-                ? (repairUnlocking ? "Unlocking..." : "Unlock Repair Mode")
-                : "Lock Repair Mode"}
+              <Minus className="w-3.5 h-3.5" />
             </button>
-            <span className={`text-[0.65rem] font-medium tracking-wide leading-none ${repairSession.locked ? "text-amber-400/80" : "text-emerald-400"}`}>
-              {repairSession.locked ? "Status: LOCKED" : "Status: UNLOCKED"}
+            <span
+              onClick={handleZoomReset}
+              className="zoom-label-header"
+              title="Reset zoom to 100%"
+            >
+              {zoomLevel}%
             </span>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={zoomLevel >= ZOOM_MAX}
+              className="zoom-btn-header"
+              title="Zoom in"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <div className="w-[1px] h-8 bg-slate-700/50 mx-1"></div>
+          <button
+            type="button"
+            onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
+            disabled={repairUnlocking || repairLoading}
+            className={`header-lock-action capsule-btn ${
+              repairSession.locked ? "header-lock-action-locked" : "header-lock-action-unlocked"
+            }`}
+            title={repairSession.locked ? "Unlock Repair Mode" : "Lock Repair Mode"}
+          >
+            {repairSession.locked
+              ? (repairUnlocking ? "Unlocking..." : "Unlock")
+              : "Lock"}
+          </button>
 
           <button
             onClick={handleOpenBloatwareModal}
@@ -1931,6 +1952,7 @@ export default function App() {
                 color="emerald"
                 onClick={handleAddRoute}
                 disabled={!machineRepairEnabled}
+                compact
               />
               <ActionBtn
                 icon={Trash2}
@@ -1938,12 +1960,14 @@ export default function App() {
                 color="red"
                 onClick={handleDeleteRoute}
                 disabled={!machineRepairEnabled}
+                compact
               />
               <ActionBtn
                 icon={Globe}
                 label="WAN"
                 color="blue"
                 disabled={!machineRepairEnabled}
+                compact
                 onClick={() => openConfirm(
                   "Set Default Gateway",
                   `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?\nPersist on startup: ${persistWanOnStartup ? "ON" : "OFF"}.`,
@@ -1955,6 +1979,7 @@ export default function App() {
                 label="FLUSH"
                 color="orange"
                 disabled={!machineRepairEnabled}
+                compact
                 onClick={() => openConfirm(
                   "Clear All Routes",
                   "Clear ALL routes? This action is dangerous.",
@@ -2164,31 +2189,7 @@ export default function App() {
             Help
           </button>
 
-          <div className="zoom-control">
-            <button
-              onClick={handleZoomOut}
-              disabled={zoomLevel <= ZOOM_MIN}
-              className="zoom-btn"
-              title="Zoom out"
-            >
-              <Minus className="w-3 h-3" />
-            </button>
-            <span
-              onClick={handleZoomReset}
-              className="zoom-label"
-              title="Reset zoom to 100%"
-            >
-              {zoomLevel}%
-            </span>
-            <button
-              onClick={handleZoomIn}
-              disabled={zoomLevel >= ZOOM_MAX}
-              className="zoom-btn"
-              title="Zoom in"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-          </div>
+
         </div>
         <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{appVersion} | Author {APP_AUTHOR}</span>
       </footer>
@@ -2926,8 +2927,8 @@ const Field = memo(function Field({ label, value, onChange, placeholder }: {
   );
 });
 
-const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick, disabled = false }: {
-  icon: React.ElementType; label: string; color: string; onClick: () => void; disabled?: boolean;
+const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick, disabled = false, compact = false }: {
+  icon: React.ElementType; label: string; color: string; onClick: () => void; disabled?: boolean; compact?: boolean;
 }) {
   const colors: Record<string, string> = {
     emerald: "bg-emerald-600/80 hover:bg-emerald-500 border-emerald-700/50",
@@ -2936,13 +2937,16 @@ const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick, d
     orange: "bg-orange-600/80 hover:bg-orange-500 border-orange-700/50",
     slate: "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70",
   };
+  const sizeClass = compact
+    ? "action-btn-compact min-w-[54px] px-1.5 gap-1 py-1 text-[0.66rem]"
+    : "min-w-[72px] px-2.5 gap-1.5 py-1.5 text-[0.76rem]";
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`capsule-btn min-w-[72px] px-2.5 flex items-center justify-center gap-1.5 py-1.5 text-[0.76rem] font-bold text-white border transition disabled:opacity-45 disabled:cursor-not-allowed ${colors[color] || colors.blue}`}
+      className={`capsule-btn flex items-center justify-center font-bold text-white border transition disabled:opacity-45 disabled:cursor-not-allowed ${sizeClass} ${colors[color] || colors.blue}`}
     >
-      <Icon className="w-3.5 h-3.5" /> {label}
+      <Icon className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} /> {label}
     </button>
   );
 });
