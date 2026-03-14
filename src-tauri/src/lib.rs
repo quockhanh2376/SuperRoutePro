@@ -1,4 +1,6 @@
 mod network;
+pub mod repair_ipc;
+pub mod repair_protocol;
 
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
@@ -7,6 +9,11 @@ use network::{
     check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
     clear_cache_targets, get_battery_report, get_battery_summary,
 };
+use repair_ipc::{
+    get_repair_service_health as read_repair_service_health,
+    get_repair_session_status as read_repair_session_status,
+};
+use repair_protocol::{RepairServiceHealth, RepairSessionStatus};
 use tauri::{Manager, WebviewWindowBuilder};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -70,9 +77,21 @@ pub fn run() {
             clear_cache_targets,
             get_battery_report,
             get_battery_summary,
+            get_repair_service_health,
+            get_repair_session_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn get_repair_service_health() -> RepairServiceHealth {
+    read_repair_service_health()
+}
+
+#[tauri::command]
+fn get_repair_session_status() -> RepairSessionStatus {
+    read_repair_session_status()
 }
 
 #[cfg(target_os = "windows")]
