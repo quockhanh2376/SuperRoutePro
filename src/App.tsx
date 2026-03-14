@@ -1750,6 +1750,27 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          <div className="flex flex-col items-center gap-0.5 mr-1">
+            <button
+              onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
+              disabled={repairUnlocking || repairLoading}
+              className={`capsule-btn px-3 py-1 text-xs font-semibold ${
+                repairSession.locked
+                  ? "bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
+                  : "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
+              }`}
+            >
+              {repairSession.locked 
+                ? (repairUnlocking ? "Unlocking..." : "Unlock Repair Mode")
+                : "Lock Repair Mode"}
+            </button>
+            <span className={`text-[0.65rem] font-medium tracking-wide leading-none ${repairSession.locked ? "text-amber-400/80" : "text-emerald-400"}`}>
+              {repairSession.locked ? "Status: LOCKED" : "Status: UNLOCKED"}
+            </span>
+          </div>
+
+          <div className="w-[1px] h-8 bg-slate-700/50 mx-1"></div>
+
           <button
             onClick={handleOpenBloatwareModal}
             disabled={!profileSensitiveActionEnabled || bloatwareLoading || bloatwareRemoving}
@@ -1794,28 +1815,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="px-5 py-2 border-b shrink-0 bg-slate-900/80 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center">
-          <div className="ml-auto flex flex-col items-end gap-1">
-            <button
-              onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
-              disabled={repairUnlocking || repairLoading}
-              className={`capsule-btn px-3 py-1.5 text-xs font-semibold ${
-                repairSession.locked
-                  ? "bg-blue-600/80 hover:bg-blue-500 border-blue-700/50 text-white"
-                  : "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70 text-slate-100"
-              }`}
-            >
-              {repairSession.locked 
-                ? (repairUnlocking ? "Unlocking..." : "Unlock Repair Mode")
-                : "Lock Repair Mode"}
-            </button>
-            <span className={`text-[0.65rem] font-medium tracking-wide ${repairSession.locked ? "text-amber-400/80" : "text-emerald-400"}`}>
-              {repairSession.locked ? "Status: LOCKED" : "Status: UNLOCKED"}
-            </span>
-          </div>
-        </div>
-      </div>
+
 
       {/* ====== MAIN CONTENT ====== */}
       <div className="content-grid flex-1 overflow-hidden">

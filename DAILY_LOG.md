@@ -14,6 +14,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Verified that clicking the Unlock toggle properly calls the backend and displays the native Windows UAC prompt for Administrative credentials, removing the need for a custom password modal.
 - Bumped app versions to `9.0.3` across the frontend and backend.
 - Applied UI hotfix to ensure all buttons work while Unlocked by removing target SID validation, and repositioned the Unlocked status badge under the toggle button.
+- Moved the Lock/Unlock button into the primary header and removed the secondary top bar, saving vertical space to properly fit 14-inch laptop screens.
 
 **Next Steps**
 - End-to-End testing of the standard user UI with local admin credentials.
