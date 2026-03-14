@@ -17,10 +17,10 @@
     "release:patch": "npm run release:ship -- patch",
     "release:minor": "npm run release:ship -- minor",
     "release:major": "npm run release:ship -- major",
-    "release:build": "tauri build",
+    "release:build": "npm run tauri -- build",
     "release:local": "powershell -ExecutionPolicy Bypass -File scripts/release.ps1",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node -e \"const path=require('node:path');const {pathToFileURL}=require('node:url');const root=process.env.INIT_CWD||process.cwd();import(pathToFileURL(path.join(root,'scripts','run-tauri.mjs')).href).then(({runTauri})=>runTauri(process.argv.slice(1),{cwd:root,packageRoot:root})).then(({code,signal})=>{if(signal){process.kill(process.pid,signal);return;}process.exit(code??0);}).catch((error)=>{console.error(error instanceof Error?error.message:error);process.exit(1);});\" --"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
