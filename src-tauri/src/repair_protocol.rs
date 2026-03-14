@@ -35,3 +35,15 @@ impl RepairServiceHealth {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RepairServiceRequest {
+    GetServiceHealth,
+    GetRepairSessionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RepairServiceResponse {
+    ServiceHealth(RepairServiceHealth),
+    RepairSessionStatus(RepairSessionStatus),
+}

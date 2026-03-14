@@ -1,8 +1,14 @@
 use super_route_pro_lib::repair_ipc::{
+    decode_message,
+    encode_message,
     get_repair_service_health,
     get_repair_session_status,
+    handle_request,
 };
-use super_route_pro_lib::repair_protocol::{RepairServiceHealth, RepairSessionStatus};
+use super_route_pro_lib::repair_protocol::{
+    RepairServiceHealth, RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+};
+use super_route_pro_lib::repair_session::RepairSessionManager;
 
 #[test]
 fn repair_protocol_types_serialize_expected_status_fields() {
@@ -56,4 +62,34 @@ fn repair_protocol_placeholder_ipc_returns_service_unavailable_state() {
         health.detail.as_deref(),
         Some("Repair service is not installed or reachable yet.")
     );
+}
+
+#[test]
+fn service_health_round_trip_uses_stable_ipc_framing() {
+    let request_frame = encode_message(&RepairServiceRequest::GetServiceHealth)
+        .expect("request should encode");
+    let request: RepairServiceRequest =
+        decode_message(&request_frame).expect("request should decode");
+
+    let response = handle_request(&RepairSessionManager::new(), request);
+    let response_frame = encode_message(&response).expect("response should encode");
+    let decoded: RepairServiceResponse =
+        decode_message(&response_frame).expect("response should decode");
+
+    match decoded {
+        RepairServiceResponse::ServiceHealth(health) => {
+            assert!(!health.connected, "service skeleton should still be unavailable");
+            assert!(
+                health.requires_unlock,
+                "service skeleton should keep privileged actions gated"
+            );
+            assert_eq!(
+                health.detail.as_deref(),
+                Some("Repair service is not installed or reachable yet.")
+            );
+        }
+        RepairServiceResponse::RepairSessionStatus(_) => {
+            panic!("expected service health response");
+        }
+    }
 }

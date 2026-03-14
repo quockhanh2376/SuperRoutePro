@@ -9,6 +9,10 @@ edition = "2021"
 name = "SuperRoute"
 path = "src/main.rs"
 
+[[bin]]
+name = "SuperRouteRepairService"
+path = "src/repair_service_main.rs"
+
 [lib]
 name = "super_route_pro_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
