@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import {
-  Zap, Wifi, WifiOff, RefreshCw, Plus, Trash2, Globe, Flame,
+  Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Globe, Flame,
   Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
   ChevronDown, ChevronUp, ArrowDownUp, X, CircleHelp
 } from "lucide-react";
@@ -456,6 +456,19 @@ export default function App() {
   const [persistWanOnStartup, setPersistWanOnStartup] = useState(false);
   const [persistWanLoading, setPersistWanLoading] = useState(true);
 
+  const ZOOM_MIN = 75;
+  const ZOOM_MAX = 120;
+  const ZOOM_STEP = 5;
+  const ZOOM_DEFAULT = 100;
+  const [zoomLevel, setZoomLevel] = useState<number>(() => {
+    const saved = localStorage.getItem("app-zoom-level");
+    if (saved) {
+      const parsed = Number.parseInt(saved, 10);
+      if (Number.isFinite(parsed) && parsed >= ZOOM_MIN && parsed <= ZOOM_MAX) return parsed;
+    }
+    return ZOOM_DEFAULT;
+  });
+
   // State
   const [nics, setNics] = useState<NetworkInterface[]>([]);
   const [routes, setRoutes] = useState<RouteEntry[]>([]);
@@ -592,6 +605,30 @@ export default function App() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const htmlEl = document.documentElement;
+    if (zoomLevel === ZOOM_DEFAULT) {
+      htmlEl.removeAttribute("data-zoom");
+      htmlEl.style.removeProperty("--zoom-level");
+    } else {
+      htmlEl.setAttribute("data-zoom", String(zoomLevel));
+      htmlEl.style.setProperty("--zoom-level", `${zoomLevel}%`);
+    }
+    localStorage.setItem("app-zoom-level", String(zoomLevel));
+  }, [zoomLevel]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel((prev) => Math.min(ZOOM_MAX, prev + ZOOM_STEP));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel((prev) => Math.max(ZOOM_MIN, prev - ZOOM_STEP));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(ZOOM_DEFAULT);
   }, []);
 
   const loadRepairTargets = useCallback(async () => {
@@ -2126,6 +2163,32 @@ export default function App() {
             <CircleHelp className="w-3.5 h-3.5" />
             Help
           </button>
+
+          <div className="zoom-control">
+            <button
+              onClick={handleZoomOut}
+              disabled={zoomLevel <= ZOOM_MIN}
+              className="zoom-btn"
+              title="Zoom out"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span
+              onClick={handleZoomReset}
+              className="zoom-label"
+              title="Reset zoom to 100%"
+            >
+              {zoomLevel}%
+            </span>
+            <button
+              onClick={handleZoomIn}
+              disabled={zoomLevel >= ZOOM_MAX}
+              className="zoom-btn"
+              title="Zoom in"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
         </div>
         <span className="version-text text-[0.85rem] font-semibold">SuperRoute Pro V.{appVersion} | Author {APP_AUTHOR}</span>
       </footer>

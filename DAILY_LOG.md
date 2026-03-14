@@ -5,6 +5,15 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-14 - Release v9.0.5 (Responsive UI Zoom Controls)
+
+**Done**
+- Modified base `font-size` using `clamp()` for responsive auto-scaling on smaller screens like 14-inch laptops.
+- Added zoom control buttons (`−` / `+`) to the footer, allowing users to fine-tune UI scaling from 75% to 120%.
+- Saved user zoom preference persistently via `localStorage`.
+- Bumped app versions to `9.0.5` across frontend and backend.
+- Pushed release `9.0.5` to GitHub.
+
 ## 2026-03-14 - Release v9.0.4 (UI Layout refinements)
 
 **Done**
