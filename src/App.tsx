@@ -9,7 +9,7 @@ import {
   getNetworkInterfaces, getRoutingTable,
   runNetworkCommand, pingHost,
   fpingScan, getWanPersistOnStartupStatus, checkInternet,
-  getBloatwareCandidates, removeBloatware, clearCacheTargets, getBatterySummary,
+  getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSetWanPersistOnStartup, runRepairMachineAction,
@@ -1336,6 +1336,10 @@ export default function App() {
       setStatusMsg("Select at least one app to remove");
       return;
     }
+    if (!selectedRepairTargetSid) {
+      setStatusMsg("Select a target user before removing apps");
+      return;
+    }
 
     setBloatwareRemoving(true);
     setDiagnosticView("command");
@@ -1354,9 +1358,19 @@ export default function App() {
         setRemoveProgressText(`Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`);
 
         try {
-          const result = await removeBloatware([packageName]);
+          const result = await repairRemoveBloatware(
+            selectedRepairTargetSid,
+            [packageName],
+            true
+          );
           appendCommandOutput(`Remove Apps - ${appLabel}`, result.output);
-          if (result.success) {
+          if (result.requires_unlock) {
+            failedCount += 1;
+            setStatusMsg("Unlock Repair Mode first to remove apps");
+            const status = await getRepairSessionStatus();
+            setRepairSession(status);
+            break;
+          } else if (result.success) {
             successCount += 1;
           } else {
             failedCount += 1;
@@ -1387,7 +1401,7 @@ export default function App() {
     } finally {
       setBloatwareRemoving(false);
     }
-  }, [appendCommandOutput, bloatwareItems, loadBloatwareList, selectedBloatware]);
+  }, [appendCommandOutput, bloatwareItems, loadBloatwareList, selectedBloatware, selectedRepairTargetSid]);
 
   const handleOpenCacheModal = useCallback(() => {
     setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
@@ -1436,6 +1450,10 @@ export default function App() {
       setStatusMsg("Select at least one cache target");
       return;
     }
+    if (!selectedRepairTargetSid) {
+      setStatusMsg("Select a target user before cleaning profile caches");
+      return;
+    }
 
     setCacheCleaning(true);
     setCacheStopPending(false);
@@ -1462,9 +1480,15 @@ export default function App() {
         );
 
         try {
-          const result = await clearCacheTargets([target.id]);
+          const result = await repairClearCacheTargets(selectedRepairTargetSid, [target.id]);
           appendCommandOutput(`Clear Cache - ${target.label}`, result.output);
-          if (result.success) {
+          if (result.requires_unlock) {
+            failedCount += 1;
+            setStatusMsg("Unlock Repair Mode first to clean profile caches");
+            const status = await getRepairSessionStatus();
+            setRepairSession(status);
+            break;
+          } else if (result.success) {
             successCount += 1;
           } else {
             failedCount += 1;
@@ -1511,7 +1535,7 @@ export default function App() {
       setCacheStopPending(false);
       cacheStopRequestedRef.current = false;
     }
-  }, [appendCommandOutput, selectedCacheTargets]);
+  }, [appendCommandOutput, selectedCacheTargets, selectedRepairTargetSid]);
 
   const openConfirm = (
     title: string,

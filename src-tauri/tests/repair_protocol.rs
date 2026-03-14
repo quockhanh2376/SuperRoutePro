@@ -6,9 +6,10 @@ use super_route_pro_lib::repair_ipc::{
     handle_request,
 };
 use super_route_pro_lib::repair_protocol::{
-    AddRouteRequest, RepairCommandResult, RepairMachineAction, RepairServiceHealth,
+    AddRouteRequest, AppxRemovalRequest, RepairCommandResult, RepairMachineAction, RepairServiceHealth,
     RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
 };
+use super_route_pro_lib::repair_actions::validate_appx_removal_request;
 use super_route_pro_lib::repair_session::RepairSessionManager;
 
 #[test]
@@ -142,4 +143,35 @@ fn typed_actions_require_unlock_before_execution() {
         }
         _ => panic!("expected machine action response"),
     }
+}
+
+#[test]
+fn appx_removal_request_carries_target_scope_and_provisioned_flag() {
+    let request = AppxRemovalRequest {
+        target_sid: "S-1-5-21-1001".to_string(),
+        packages: vec!["MicrosoftTeams".to_string()],
+        remove_provisioned: true,
+    };
+
+    let json = serde_json::to_value(&request).expect("appx request should serialize");
+    assert_eq!(json["target_sid"], "S-1-5-21-1001");
+    assert_eq!(json["packages"][0], "MicrosoftTeams");
+    assert_eq!(json["remove_provisioned"], true);
+}
+
+#[test]
+fn appx_removal_request_rejects_missing_target_and_non_whitelisted_packages() {
+    let missing_target = AppxRemovalRequest {
+        target_sid: "".to_string(),
+        packages: vec!["MicrosoftTeams".to_string()],
+        remove_provisioned: true,
+    };
+    assert!(validate_appx_removal_request(&missing_target).is_err());
+
+    let invalid_package = AppxRemovalRequest {
+        target_sid: "S-1-5-21-1001".to_string(),
+        packages: vec!["Not.Allowed.Package".to_string()],
+        remove_provisioned: true,
+    };
+    assert!(validate_appx_removal_request(&invalid_package).is_err());
 }

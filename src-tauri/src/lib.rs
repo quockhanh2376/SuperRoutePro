@@ -20,8 +20,8 @@ use repair_ipc::{
     lock_repair_mode as lock_repair_mode_state,
 };
 use repair_protocol::{
-    RepairCommandResult, RepairMachineAction, RepairServiceHealth, RepairSessionStatus,
-    UnlockRepairSessionRequest,
+    AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
+    RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 use tauri::{Manager, WebviewWindowBuilder};
@@ -98,6 +98,8 @@ pub fn run() {
             repair_set_default_gateway,
             repair_set_wan_persist_on_startup,
             repair_run_machine_action,
+            repair_clear_cache_targets,
+            repair_remove_bloatware,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -200,6 +202,37 @@ async fn repair_run_machine_action(
 ) -> Result<RepairCommandResult, String> {
     let session_status = read_repair_session_status();
     repair_actions::run_machine_action(&session_status, action).await
+}
+
+#[tauri::command]
+async fn repair_clear_cache_targets(
+    target_sid: String,
+    targets: Vec<String>,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::clear_profile_caches(
+        &session_status,
+        ProfileCleanupRequest { target_sid, targets },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn repair_remove_bloatware(
+    target_sid: String,
+    packages: Vec<String>,
+    remove_provisioned: bool,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::remove_appx_for_target(
+        &session_status,
+        AppxRemovalRequest {
+            target_sid,
+            packages,
+            remove_provisioned,
+        },
+    )
+    .await
 }
 
 #[cfg(target_os = "windows")]

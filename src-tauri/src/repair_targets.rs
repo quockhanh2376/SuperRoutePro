@@ -159,6 +159,23 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
     Ok(targets)
 }
 
+#[cfg(target_os = "windows")]
+pub fn resolve_repair_target_by_sid(target_sid: &str) -> Result<RepairTargetUser, String> {
+    if !validate_target_sid(target_sid) {
+        return Err("Invalid target SID".to_string());
+    }
+
+    list_repair_targets()?
+        .into_iter()
+        .find(|target| target.sid == target_sid)
+        .ok_or_else(|| format!("Unable to resolve target profile for SID {target_sid}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn resolve_repair_target_by_sid(_target_sid: &str) -> Result<RepairTargetUser, String> {
+    Err("Repair targets are only available on Windows.".to_string())
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
     Err("Repair targets are only available on Windows.".to_string())

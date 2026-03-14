@@ -100,6 +100,19 @@ pub struct SetWanPersistOnStartupRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileCleanupRequest {
+    pub target_sid: String,
+    pub targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppxRemovalRequest {
+    pub target_sid: String,
+    pub packages: Vec<String>,
+    pub remove_provisioned: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RepairMachineAction {
     AddRoute(AddRouteRequest),
     DeleteRoute(DeleteRouteRequest),

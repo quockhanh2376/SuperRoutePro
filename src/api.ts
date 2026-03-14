@@ -187,8 +187,30 @@ export async function removeBloatware(packages: string[]): Promise<CommandResult
   return invoke<CommandResult>("remove_bloatware", { packages });
 }
 
+export async function repairRemoveBloatware(
+  targetSid: string,
+  packages: string[],
+  removeProvisioned: boolean,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_remove_bloatware", {
+    targetSid,
+    packages,
+    removeProvisioned,
+  });
+}
+
 export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
   return invoke<CommandResult>("clear_cache_targets", { targets });
+}
+
+export async function repairClearCacheTargets(
+  targetSid: string,
+  targets: string[],
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_clear_cache_targets", {
+    targetSid,
+    targets,
+  });
 }
 
 export async function getBatteryReport(): Promise<BatteryReportResult> {
