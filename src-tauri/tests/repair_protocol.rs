@@ -71,7 +71,8 @@ fn service_health_round_trip_uses_stable_ipc_framing() {
     let request: RepairServiceRequest =
         decode_message(&request_frame).expect("request should decode");
 
-    let response = handle_request(&RepairSessionManager::new(), request);
+    let mut session_manager = RepairSessionManager::new();
+    let response = handle_request(&mut session_manager, request);
     let response_frame = encode_message(&response).expect("response should encode");
     let decoded: RepairServiceResponse =
         decode_message(&response_frame).expect("response should decode");
@@ -89,6 +90,9 @@ fn service_health_round_trip_uses_stable_ipc_framing() {
             );
         }
         RepairServiceResponse::RepairSessionStatus(_) => {
+            panic!("expected service health response");
+        }
+        RepairServiceResponse::UnlockRepairSession(_) => {
             panic!("expected service health response");
         }
     }

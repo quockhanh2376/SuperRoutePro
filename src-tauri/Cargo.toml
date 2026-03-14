@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "SuperRouteRepairService"
 path = "src/repair_service_main.rs"
 
+[[bin]]
+name = "SuperRouteRepairBroker"
+path = "src/repair_broker_main.rs"
+
 [lib]
 name = "super_route_pro_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

@@ -74,3 +74,22 @@ fn repair_session_locks_again_when_the_active_connection_disconnects() {
         "disconnecting the active connection should clear connected state"
     );
 }
+
+#[test]
+fn unlock_nonce_transitions_session_from_locked_to_unlocked() {
+    let mut manager = RepairSessionManager::new();
+
+    let request = manager.issue_unlock_request("app-1", "conn-1");
+    assert!(manager.status().locked, "issuing a nonce should not unlock by itself");
+
+    let response = manager.unlock_with_request(&request);
+    assert!(response.unlocked, "matching nonce should unlock the session");
+    assert!(
+        !manager.status().locked,
+        "successful nonce verification should open the repair session"
+    );
+    assert!(
+        !manager.status().requires_unlock,
+        "successful nonce verification should clear the unlock gate"
+    );
+}

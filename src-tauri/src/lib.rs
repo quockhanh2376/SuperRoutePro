@@ -2,6 +2,7 @@ mod network;
 pub mod repair_ipc;
 pub mod repair_protocol;
 pub mod repair_session;
+pub mod repair_targets;
 
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
@@ -11,10 +12,15 @@ use network::{
     clear_cache_targets, get_battery_report, get_battery_summary,
 };
 use repair_ipc::{
+    complete_unlock_request,
     get_repair_service_health as read_repair_service_health,
     get_repair_session_status as read_repair_session_status,
+    issue_unlock_request,
 };
-use repair_protocol::{RepairServiceHealth, RepairSessionStatus};
+use repair_protocol::{
+    RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
+};
+use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 use tauri::{Manager, WebviewWindowBuilder};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -80,6 +86,8 @@ pub fn run() {
             get_battery_summary,
             get_repair_service_health,
             get_repair_session_status,
+            list_repair_targets,
+            unlock_repair_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -93,6 +101,29 @@ fn get_repair_service_health() -> RepairServiceHealth {
 #[tauri::command]
 fn get_repair_session_status() -> RepairSessionStatus {
     read_repair_session_status()
+}
+
+#[tauri::command]
+fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
+    read_repair_targets()
+}
+
+#[tauri::command]
+fn unlock_repair_mode(
+    app_instance_id: String,
+    connection_id: String,
+) -> Result<RepairSessionStatus, String> {
+    let request = issue_unlock_request(&app_instance_id, &connection_id);
+    launch_repair_broker(&request)?;
+
+    let response = complete_unlock_request(request);
+    if response.unlocked {
+        Ok(read_repair_session_status())
+    } else {
+        Err(response
+            .detail
+            .unwrap_or_else(|| "Repair mode unlock failed.".to_string()))
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -292,4 +323,36 @@ mod tests {
             "build script should not describe the UI process as using an admin manifest"
         );
     }
+}
+
+#[cfg(target_os = "windows")]
+fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), String> {
+    let broker_path = std::env::current_exe()
+        .map_err(|err| format!("Unable to locate the current executable: {err}"))?
+        .with_file_name("SuperRouteRepairBroker.exe");
+
+    if !broker_path.exists() {
+        return Ok(());
+    }
+
+    let status = Command::new(&broker_path)
+        .args([
+            request.app_instance_id.as_str(),
+            request.connection_id.as_str(),
+            request.nonce.as_str(),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|err| format!("Unable to launch the repair broker: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Repair broker exited before completing the unlock request.".to_string())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn launch_repair_broker(_request: &UnlockRepairSessionRequest) -> Result<(), String> {
+    Err("Repair mode unlock is only available on Windows.".to_string())
 }

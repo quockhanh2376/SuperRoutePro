@@ -1,8 +1,16 @@
 use crate::repair_protocol::{
     RepairServiceHealth, RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+    UnlockRepairSessionRequest, UnlockRepairSessionResponse,
 };
 use crate::repair_session::RepairSessionManager;
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::{Mutex, OnceLock};
+
+static REPAIR_SESSION_MANAGER: OnceLock<Mutex<RepairSessionManager>> = OnceLock::new();
+
+fn session_manager() -> &'static Mutex<RepairSessionManager> {
+    REPAIR_SESSION_MANAGER.get_or_init(|| Mutex::new(RepairSessionManager::new()))
+}
 
 pub fn encode_message<T: Serialize>(message: &T) -> Result<Vec<u8>, String> {
     let payload = serde_json::to_vec(message).map_err(|err| err.to_string())?;
@@ -31,7 +39,7 @@ pub fn decode_message<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
 }
 
 pub fn handle_request(
-    session_manager: &RepairSessionManager,
+    session_manager: &mut RepairSessionManager,
     request: RepairServiceRequest,
 ) -> RepairServiceResponse {
     match request {
@@ -41,25 +49,61 @@ pub fn handle_request(
         RepairServiceRequest::GetRepairSessionStatus => {
             RepairServiceResponse::RepairSessionStatus(session_manager.status())
         }
+        RepairServiceRequest::UnlockRepairSession(request) => {
+            RepairServiceResponse::UnlockRepairSession(session_manager.unlock_with_request(&request))
+        }
     }
 }
 
 pub fn get_repair_service_health() -> RepairServiceHealth {
-    match handle_request(
-        &RepairSessionManager::new(),
-        RepairServiceRequest::GetServiceHealth,
-    ) {
+    let mut session_manager = session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned");
+    match handle_request(&mut session_manager, RepairServiceRequest::GetServiceHealth) {
         RepairServiceResponse::ServiceHealth(health) => health,
-        RepairServiceResponse::RepairSessionStatus(_) => RepairServiceHealth::service_unavailable(),
+        RepairServiceResponse::RepairSessionStatus(_)
+        | RepairServiceResponse::UnlockRepairSession(_) => RepairServiceHealth::service_unavailable(),
     }
 }
 
 pub fn get_repair_session_status() -> RepairSessionStatus {
-    match handle_request(
-        &RepairSessionManager::new(),
-        RepairServiceRequest::GetRepairSessionStatus,
-    ) {
+    let mut session_manager = session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned");
+    match handle_request(&mut session_manager, RepairServiceRequest::GetRepairSessionStatus) {
         RepairServiceResponse::RepairSessionStatus(status) => status,
-        RepairServiceResponse::ServiceHealth(_) => RepairSessionStatus::service_unavailable(),
+        RepairServiceResponse::ServiceHealth(_)
+        | RepairServiceResponse::UnlockRepairSession(_) => RepairSessionStatus::service_unavailable(),
+    }
+}
+
+pub fn issue_unlock_request(
+    app_instance_id: &str,
+    connection_id: &str,
+) -> UnlockRepairSessionRequest {
+    session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned")
+        .issue_unlock_request(app_instance_id.to_string(), connection_id.to_string())
+}
+
+pub fn complete_unlock_request(
+    request: UnlockRepairSessionRequest,
+) -> UnlockRepairSessionResponse {
+    let mut session_manager = session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned");
+
+    match handle_request(
+        &mut session_manager,
+        RepairServiceRequest::UnlockRepairSession(request),
+    ) {
+        RepairServiceResponse::UnlockRepairSession(response) => response,
+        RepairServiceResponse::ServiceHealth(_) | RepairServiceResponse::RepairSessionStatus(_) => {
+            UnlockRepairSessionResponse {
+                unlocked: false,
+                detail: Some("Repair service returned an unexpected unlock response.".to_string()),
+            }
+        }
     }
 }

@@ -40,10 +40,25 @@ impl RepairServiceHealth {
 pub enum RepairServiceRequest {
     GetServiceHealth,
     GetRepairSessionStatus,
+    UnlockRepairSession(UnlockRepairSessionRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RepairServiceResponse {
     ServiceHealth(RepairServiceHealth),
     RepairSessionStatus(RepairSessionStatus),
+    UnlockRepairSession(UnlockRepairSessionResponse),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlockRepairSessionRequest {
+    pub app_instance_id: String,
+    pub connection_id: String,
+    pub nonce: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlockRepairSessionResponse {
+    pub unlocked: bool,
+    pub detail: Option<String>,
 }
