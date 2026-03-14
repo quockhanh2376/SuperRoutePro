@@ -1,5 +1,6 @@
 use crate::repair_protocol::{
-    RepairServiceHealth, RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+    RepairCommandResult, RepairServiceHealth, RepairServiceRequest, RepairServiceResponse,
+    RepairSessionStatus,
     UnlockRepairSessionRequest, UnlockRepairSessionResponse,
 };
 use crate::repair_session::RepairSessionManager;
@@ -52,6 +53,20 @@ pub fn handle_request(
         RepairServiceRequest::UnlockRepairSession(request) => {
             RepairServiceResponse::UnlockRepairSession(session_manager.unlock_with_request(&request))
         }
+        RepairServiceRequest::RunMachineAction(_) => {
+            let status = session_manager.status();
+            RepairServiceResponse::RepairAction(RepairCommandResult {
+                success: false,
+                output: if status.locked {
+                    "Repair Mode is locked. Unlock Repair Mode before running admin fixes."
+                        .to_string()
+                } else {
+                    "Machine action dispatch is not connected to the repair service yet."
+                        .to_string()
+                },
+                requires_unlock: status.locked,
+            })
+        }
     }
 }
 
@@ -62,7 +77,8 @@ pub fn get_repair_service_health() -> RepairServiceHealth {
     match handle_request(&mut session_manager, RepairServiceRequest::GetServiceHealth) {
         RepairServiceResponse::ServiceHealth(health) => health,
         RepairServiceResponse::RepairSessionStatus(_)
-        | RepairServiceResponse::UnlockRepairSession(_) => RepairServiceHealth::service_unavailable(),
+        | RepairServiceResponse::UnlockRepairSession(_)
+        | RepairServiceResponse::RepairAction(_) => RepairServiceHealth::service_unavailable(),
     }
 }
 
@@ -74,6 +90,7 @@ pub fn get_repair_session_status() -> RepairSessionStatus {
         RepairServiceResponse::RepairSessionStatus(status) => status,
         RepairServiceResponse::ServiceHealth(_)
         | RepairServiceResponse::UnlockRepairSession(_) => RepairSessionStatus::service_unavailable(),
+        RepairServiceResponse::RepairAction(_) => RepairSessionStatus::service_unavailable(),
     }
 }
 
@@ -99,11 +116,21 @@ pub fn complete_unlock_request(
         RepairServiceRequest::UnlockRepairSession(request),
     ) {
         RepairServiceResponse::UnlockRepairSession(response) => response,
-        RepairServiceResponse::ServiceHealth(_) | RepairServiceResponse::RepairSessionStatus(_) => {
+        RepairServiceResponse::ServiceHealth(_)
+        | RepairServiceResponse::RepairSessionStatus(_)
+        | RepairServiceResponse::RepairAction(_) => {
             UnlockRepairSessionResponse {
                 unlocked: false,
                 detail: Some("Repair service returned an unexpected unlock response.".to_string()),
             }
         }
     }
+}
+
+pub fn lock_repair_mode() -> RepairSessionStatus {
+    let mut session_manager = session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned");
+    session_manager.lock();
+    session_manager.status()
 }

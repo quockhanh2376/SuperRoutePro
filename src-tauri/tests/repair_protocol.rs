@@ -6,7 +6,8 @@ use super_route_pro_lib::repair_ipc::{
     handle_request,
 };
 use super_route_pro_lib::repair_protocol::{
-    RepairServiceHealth, RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+    AddRouteRequest, RepairCommandResult, RepairMachineAction, RepairServiceHealth,
+    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
 };
 use super_route_pro_lib::repair_session::RepairSessionManager;
 
@@ -95,5 +96,50 @@ fn service_health_round_trip_uses_stable_ipc_framing() {
         RepairServiceResponse::UnlockRepairSession(_) => {
             panic!("expected service health response");
         }
+        RepairServiceResponse::RepairAction(_) => {
+            panic!("expected service health response");
+        }
+    }
+}
+
+#[test]
+fn typed_actions_serialize_expected_requests() {
+    let action = RepairMachineAction::AddRoute(AddRouteRequest {
+        destination: "10.10.10.0".to_string(),
+        mask: "255.255.255.0".to_string(),
+        gateway: "10.10.10.1".to_string(),
+        metric: "5".to_string(),
+        interface_index: Some("12".to_string()),
+    });
+
+    let json = serde_json::to_value(&action).expect("typed action should serialize");
+    assert_eq!(json["AddRoute"]["destination"], "10.10.10.0");
+    assert_eq!(json["AddRoute"]["mask"], "255.255.255.0");
+    assert_eq!(json["AddRoute"]["gateway"], "10.10.10.1");
+    assert_eq!(json["AddRoute"]["metric"], "5");
+    assert_eq!(json["AddRoute"]["interface_index"], "12");
+}
+
+#[test]
+fn typed_actions_require_unlock_before_execution() {
+    let mut session_manager = RepairSessionManager::new();
+    let response = handle_request(
+        &mut session_manager,
+        RepairServiceRequest::RunMachineAction(RepairMachineAction::ResetWinsock),
+    );
+
+    match response {
+        RepairServiceResponse::RepairAction(RepairCommandResult {
+            success,
+            requires_unlock,
+            ..
+        }) => {
+            assert!(!success, "locked repair mode should reject machine actions");
+            assert!(
+                requires_unlock,
+                "locked repair mode should tell the UI to unlock first"
+            );
+        }
+        _ => panic!("expected machine action response"),
     }
 }

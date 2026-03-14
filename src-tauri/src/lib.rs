@@ -1,4 +1,5 @@
 mod network;
+pub mod repair_actions;
 pub mod repair_ipc;
 pub mod repair_protocol;
 pub mod repair_session;
@@ -16,9 +17,11 @@ use repair_ipc::{
     get_repair_service_health as read_repair_service_health,
     get_repair_session_status as read_repair_session_status,
     issue_unlock_request,
+    lock_repair_mode as lock_repair_mode_state,
 };
 use repair_protocol::{
-    RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
+    RepairCommandResult, RepairMachineAction, RepairServiceHealth, RepairSessionStatus,
+    UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 use tauri::{Manager, WebviewWindowBuilder};
@@ -88,6 +91,13 @@ pub fn run() {
             get_repair_session_status,
             list_repair_targets,
             unlock_repair_mode,
+            lock_repair_mode,
+            repair_add_route,
+            repair_delete_route,
+            repair_flush_routes,
+            repair_set_default_gateway,
+            repair_set_wan_persist_on_startup,
+            repair_run_machine_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -124,6 +134,72 @@ fn unlock_repair_mode(
             .detail
             .unwrap_or_else(|| "Repair mode unlock failed.".to_string()))
     }
+}
+
+#[tauri::command]
+fn lock_repair_mode() -> RepairSessionStatus {
+    lock_repair_mode_state()
+}
+
+#[tauri::command]
+async fn repair_add_route(
+    destination: String,
+    mask: String,
+    gateway: String,
+    metric: String,
+    interface_index: Option<String>,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::add_route(
+        &session_status,
+        destination,
+        mask,
+        gateway,
+        metric,
+        interface_index,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn repair_delete_route(
+    destination: String,
+    mask: String,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::delete_route(&session_status, destination, mask).await
+}
+
+#[tauri::command]
+async fn repair_flush_routes() -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::flush_routes(&session_status).await
+}
+
+#[tauri::command]
+async fn repair_set_default_gateway(
+    gateway: String,
+    interface_index: String,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::set_default_gateway(&session_status, gateway, interface_index).await
+}
+
+#[tauri::command]
+async fn repair_set_wan_persist_on_startup(
+    interface_index: String,
+    enabled: bool,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::set_wan_persist_on_startup(&session_status, interface_index, enabled).await
+}
+
+#[tauri::command]
+async fn repair_run_machine_action(
+    action: RepairMachineAction,
+) -> Result<RepairCommandResult, String> {
+    let session_status = read_repair_session_status();
+    repair_actions::run_machine_action(&session_status, action).await
 }
 
 #[cfg(target_os = "windows")]

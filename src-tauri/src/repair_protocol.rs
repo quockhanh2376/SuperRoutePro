@@ -41,6 +41,7 @@ pub enum RepairServiceRequest {
     GetServiceHealth,
     GetRepairSessionStatus,
     UnlockRepairSession(UnlockRepairSessionRequest),
+    RunMachineAction(RepairMachineAction),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,7 @@ pub enum RepairServiceResponse {
     ServiceHealth(RepairServiceHealth),
     RepairSessionStatus(RepairSessionStatus),
     UnlockRepairSession(UnlockRepairSessionResponse),
+    RepairAction(RepairCommandResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,4 +63,55 @@ pub struct UnlockRepairSessionRequest {
 pub struct UnlockRepairSessionResponse {
     pub unlocked: bool,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepairCommandResult {
+    pub success: bool,
+    pub output: String,
+    pub requires_unlock: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddRouteRequest {
+    pub destination: String,
+    pub mask: String,
+    pub gateway: String,
+    pub metric: String,
+    pub interface_index: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteRouteRequest {
+    pub destination: String,
+    pub mask: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetDefaultGatewayRequest {
+    pub gateway: String,
+    pub interface_index: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetWanPersistOnStartupRequest {
+    pub interface_index: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RepairMachineAction {
+    AddRoute(AddRouteRequest),
+    DeleteRoute(DeleteRouteRequest),
+    FlushRoutes,
+    SetDefaultGateway(SetDefaultGatewayRequest),
+    SetWanPersistOnStartup(SetWanPersistOnStartupRequest),
+    FlushDns,
+    RenewDhcpLease,
+    ClearArpCache,
+    ResetTcpIp,
+    ResetWinsock,
+    ResetFirewall,
+    ResetWinHttpProxy,
+    RestartActiveAdapters,
 }
