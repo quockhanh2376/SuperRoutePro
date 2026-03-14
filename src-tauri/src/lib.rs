@@ -1,6 +1,7 @@
 mod network;
 pub mod repair_ipc;
 pub mod repair_protocol;
+pub mod repair_session;
 
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
