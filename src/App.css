@@ -251,7 +251,7 @@ html[data-zoom] {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(760px, 1.82fr) minmax(260px, 0.72fr);
+  grid-template-columns: minmax(680px, 1.58fr) minmax(300px, 0.86fr);
 }
 
 .left-panel {
@@ -267,7 +267,7 @@ html[data-zoom] {
 
 .output-console-grid {
   display: grid;
-  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-rows: minmax(0, 1.42fr) minmax(0, 0.58fr);
   gap: 0.5rem;
 }
 
@@ -2070,7 +2070,7 @@ html[data-zoom] {
   }
 
   .content-grid {
-    grid-template-columns: minmax(600px, 1.56fr) minmax(250px, 0.7fr);
+    grid-template-columns: minmax(560px, 1.34fr) minmax(290px, 0.84fr);
   }
 
   .route-form-grid {
@@ -2152,7 +2152,7 @@ html[data-zoom] {
   }
 
   .output-console-grid {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 0.86fr);
+    grid-template-rows: minmax(0, 1.18fr) minmax(0, 0.82fr);
   }
 
   .app-footer-left {
