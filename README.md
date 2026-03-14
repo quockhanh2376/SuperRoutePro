@@ -1,7 +1,9 @@
-# Super Route Pro v7.0.2
+# Super Route Pro v9.0.6
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
+
+Current stable release: `v9.0.6`
 
 Author: Zonzon
 
@@ -170,7 +172,7 @@ This script will:
 Optional:
 
 ```powershell
-npm run release:local -- -VersionTag v7.0.2 -SkipInstall
+npm run release:local -- -VersionTag v9.0.6 -SkipInstall
 ```
 
 ## 10) Automated GitHub Release
@@ -218,5 +220,5 @@ Generated release assets:
 
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
-- Version v7.0.2: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v7.0.2`
+- Version v9.0.6: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v9.0.6`
 
