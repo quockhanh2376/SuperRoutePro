@@ -17,8 +17,6 @@ import {
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
 } from "./api";
 import {
-  getProfileSensitiveActionHint,
-  getRepairModeBadgeLabel,
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
@@ -1697,12 +1695,6 @@ export default function App() {
   const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
   const profileSensitiveActionEnabled = isProfileSensitiveActionEnabled({
     locked: repairSession.locked,
-    selectedTargetSid: selectedRepairTargetSid,
-  });
-  const repairModeBadgeLabel = getRepairModeBadgeLabel(repairSession.locked);
-  const profileSensitiveActionHint = getProfileSensitiveActionHint({
-    locked: repairSession.locked,
-    selectedTargetSid: selectedRepairTargetSid,
   });
   const helpContent = HELP_GUIDE_CONTENT[helpLanguage];
 
@@ -1803,16 +1795,8 @@ export default function App() {
       </header>
 
       <div className="px-5 py-2 border-b shrink-0 bg-slate-900/80 backdrop-blur-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className={`capsule-btn compact-pill text-xs font-semibold ${
-            repairSession.locked
-              ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-              : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-          }`}>
-            {repairModeBadgeLabel}
-          </div>
-
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex flex-wrap items-center">
+          <div className="ml-auto flex flex-col items-end gap-1">
             <button
               onClick={repairSession.locked ? handleUnlockRepair : handleLockRepair}
               disabled={repairUnlocking || repairLoading}
@@ -1826,13 +1810,11 @@ export default function App() {
                 ? (repairUnlocking ? "Unlocking..." : "Unlock Repair Mode")
                 : "Lock Repair Mode"}
             </button>
+            <span className={`text-[0.65rem] font-medium tracking-wide ${repairSession.locked ? "text-amber-400/80" : "text-emerald-400"}`}>
+              {repairSession.locked ? "Status: LOCKED" : "Status: UNLOCKED"}
+            </span>
           </div>
         </div>
-        {profileSensitiveActionHint && (
-          <p className="mt-2 text-[0.72rem] text-amber-300">
-            {profileSensitiveActionHint}
-          </p>
-        )}
       </div>
 
       {/* ====== MAIN CONTENT ====== */}

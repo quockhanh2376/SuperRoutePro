@@ -13,6 +13,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Merged the "Lock Repair Mode" and "Unlock Repair Mode" buttons into a single toggle button.
 - Verified that clicking the Unlock toggle properly calls the backend and displays the native Windows UAC prompt for Administrative credentials, removing the need for a custom password modal.
 - Bumped app versions to `9.0.3` across the frontend and backend.
+- Applied UI hotfix to ensure all buttons work while Unlocked by removing target SID validation, and repositioned the Unlocked status badge under the toggle button.
 
 **Next Steps**
 - End-to-End testing of the standard user UI with local admin credentials.
