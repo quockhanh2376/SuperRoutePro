@@ -105,7 +105,9 @@ Install these first:
 Notes:
 
 - Release installers are configured with WebView2 `offlineInstaller`, so target machines do not need WebView2 preinstalled.
-- The app is an admin-level networking tool. It will request Administrator privileges at runtime.
+- The UI now starts as the logged-in standard user.
+- Admin credentials are only requested when IT unlocks `Repair Mode` for privileged fixes.
+- Startup rotates a stale `main-webview` profile and retries once if WebView2 reports its data directory is not writable.
 
 ## 8) Run and Validate Locally
 
@@ -161,7 +163,7 @@ npm run release:local
 This script will:
 
 - Run `npm ci` (unless you pass `-SkipInstall`)
-- Build Tauri bundles (`NSIS` + `MSI`) and portable `SuperRoute.exe`
+- Build the Tauri `NSIS` bundle and portable `SuperRoute.exe`
 - Collect all artifacts into `release-artifacts/vX.Y.Z/`
 - Generate `SHA256SUMS.txt`
 
@@ -190,7 +192,6 @@ npm run release:patch
 Generated release assets:
 
 - `Super Route Pro_<version>_x64-setup.exe` (NSIS)
-- `Super Route Pro_<version>_x64_en-US.msi` (MSI)
 - `SuperRoute.exe` (portable)
 - `SHA256SUMS.txt`
 
@@ -198,8 +199,9 @@ Generated release assets:
 
 1. Download installer from GitHub Releases.
 2. Run installer as Administrator.
-3. Launch app (UAC prompt is expected).
-4. Use `SHA256SUMS.txt` to verify integrity if required.
+3. Launch app as the standard user who is signed in.
+4. Unlock `Repair Mode` only when you need privileged system fixes. Windows will prompt for a local admin credential once for that app session.
+5. Use `SHA256SUMS.txt` to verify integrity if required.
 
 ## 12) Pre-Release Checklist
 

@@ -36,15 +36,12 @@ jobs:
         shell: pwsh
         run: |
           $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           $exe = Get-Item "src-tauri/target/release/SuperRoute.exe"
 
           if (-not $nsis) { throw "NSIS installer not found." }
-          if (-not $msi) { throw "MSI installer not found." }
           if (-not $exe) { throw "Portable executable not found." }
 
           "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
-          "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
           "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Generate SHA256 checksums
@@ -52,7 +49,6 @@ jobs:
         run: |
           $targets = @(
             "${{ steps.bundle.outputs.nsis_path }}",
-            "${{ steps.bundle.outputs.msi_path }}",
             "${{ steps.bundle.outputs.exe_path }}"
           )
 
@@ -70,7 +66,6 @@ jobs:
           name: SuperRoutePro-windows-installers
           path: |
             ${{ steps.bundle.outputs.nsis_path }}
-            ${{ steps.bundle.outputs.msi_path }}
             ${{ steps.bundle.outputs.exe_path }}
             SHA256SUMS.txt
           if-no-files-found: error
@@ -81,7 +76,6 @@ jobs:
         with:
           files: |
             ${{ steps.bundle.outputs.nsis_path }}
-            ${{ steps.bundle.outputs.msi_path }}
             ${{ steps.bundle.outputs.exe_path }}
             SHA256SUMS.txt
           generate_release_notes: true

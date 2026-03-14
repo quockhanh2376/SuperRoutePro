@@ -1,6 +1,7 @@
 [package]
 name = "super-route-pro"
-version = "9.0.1"
+version = "9.0.2"
+default-run = "SuperRoute"
 description = "Super Route Pro - Network Routing Manager"
 authors = ["Zonzon"]
 edition = "2021"
@@ -8,6 +9,14 @@ edition = "2021"
 [[bin]]
 name = "SuperRoute"
 path = "src/main.rs"
+
+[[bin]]
+name = "SuperRouteRepairService"
+path = "src/repair_service_main.rs"
+
+[[bin]]
+name = "SuperRouteRepairBroker"
+path = "src/repair_broker_main.rs"
 
 [lib]
 name = "super_route_pro_lib"

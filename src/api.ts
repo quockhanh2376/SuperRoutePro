@@ -45,6 +45,12 @@ export interface CommandResult {
   output: string;
 }
 
+export interface RepairCommandResult {
+  success: boolean;
+  output: string;
+  requires_unlock: boolean;
+}
+
 export interface BloatwareItem {
   package_name: string;
   label: string;
@@ -68,6 +74,36 @@ export interface BatterySummaryResult {
   estimated_runtime_full_minutes: number | null;
   note: string;
 }
+
+export interface RepairSessionStatus {
+  locked: boolean;
+  connected: boolean;
+  target_sid: string | null;
+  requires_unlock: boolean;
+}
+
+export interface RepairServiceHealth {
+  connected: boolean;
+  requires_unlock: boolean;
+  detail: string | null;
+}
+
+export interface RepairTargetUser {
+  sid: string;
+  account_name: string;
+  profile_path: string;
+  is_loaded: boolean;
+}
+
+export type RepairMachineAction =
+  | "FlushDns"
+  | "RenewDhcpLease"
+  | "ClearArpCache"
+  | "ResetTcpIp"
+  | "ResetWinsock"
+  | "ResetFirewall"
+  | "ResetWinHttpProxy"
+  | "RestartActiveAdapters";
 
 // ======================== API CALLS ========================
 
@@ -151,8 +187,30 @@ export async function removeBloatware(packages: string[]): Promise<CommandResult
   return invoke<CommandResult>("remove_bloatware", { packages });
 }
 
+export async function repairRemoveBloatware(
+  targetSid: string,
+  packages: string[],
+  removeProvisioned: boolean,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_remove_bloatware", {
+    targetSid,
+    packages,
+    removeProvisioned,
+  });
+}
+
 export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
   return invoke<CommandResult>("clear_cache_targets", { targets });
+}
+
+export async function repairClearCacheTargets(
+  targetSid: string,
+  targets: string[],
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_clear_cache_targets", {
+    targetSid,
+    targets,
+  });
 }
 
 export async function getBatteryReport(): Promise<BatteryReportResult> {
@@ -161,4 +219,83 @@ export async function getBatteryReport(): Promise<BatteryReportResult> {
 
 export async function getBatterySummary(): Promise<BatterySummaryResult> {
   return invoke<BatterySummaryResult>("get_battery_summary");
+}
+
+export async function getRepairServiceHealth(): Promise<RepairServiceHealth> {
+  return invoke<RepairServiceHealth>("get_repair_service_health");
+}
+
+export async function getRepairSessionStatus(): Promise<RepairSessionStatus> {
+  return invoke<RepairSessionStatus>("get_repair_session_status");
+}
+
+export async function listRepairTargets(): Promise<RepairTargetUser[]> {
+  return invoke<RepairTargetUser[]>("list_repair_targets");
+}
+
+export async function unlockRepairMode(
+  appInstanceId: string,
+  connectionId: string,
+): Promise<RepairSessionStatus> {
+  return invoke<RepairSessionStatus>("unlock_repair_mode", {
+    appInstanceId,
+    connectionId,
+  });
+}
+
+export async function lockRepairMode(): Promise<RepairSessionStatus> {
+  return invoke<RepairSessionStatus>("lock_repair_mode");
+}
+
+export async function repairAddRoute(
+  destination: string,
+  mask: string,
+  gateway: string,
+  metric: string,
+  interfaceIndex?: string,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_add_route", {
+    destination,
+    mask,
+    gateway,
+    metric,
+    interfaceIndex: interfaceIndex || null,
+  });
+}
+
+export async function repairDeleteRoute(
+  destination: string,
+  mask: string,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_delete_route", { destination, mask });
+}
+
+export async function repairFlushRoutes(): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_flush_routes");
+}
+
+export async function repairSetDefaultGateway(
+  gateway: string,
+  interfaceIndex: string,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_set_default_gateway", {
+    gateway,
+    interfaceIndex,
+  });
+}
+
+export async function repairSetWanPersistOnStartup(
+  interfaceIndex: string,
+  enabled: boolean,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_set_wan_persist_on_startup", {
+    interfaceIndex,
+    enabled,
+  });
+}
+
+export async function runRepairMachineAction(
+  action: RepairMachineAction,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_run_machine_action", { action });
 }

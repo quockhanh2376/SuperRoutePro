@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Super Route Pro",
-  "version": "9.0.1",
+  "version": "9.0.2",
   "identifier": "com.superroute.pro",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run prepare:repair-sidecars",
     "frontendDist": "../dist"
   },
   "app": {
@@ -30,7 +30,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
+    "externalBin": [
+      "binaries/SuperRouteRepairBroker"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -47,9 +50,6 @@
       "nsis": {
         "installMode": "perMachine",
         "installerHooks": "./installer-hooks.nsh"
-      },
-      "wix": {
-        "upgradeCode": "f9b59dfe-76b0-5fe7-af11-e2a9cde1d1e0"
       }
     }
   }

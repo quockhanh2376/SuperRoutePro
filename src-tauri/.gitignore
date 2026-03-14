@@ -6,3 +6,7 @@
 
 # Local scratch/check targets
 /.cargo-check/
+
+# Prepared sidecar binaries for bundle.externalBin
+/binaries/*.exe
+!/binaries/.gitkeep
