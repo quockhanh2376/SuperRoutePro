@@ -251,11 +251,29 @@ html[data-zoom] {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(480px, 1.25fr) minmax(420px, 1fr);
+  grid-template-columns: minmax(760px, 1.82fr) minmax(260px, 0.72fr);
 }
 
 .left-panel {
   border-right-color: var(--panel-divider);
+}
+
+.route-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(88px, 0.6fr);
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.output-console-grid {
+  display: grid;
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 0.5rem;
+}
+
+.output-console-shell {
+  border-left: 0;
+  box-shadow: none;
 }
 
 .right-panel {
@@ -2052,7 +2070,11 @@ html[data-zoom] {
   }
 
   .content-grid {
-    grid-template-columns: minmax(420px, 1.15fr) minmax(360px, 1fr);
+    grid-template-columns: minmax(600px, 1.56fr) minmax(250px, 0.7fr);
+  }
+
+  .route-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tool-grid {
@@ -2123,6 +2145,14 @@ html[data-zoom] {
   .app-footer {
     flex-wrap: wrap;
     gap: 0.4rem;
+  }
+
+  .route-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .output-console-grid {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0.86fr);
   }
 
   .app-footer-left {

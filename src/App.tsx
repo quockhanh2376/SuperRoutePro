@@ -1939,7 +1939,7 @@ export default function App() {
 
           {/* Config Form */}
           <div className="p-3 border-b border-slate-700/30">
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="route-form-grid mb-2">
               <Field label="Destination" value={formDest} onChange={setFormDest} placeholder="10.0.0.0" />
               <Field label="Subnet Mask" value={formMask} onChange={setFormMask} placeholder="255.255.255.0" />
               <Field label="Gateway" value={formGw} onChange={setFormGw} placeholder="192.168.1.1" />
@@ -2838,7 +2838,7 @@ const OutputConsole = memo(function OutputConsole({
   onClearPing: () => void;
 }) {
   return (
-    <div className="flex flex-col flex-1 p-3 overflow-hidden">
+    <div className="output-console-shell flex flex-col flex-1 p-3 overflow-hidden">
       <div className="flex items-center gap-2 mb-2">
         <Activity className="w-4 h-4 text-blue-400" />
         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Output Console</span>
@@ -2847,7 +2847,7 @@ const OutputConsole = memo(function OutputConsole({
         </span>
       </div>
 
-      <div className="grid grid-rows-[1fr_1fr] gap-2 flex-1 min-h-0">
+      <div className="output-console-grid flex-1 min-h-0">
         <div className="min-h-0 flex flex-col">
           <div className="flex items-center justify-between mb-1 gap-2">
             <span className="text-[0.72rem] text-slate-400 uppercase tracking-wider font-semibold">
