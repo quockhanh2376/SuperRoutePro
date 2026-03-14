@@ -99,7 +99,7 @@ super-route-pro/
 Install these first:
 
 - Windows 10/11 x64
-- Node.js 20+
+- Node.js 24+
 - npm 10+
 - Rust toolchain (`rustup`, `cargo`)
 - Microsoft Visual Studio C++ Build Tools (2022)
