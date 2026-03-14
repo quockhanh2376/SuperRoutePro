@@ -267,7 +267,7 @@ html[data-zoom] {
 
 .output-console-grid {
   display: grid;
-  grid-template-rows: minmax(0, 1.42fr) minmax(0, 0.58fr);
+  grid-template-rows: minmax(0, 1.3fr) minmax(0, 0.7fr);
   gap: 0.5rem;
 }
 
@@ -558,13 +558,18 @@ html[data-zoom] {
 }
 
 .theme-light .console-chip-routing {
-  background: linear-gradient(180deg, rgba(237, 233, 254, 0.98), rgba(221, 214, 254, 0.9));
-  color: #5b21b6;
-  border-color: rgba(167, 139, 250, 0.58);
+  background: linear-gradient(180deg, rgba(243, 232, 255, 1), rgba(216, 180, 254, 0.94));
+  color: #4c1d95;
+  border-color: rgba(126, 34, 206, 0.66);
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .theme-light .console-chip-routing-active {
+  background: linear-gradient(180deg, rgba(147, 51, 234, 0.98), rgba(126, 34, 206, 0.95));
   color: #ffffff;
+  border-color: rgba(88, 28, 135, 0.78);
+  text-shadow: none;
 }
 
 .theme-light .console-chip-refresh {
@@ -2152,7 +2157,7 @@ html[data-zoom] {
   }
 
   .output-console-grid {
-    grid-template-rows: minmax(0, 1.18fr) minmax(0, 0.82fr);
+    grid-template-rows: minmax(0, 1.08fr) minmax(0, 0.92fr);
   }
 
   .app-footer-left {

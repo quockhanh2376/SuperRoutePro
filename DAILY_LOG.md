@@ -5,6 +5,18 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-14 - Release v9.0.9 (Output Console Polish)
+
+**Done**
+- Rebalanced the unified output console so the `Command Output` and `Ping & Tracert Output` panes fit better for daily use.
+- Increased the visible height of the `Ping & Tracert Output` panel to make live ping logs easier to read.
+- Tightened the overall console width balance after the previous expansion so the app layout feels more proportional.
+- Improved the light-mode `Routing` chip colors and active state contrast for clearer tab switching.
+- Updated release docs in `README.md` and bumped app versions to `9.0.9`.
+
+**Next Steps**
+- Run End-to-End testing of the standard user UI with local admin credentials.
+
 ## 2026-03-14 - Release v9.0.6 (Header Control Visual Sync)
 
 **Done**
