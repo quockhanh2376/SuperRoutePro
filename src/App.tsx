@@ -17,6 +17,7 @@ import {
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
 } from "./api";
 import {
+  getProfileSensitiveActionHint,
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
@@ -1732,6 +1733,11 @@ export default function App() {
   const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
   const profileSensitiveActionEnabled = isProfileSensitiveActionEnabled({
     locked: repairSession.locked,
+    selectedTargetSid: selectedRepairTargetSid,
+  });
+  const profileSensitiveActionHint = getProfileSensitiveActionHint({
+    locked: repairSession.locked,
+    selectedTargetSid: selectedRepairTargetSid,
   });
   const helpContent = HELP_GUIDE_CONTENT[helpLanguage];
 
@@ -1833,7 +1839,7 @@ export default function App() {
             onClick={handleOpenBloatwareModal}
             disabled={!profileSensitiveActionEnabled || bloatwareLoading || bloatwareRemoving}
             className="header-apps-action capsule-btn"
-            title="Open app removal tools"
+            title={profileSensitiveActionHint || "Open app removal tools"}
           >
             <Trash2 className="w-3.5 h-3.5" />
             Remove Apps
@@ -1843,7 +1849,7 @@ export default function App() {
             onClick={handleOpenCacheModal}
             disabled={!profileSensitiveActionEnabled || cacheCleaning}
             className="header-cache-action capsule-btn"
-            title="Open cache cleanup tools"
+            title={profileSensitiveActionHint || "Open cache cleanup tools"}
           >
             <Flame className="w-3.5 h-3.5" />
             Clear Cache
@@ -1872,6 +1878,12 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {profileSensitiveActionHint && (
+        <div className="px-5 pt-2 shrink-0">
+          <p className="text-[0.72rem] text-amber-300">{profileSensitiveActionHint}</p>
+        </div>
+      )}
 
 
 

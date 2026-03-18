@@ -1,9 +1,9 @@
-# Super Route Pro v9.0.9
+# Super Route Pro v10.0.0
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
 
-Current stable release: `v9.0.9`
+Current stable release: `v10.0.0`
 
 Author: Zonzon
 
@@ -110,6 +110,7 @@ Notes:
 - Release installers are configured with WebView2 `offlineInstaller`, so target machines do not need WebView2 preinstalled.
 - The UI now starts as the logged-in standard user.
 - Admin credentials are only requested when IT unlocks `Repair Mode` for privileged fixes.
+- Unlocking `Repair Mode` enables the full tool surface immediately. Profile-specific actions still validate the selected target user when execution starts.
 - Startup rotates a stale `main-webview` profile and retries once if WebView2 reports its data directory is not writable.
 
 ## 8) Run and Validate Locally
@@ -173,7 +174,7 @@ This script will:
 Optional:
 
 ```powershell
-npm run release:local -- -VersionTag v9.0.9 -SkipInstall
+npm run release:local -- -VersionTag v10.0.0 -SkipInstall
 ```
 
 ## 10) Automated GitHub Release
@@ -221,5 +222,5 @@ Generated release assets:
 
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
-- Version v9.0.9: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v9.0.9`
+- Version v10.0.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.0.0`
 

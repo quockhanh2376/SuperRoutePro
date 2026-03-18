@@ -11,11 +11,11 @@ export function isMachineRepairEnabled(state: Pick<RepairModeUiState, "locked">)
   return !state.locked;
 }
 
-export function isProfileSensitiveActionEnabled(state: Required<Pick<RepairModeUiState, "locked">>): boolean {
+export function isProfileSensitiveActionEnabled(state: RepairModeUiState): boolean {
   return !state.locked;
 }
 
-export function getProfileSensitiveActionHint(state: Required<Pick<RepairModeUiState, "locked">>): string {
+export function getProfileSensitiveActionHint(state: RepairModeUiState): string {
   if (state.locked) {
     return "Unlock Repair Mode before running profile cleanup or app removal.";
   }
