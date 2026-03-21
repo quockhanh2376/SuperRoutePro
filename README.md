@@ -1,4 +1,4 @@
-﻿# Super Route Pro v5.4.0
+# Super Route Pro v10.0.8
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
@@ -13,11 +13,16 @@ This app provides a practical control panel for Windows networking tasks:
 - View and manage IPv4 routes
 - Add route, delete route, flush routes
 - Set selected NIC gateway as default internet route
+- **Route Persistence Service** — auto re-apply WAN + custom routes on system restart
 - Run common network fix commands
 - Run diagnostics commands and show output in app
 - Run continuous ping or fping-like multi-target checks
 - Run tracert directly from target input
 - Use a unified output console (command/routing output on top, ping/tracert output on bottom)
+- Multi-profile repair mode with remote PC support
+- Bloatware manager — bulk remove Windows apps
+- Cache cleaner — clear browser/system caches
+- Battery report generation
 - Switch between light and dark mode
 
 ## 2) Main Features
@@ -53,11 +58,20 @@ This app provides a practical control panel for Windows networking tasks:
 - Start/Stop controls
 - Tracert command from current input
 
+### Route Persistence Service (v10.0.8)
+
+- Background service (`SuperRouteService.exe`) runs at login via Task Scheduler
+- Identifies NIC by description + MAC address (survives InterfaceIndex changes)
+- Re-applies WAN default gateway + custom routes automatically
+- Balloon tip notification if NIC not found
+- Toggle "Persist on startup" in the WAN section
+- Run-once and exit — no background resource usage
+
 ## 3) Tech Stack
 
-- Frontend: React 19 + TypeScript + Tailwind CSS v4 + Vite
+- Frontend: React 19 + TypeScript + Vite
 - Desktop shell: Tauri v2
-- Backend: Rust
+- Backend: Rust (Win32 API, Registry, Shell_NotifyIcon)
 - Icons: lucide-react
 
 ## 4) Security Model
@@ -80,15 +94,20 @@ super-route-pro/
 |  |- App.tsx
 |  |- App.css
 |  |- api.ts
+|  |- repairModeModel.ts
 |- src-tauri/              # Tauri + Rust backend
 |  |- src/
-|  |  |- lib.rs
-|  |  |- network.rs
+|  |  |- lib.rs            # Tauri commands
+|  |  |- network.rs        # Network operations
+|  |  |- route_persist.rs  # Persist config (JSON read/write)
+|  |  |- route_service_main.rs  # SuperRouteService binary
+|  |  |- repair_*.rs       # Repair service modules
+|  |- binaries/            # Compiled sidecar EXEs
 |  |- tauri.conf.json
 |  |- Cargo.toml
+|- scripts/
+|  |- prepare-repair-sidecars.ps1
 |- public/
-|- launch-dev.ps1
-|- SETUP_GUIDE_VI.md
 |- package.json
 ```
 
@@ -185,4 +204,4 @@ git push -u origin main
 
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
-- Version v5.4.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v5.4.0`
+- Version v10.0.8: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.0.8`
