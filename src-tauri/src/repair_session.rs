@@ -75,6 +75,7 @@ impl RepairSessionManager {
             connection_id,
             nonce,
             port,
+            parent_process_id: std::process::id(),
         }
     }
 

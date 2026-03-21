@@ -23,6 +23,7 @@ import {
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
+import { getNicTableMessage } from "./nicTableModel";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -490,7 +491,8 @@ export default function App() {
   const [selectedRepairTargetSid, setSelectedRepairTargetSid] = useState<string | null>(null);
   const [repairLoading, setRepairLoading] = useState(true);
   const [repairUnlocking, setRepairUnlocking] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoadedNicSnapshot, setHasLoadedNicSnapshot] = useState(false);
   const [pingTarget, setPingTarget] = useState("1.1.1.1");
   const [pingMode, setPingMode] = useState<"ping" | "fping">("ping");
   const [pingLogVersion, setPingLogVersion] = useState(0);
@@ -678,6 +680,7 @@ export default function App() {
   const lensTimerRef = useRef<number | null>(null);
   const cacheStopRequestedRef = useRef(false);
   const ipScanStopRequestedRef = useRef(false);
+  const latestLoadRequestRef = useRef(0);
   const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
   const pingLogLinesRef = useRef<string[]>([]);
   const commandLogLinesRef = useRef<string[]>([]);
@@ -691,6 +694,8 @@ export default function App() {
   // ======================== DATA LOADING ========================
 
   const loadData = useCallback(async () => {
+    const requestId = latestLoadRequestRef.current + 1;
+    latestLoadRequestRef.current = requestId;
     setLoading(true);
     setStatusMsg("Loading data...");
     try {
@@ -698,15 +703,33 @@ export default function App() {
         getNetworkInterfaces(activeOnly),
         getRoutingTable(),
       ]);
+      if (requestId !== latestLoadRequestRef.current) {
+        return;
+      }
       setNics(nicData);
       setRoutes(routeData);
       setRoutingOutput(formatRoutingSnapshot(routeData));
+      setHasLoadedNicSnapshot(true);
       setStatusMsg(`Loaded ${nicData.length} NICs, ${routeData.length} routes`);
     } catch (err) {
+      if (requestId !== latestLoadRequestRef.current) {
+        return;
+      }
+      setHasLoadedNicSnapshot(true);
       setStatusMsg(`Error: ${err}`);
+    } finally {
+      if (requestId === latestLoadRequestRef.current) {
+        setLoading(false);
+      }
     }
-    setLoading(false);
   }, [activeOnly]);
+
+  const nicTableMessage = getNicTableMessage({
+    nicCount: nics.length,
+    loading,
+    hasLoadedOnce: hasLoadedNicSnapshot,
+    activeOnly,
+  });
 
   useEffect(() => {
     loadData();
@@ -2030,8 +2053,8 @@ export default function App() {
                       <td className="truncate max-w-[150px]" title={nic.description}>{nic.description}</td>
                     </tr>
                   ))}
-                  {nics.length === 0 && (
-                    <tr><td colSpan={4} className="text-center text-slate-600 py-4">No interfaces found</td></tr>
+                  {nicTableMessage && (
+                    <tr><td colSpan={4} className="text-center text-slate-600 py-4">{nicTableMessage}</td></tr>
                   )}
                 </tbody>
               </table>

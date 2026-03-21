@@ -62,6 +62,7 @@ pub struct UnlockRepairSessionRequest {
     pub connection_id: String,
     pub nonce: String,
     pub port: u16,
+    pub parent_process_id: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

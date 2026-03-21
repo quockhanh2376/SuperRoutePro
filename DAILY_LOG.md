@@ -30,6 +30,9 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Manual Verify Execution**: Ran the main `v10.1.0` UI verification flow against a fresh `npm run release:build` artifact. Confirmed the packaged installer now emits `Super Route Pro_10.1.0_x64-setup.exe`, startup shows `10.1.0`, routing snapshot refresh works, Repair Mode unlock/lock works, Scan IP derives `192.168.1.0/24` and supports Force Stop, Port Test passes open/closed smoke cases, Battery Info loads native values, Add/Delete Route works once unlocked with real field values entered, Clear Cache completes with warnings, and Remove Apps list loads correctly.
 - **Manual Verify Findings**: Logged two follow-up bugs in beads from the execution pass: `super-route-pro-auy` for orphaned elevated `SuperRouteRepairBroker` processes after force-closing while unlocked, and `super-route-pro-nhl` for the NIC table sometimes showing `No interfaces found` during startup even while the footer already reports loaded NICs/routes.
 - **Help Copy Update**: Added a dedicated Help entry for `Lock / Unlock Repair Mode` in both English and Vietnamese so users understand that Locked blocks admin fixes, Unlock opens an elevated Repair Mode session for the current app session, and Lock closes that elevated session again.
+- **Repair Broker Lifecycle Fix**: Closed `super-route-pro-auy` by passing the launching app PID into `UnlockRepairSessionRequest` and teaching `SuperRouteRepairBroker` to monitor the parent process handle, so the elevated broker self-terminates if the UI is force-closed while unlocked.
+- **NIC Startup Empty-State Fix**: Closed `super-route-pro-nhl` by adding a NIC-table loading placeholder and stale-load guards, so startup no longer flashes `No interfaces found` while the first NIC snapshot is still loading.
+- **Persistence Tracking Update**: Logged the still-open release blocker as beads issue `super-route-pro-u3z` because the `Persist on startup OFF` path remains inconclusive and still needs direct repro before sign-off.
 
 **Files Changed**
 | File | Change |
@@ -47,14 +50,12 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Battery IOCTL uses fully manual FFI declarations (`extern "system"`) due to `windows-sys 0.59` handle type inconsistencies across modules.
 - AppX bloatware operations (`Get-AppxPackage`/`Remove-AppxPackage`) remain on PowerShell as there is no native cmd.exe alternative. Runs hidden with `CREATE_NO_WINDOW`.
 - The current verification machine had no installed bloatware candidates from the supported remove-app list, so the destructive uninstall path could not be executed safely in this pass.
-- The Persist-on-startup OFF path remains inconclusive from UI automation alone because `persist.json` stayed enabled after the attempted toggle-off + WAN click; this needs a more direct repro or a code-level investigation before release sign-off.
+- The Persist-on-startup OFF path remains inconclusive from UI automation alone because `persist.json` stayed enabled after the attempted toggle-off + WAN click; this is now tracked in beads as `super-route-pro-u3z` and still needs direct repro or code-level investigation before release sign-off.
 
 **Next Steps**
-- Investigate and fix `super-route-pro-auy` (orphaned elevated repair brokers) before shipping.
-- Investigate and fix `super-route-pro-nhl` (NIC table startup race / empty-table mismatch) before shipping.
-- Reproduce the Persist-on-startup OFF path more directly, then complete the optional startup-task/logoff-reboot persistence verification.
+- Investigate and fix `super-route-pro-u3z` (Persist-on-startup OFF can remain enabled after WAN apply), then complete the optional startup-task/logoff-reboot persistence verification.
 - Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
-- Finalize release notes and publish `v10.1.0` on GitHub after the last verification pass.
+- Decide the final public release number, finalize release notes/docs to match it, and publish on GitHub after the last verification pass.
 
 --------------------------------------------------------------------------------
 

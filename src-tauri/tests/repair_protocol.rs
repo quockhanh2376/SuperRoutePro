@@ -6,7 +6,7 @@ use super_route_pro_lib::repair_ipc::{
 use super_route_pro_lib::repair_protocol::{
     AddRouteRequest, AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult,
     RepairIpcRequest, RepairIpcResponse, RepairMachineAction, RepairServiceHealth,
-    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus, UnlockRepairSessionRequest,
+    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
 };
 use super_route_pro_lib::repair_session::RepairSessionManager;
 
@@ -202,15 +202,15 @@ fn repair_ipc_envelope_carries_auth_token_and_privileged_profile_requests() {
 
 #[test]
 fn unlock_request_serializes_host_port_for_the_elevated_helper() {
-    let request = UnlockRepairSessionRequest {
-        app_instance_id: "app-1".to_string(),
-        connection_id: "conn-1".to_string(),
-        nonce: "unlock-token".to_string(),
-        port: 44561,
-    };
+    let mut manager = RepairSessionManager::new();
+    let request = manager.issue_unlock_request_for_port("app-1", "conn-1", 44561);
 
     let json = serde_json::to_value(&request).expect("unlock request should serialize");
     assert_eq!(json["port"], 44561);
+    assert!(
+        json["parent_process_id"].as_u64().is_some_and(|pid| pid > 0),
+        "unlock request should carry the launching app PID so the elevated broker can self-terminate if the UI process dies"
+    );
 }
 
 #[test]

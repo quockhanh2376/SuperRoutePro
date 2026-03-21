@@ -716,8 +716,9 @@ fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), Stri
     let app_id = request.app_instance_id.replace('\'', "''");
     let connection_id = request.connection_id.replace('\'', "''");
     let nonce = request.nonce.replace('\'', "''");
+    let parent_process_id = request.parent_process_id;
     let script = format!(
-        "Start-Process -FilePath '{broker_escaped}' -Verb RunAs -WindowStyle Hidden -ArgumentList @('--serve','{port}','{nonce}','{app_id}','{connection_id}')",
+        "Start-Process -FilePath '{broker_escaped}' -Verb RunAs -WindowStyle Hidden -ArgumentList @('--serve','{port}','{nonce}','{app_id}','{connection_id}','{parent_process_id}')",
         port = request.port
     );
     let output = run_hidden(
