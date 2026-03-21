@@ -1368,7 +1368,8 @@ export default function App() {
     setRemoveProgressText("Ready.");
     setBloatwareModalOpen(true);
     void loadBloatwareList();
-  }, [loadBloatwareList]);
+    void loadRepairTargets();
+  }, [loadBloatwareList, loadRepairTargets]);
 
   const handleCloseBloatwareModal = useCallback(() => {
     if (bloatwareRemoving) return;
@@ -1412,6 +1413,7 @@ export default function App() {
       return;
     }
     if (!selectedRepairTargetSid) {
+      setBloatwareModalOpen(false);
       setStatusMsg("Select a target user before removing apps");
       return;
     }
