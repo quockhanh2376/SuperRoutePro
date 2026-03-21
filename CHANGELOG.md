@@ -1,6 +1,6 @@
 # Changelog
 
-## v10.1.0 (in preparation)
+## v10.1.0 (2026-03-22)
 
 ### ✨ Highlights
 - Migrated the remaining practical PowerShell-dependent network flows to native Rust/cmd equivalents for NIC discovery, route parsing, cache cleanup, scheduled tasks, and TCP port testing.
