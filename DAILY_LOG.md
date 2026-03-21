@@ -27,6 +27,8 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **NotebookLM Sync**: Logged the release-gate hardening here so NotebookLM stays aligned with the stronger `v10.1.0` verification baseline.
 - **Version And Docs Alignment**: Bumped `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` to `10.1.0`, and refreshed release-facing docs to reflect the `v10.1.0` prep state without pointing release downloads at a tag that has not shipped yet.
 - **Manual Verify Prep**: Wrote the focused `v10.1.0` manual verification checklist into beads issue `super-route-pro-erj.1` so QA/release can execute a single source of truth for the remaining UI pass.
+- **Manual Verify Execution**: Ran the main `v10.1.0` UI verification flow against a fresh `npm run release:build` artifact. Confirmed the packaged installer now emits `Super Route Pro_10.1.0_x64-setup.exe`, startup shows `10.1.0`, routing snapshot refresh works, Repair Mode unlock/lock works, Scan IP derives `192.168.1.0/24` and supports Force Stop, Port Test passes open/closed smoke cases, Battery Info loads native values, Add/Delete Route works once unlocked with real field values entered, Clear Cache completes with warnings, and Remove Apps list loads correctly.
+- **Manual Verify Findings**: Logged two follow-up bugs in beads from the execution pass: `super-route-pro-auy` for orphaned elevated `SuperRouteRepairBroker` processes after force-closing while unlocked, and `super-route-pro-nhl` for the NIC table sometimes showing `No interfaces found` during startup even while the footer already reports loaded NICs/routes.
 
 **Files Changed**
 | File | Change |
@@ -43,9 +45,13 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - `wmic` was deprecated/removed on this Windows 11 build — switched to `netsh` + `getmac` for NIC enumeration.
 - Battery IOCTL uses fully manual FFI declarations (`extern "system"`) due to `windows-sys 0.59` handle type inconsistencies across modules.
 - AppX bloatware operations (`Get-AppxPackage`/`Remove-AppxPackage`) remain on PowerShell as there is no native cmd.exe alternative. Runs hidden with `CREATE_NO_WINDOW`.
+- The current verification machine had no installed bloatware candidates from the supported remove-app list, so the destructive uninstall path could not be executed safely in this pass.
+- The Persist-on-startup OFF path remains inconclusive from UI automation alone because `persist.json` stayed enabled after the attempted toggle-off + WAN click; this needs a more direct repro or a code-level investigation before release sign-off.
 
 **Next Steps**
-- Manual UI testing of all features (NIC, cache, remove apps, battery, routing).
+- Investigate and fix `super-route-pro-auy` (orphaned elevated repair brokers) before shipping.
+- Investigate and fix `super-route-pro-nhl` (NIC table startup race / empty-table mismatch) before shipping.
+- Reproduce the Persist-on-startup OFF path more directly, then complete the optional startup-task/logoff-reboot persistence verification.
 - Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
 - Finalize release notes and publish `v10.1.0` on GitHub after the last verification pass.
 
