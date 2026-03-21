@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   getNetworkInterfaces, getRoutingTable,
-  runNetworkCommand, pingHost,
+  runNetworkCommand, pingHost, testTcpPort,
   fpingScan, getWanPersistOnStartupStatus, checkInternet,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
@@ -1217,7 +1217,7 @@ export default function App() {
     setDiagnosticView("command");
     setStatusMsg(`Testing port ${host}:${port}...`);
     try {
-      const result = await invoke<{ success: boolean; output: string }>("test_tcp_port", { host, port });
+      const result = await testTcpPort(host, port);
       appendCommandOutput(`Port Test ${host}:${port}`, result.output);
       setStatusMsg(result.success ? `Port ${port} open on ${host}` : `Port ${port} closed on ${host}`);
     } catch (err: unknown) {

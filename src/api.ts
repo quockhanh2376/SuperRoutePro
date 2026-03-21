@@ -165,6 +165,10 @@ export async function pingHost(target: string, count?: number): Promise<PingResu
   return invoke<PingResult>("ping_host", { target, count: count || null });
 }
 
+export async function testTcpPort(host: string, port: number): Promise<CommandResult> {
+  return invoke<CommandResult>("test_tcp_port", { host, port });
+}
+
 export async function fpingScan(
   targets: string[],
   timeoutMs?: number
