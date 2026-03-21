@@ -21,6 +21,10 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Bloatware** (`Get-AppxPackage` / `Remove-AppxPackage`): Kept on PowerShell (no cmd.exe alternative) but runs with `CREATE_NO_WINDOW` — no PS window flash.
 - **WAN Persist Script**: Rewrote from `.ps1` PowerShell to `.cmd` batch using `route print` + `findstr` + `route delete/add`. `schtasks` now runs `cmd.exe /c` instead of `powershell.exe -File`.
 - **Test-NetConnection** (`App.tsx`): Replaced PowerShell `Test-NetConnection` with native Rust `test_tcp_port` Tauri command using `std::net::TcpStream::connect_timeout`. Frontend is now **0% PowerShell**.
+- **Release Hardening Follow-Up**: Fixed the typed frontend wrapper for `test_tcp_port`, restored `interface_index` mapping in parsed `route print -4` output so route-dependent UI logic keeps working, and bundled `SuperRouteService` alongside `SuperRouteRepairBroker` for installer builds.
+- **Verification**: Re-ran `npm run check` and `cargo test --manifest-path src-tauri/Cargo.toml`; both passed after the hardening fixes.
+- **Release Gate Hardening**: Wired the existing Node test files and Rust test suite into `npm run check`, so `release-ship.ps1` now inherits broader verification without additional branching. Verified the expanded gate passes with frontend build, `cargo check`, Node tests, and `cargo test`.
+- **NotebookLM Sync**: Logged the release-gate hardening here so NotebookLM stays aligned with the stronger `v10.1.0` verification baseline.
 
 **Files Changed**
 | File | Change |
@@ -40,7 +44,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 **Next Steps**
 - Manual UI testing of all features (NIC, cache, remove apps, battery, routing).
-- Write unit tests for migrated functions.
+- Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
 - Bump version to 10.1.0 and release on GitHub.
 
 --------------------------------------------------------------------------------
