@@ -5,9 +5,7 @@
 //! routes using stable NIC identifiers (description / MAC) to survive
 //! InterfaceIndex changes across reboots.
 
-mod route_persist;
-
-use route_persist::{CustomRoute, NicIdentifier, PersistConfig, WanConfig};
+use super_route_pro_lib::route_persist::{self, CustomRoute, NicIdentifier, PersistConfig, WanConfig};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;

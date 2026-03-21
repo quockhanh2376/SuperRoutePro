@@ -241,24 +241,6 @@ async fn run_process(program: &str, args: &[&str], timeout: Duration) -> Result<
     .map_err(|err| format!("Process task join error: {}", err))?
 }
 
-fn prefix_to_mask(prefix: u32) -> String {
-    if prefix > 32 {
-        return "255.255.255.255".to_string();
-    }
-    let mask: u32 = if prefix == 0 {
-        0
-    } else {
-        0xFFFFFFFF << (32 - prefix)
-    };
-    format!(
-        "{}.{}.{}.{}",
-        (mask >> 24) & 0xFF,
-        (mask >> 16) & 0xFF,
-        (mask >> 8) & 0xFF,
-        mask & 0xFF
-    )
-}
-
 fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
 }
@@ -1503,13 +1485,6 @@ mod battery_ioctl {
         pub cycle_count: u32,
     }
 
-    // GUID_DEVINTERFACE_BATTERY = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
-    pub const BATTERY_GUID: windows_sys::core::GUID = windows_sys::core::GUID {
-        data1: 0x72631e54,
-        data2: 0x78a4,
-        data3: 0x11d0,
-        data4: [0xbc, 0xf7, 0x00, 0xaa, 0x00, 0xb7, 0xb3, 0x2a],
-    };
 }
 
 /// Query battery details using SetupDi + DeviceIoControl.
@@ -1540,14 +1515,6 @@ fn query_battery_details_ioctl() -> Option<BatteryIoctlDetails> {
     }
 
     // SP_DEVICE_INTERFACE_DETAIL_DATA_W has a variable-length DevicePath at end
-    #[repr(C)]
-    struct SP_DEVINFO_DATA {
-        cb_size: u32,
-        class_guid: GUID,
-        dev_inst: u32,
-        reserved: usize,
-    }
-
     const DIGCF_PRESENT: u32 = 0x2;
     const DIGCF_DEVICEINTERFACE: u32 = 0x10;
     const GENERIC_READ: u32 = 0x80000000;

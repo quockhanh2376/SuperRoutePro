@@ -33,6 +33,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Repair Broker Lifecycle Fix**: Closed `super-route-pro-auy` by passing the launching app PID into `UnlockRepairSessionRequest` and teaching `SuperRouteRepairBroker` to monitor the parent process handle, so the elevated broker self-terminates if the UI is force-closed while unlocked.
 - **NIC Startup Empty-State Fix**: Closed `super-route-pro-nhl` by adding a NIC-table loading placeholder and stale-load guards, so startup no longer flashes `No interfaces found` while the first NIC snapshot is still loading.
 - **Persistence Tracking Update**: Logged the still-open release blocker as beads issue `super-route-pro-u3z` because the `Persist on startup OFF` path remains inconclusive and still needs direct repro before sign-off.
+- **Rust Warning Cleanup**: Removed the remaining `cargo check` warning debt by deleting unused battery/NIC helper remnants, dropping an unused registry import and raw target struct, and switching `SuperRouteService` to reuse the shared `route_persist` module instead of compiling its own warning-prone copy. Re-ran `cargo check` clean, then re-ran full `npm run check` clean.
 
 **Files Changed**
 | File | Change |

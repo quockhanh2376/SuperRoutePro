@@ -9,14 +9,6 @@ pub struct RepairTargetUser {
     pub is_loaded: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct RawRepairTargetUser {
-    sid: String,
-    account_name: Option<String>,
-    profile_path: String,
-    is_loaded: bool,
-}
-
 pub fn validate_target_sid(sid: &str) -> bool {
     let mut parts = sid.trim().split('-');
 
@@ -80,7 +72,6 @@ pub fn normalize_profile_root(raw_path: &str) -> Option<PathBuf> {
 
 #[cfg(target_os = "windows")]
 pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
-    use windows_sys::Win32::Foundation::*;
     use windows_sys::Win32::System::Registry::*;
 
     const PROFILE_LIST_PATH: &[u8] =
