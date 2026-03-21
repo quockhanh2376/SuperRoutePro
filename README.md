@@ -1,9 +1,7 @@
-# Super Route Pro v10.0.0
+﻿# Super Route Pro v5.4.0
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
-
-Current stable release: `v10.0.0`
 
 Author: Zonzon
 
@@ -21,7 +19,6 @@ This app provides a practical control panel for Windows networking tasks:
 - Run tracert directly from target input
 - Use a unified output console (command/routing output on top, ping/tracert output on bottom)
 - Switch between light and dark mode
-- Start in standard-user mode and unlock `Repair Mode` only when admin fixes are needed
 
 ## 2) Main Features
 
@@ -99,128 +96,93 @@ super-route-pro/
 
 Install these first:
 
-- Windows 10/11 x64
-- Node.js 24+
+- Node.js 20+
 - npm 10+
 - Rust toolchain (`rustup`, `cargo`)
-- Microsoft Visual Studio C++ Build Tools (2022)
+- WebView2 Runtime (Windows 11 usually already has it)
+- Microsoft C++ build tools (for Tauri/Rust native build on Windows)
 
-Notes:
+## 8) Run and Test
 
-- Release installers are configured with WebView2 `offlineInstaller`, so target machines do not need WebView2 preinstalled.
-- The UI now starts as the logged-in standard user.
-- Admin credentials are only requested when IT unlocks `Repair Mode` for privileged fixes.
-- Unlocking `Repair Mode` enables the full tool surface immediately. Profile-specific actions still validate the selected target user when execution starts.
-- Startup rotates a stale `main-webview` profile and retries once if WebView2 reports its data directory is not writable.
-
-## 8) Run and Validate Locally
+Install dependencies:
 
 ```powershell
-npm ci
+npm install
+```
+
+Run desktop app in dev mode:
+
+```powershell
 npm run tauri dev
 ```
 
-Run full build checks before release:
+Build frontend only:
 
 ```powershell
-npm run check
+npm run build
 ```
 
-## 9) Build Release Locally
-
-Version bump in one command (updates all 3 files together):
+Validate Rust backend:
 
 ```powershell
-npm run version:patch
-# or:
-# npm run version:minor
-# npm run version:major
-# npm run version:bump -- 6.4.0
+cd src-tauri
+cargo check
 ```
 
-One-command ship flow (bump + commit + tag + push):
+## 9) Build Release
+
+Build installers/executables via Tauri:
 
 ```powershell
-npm run release:patch
-# or:
-# npm run release:minor
-# npm run release:major
-# npm run release:ship -- 6.4.0
+npm run tauri build
 ```
 
-Notes:
+Typical outputs:
 
-- `release:*` runs `npm run check` by default before commit/tag.
-- It requires a clean working tree by default for safe release commits.
-- Dry-run preview:
+- Installer bundles:
+  - `src-tauri/target/release/bundle/nsis/`
+  - `src-tauri/target/release/bundle/msi/`
+- Release exe (bin name from Cargo):
+  - `src-tauri/target/release/SuperRoute.exe`
+
+## 10) Push Entire Project to GitHub
+
+If this folder is not a git repo yet:
 
 ```powershell
-npm run release:ship -- patch -DryRun
+cd E:\super-route-pro
+git init
+git add .
+git commit -m "chore: initial import Super Route Pro v3.6.9"
+git branch -M main
+git remote add origin https://github.com/<your-user>/<your-repo>.git
+git push -u origin main
 ```
 
-Recommended one-command release build:
+If remote repo already exists and has commits:
 
 ```powershell
-npm run release:local
+git remote add origin https://github.com/<your-user>/<your-repo>.git
+# if origin already exists, run: git remote set-url origin <url>
+git fetch origin
+git pull --rebase origin main
+git push -u origin main
 ```
 
-This script will:
+## 11) Pre-Push Checklist
 
-- Run `npm ci` (unless you pass `-SkipInstall`)
-- Build the Tauri `NSIS` bundle and portable `SuperRoute.exe`
-- Collect all artifacts into `release-artifacts/vX.Y.Z/`
-- Generate `SHA256SUMS.txt`
+- Run `npm run build`
+- Run `cargo check` in `src-tauri`
+- Confirm no secrets/API keys are committed
+- Confirm large generated files are ignored (`node_modules`, `dist`, `src-tauri/target`)
 
-Optional:
+## 12) Notes
 
-```powershell
-npm run release:local -- -VersionTag v10.0.0 -SkipInstall
-```
-
-## 10) Automated GitHub Release
-
-Workflows included:
-
-- `.github/workflows/ci.yml`
-  - Runs on push/PR, validates frontend + Rust build.
-- `.github/workflows/release.yml`
-  - Runs on tag push (`v*`), builds installers, uploads artifacts, and publishes GitHub release assets.
-
-Release flow:
-
-```powershell
-npm run release:patch
-# (or minor/major/specific version)
-```
-
-Generated release assets:
-
-- `Super Route Pro_<version>_x64-setup.exe` (NSIS)
-- `SuperRoute.exe` (portable)
-- `SHA256SUMS.txt`
-
-## 11) Install On A New Machine
-
-1. Download installer from GitHub Releases.
-2. Run installer as Administrator.
-3. Launch app as the standard user who is signed in.
-4. Unlock `Repair Mode` only when you need privileged system fixes. Windows will prompt for a local admin credential once for that app session.
-5. Use `SHA256SUMS.txt` to verify integrity if required.
-
-## 12) Pre-Release Checklist
-
-- Keep versions aligned in:
-  - `package.json`
-  - `src-tauri/Cargo.toml`
-  - `src-tauri/tauri.conf.json`
-- Run `npm run check`
-- Run `npm run release:local`
-- Verify at least one clean-machine install test (VM recommended)
-- Confirm no generated artifacts are committed (`node_modules`, `dist`, `src-tauri/target`, `release-artifacts`)
+- Some network commands require Administrator privileges on Windows.
+- For stable behavior in diagnostics tools, run the app as Administrator when needed.
 
 ## 13) Releases & Download
 
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
-- Version v10.0.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.0.0`
-
+- Version v5.4.0: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v5.4.0`

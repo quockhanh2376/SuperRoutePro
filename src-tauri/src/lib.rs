@@ -352,56 +352,125 @@ fn run_hidden(program: &str, args: &[&str]) -> Option<std::process::Output> {
 
 #[cfg(target_os = "windows")]
 fn detect_windows_build_number() -> Option<u32> {
-    let output = run_hidden(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-CimInstance Win32_OperatingSystem).BuildNumber",
-        ],
-    )?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<u32>()
-        .ok()
+    read_registry_string(
+        windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+        "CurrentBuildNumber",
+    )
+    .and_then(|value| value.trim().parse::<u32>().ok())
 }
 
 #[cfg(target_os = "windows")]
 fn command_exists(name: &str) -> bool {
-    run_hidden("where", &[name])
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    if let Ok(path_var) = std::env::var("PATH") {
+        let exe_name = if name.contains('.') {
+            name.to_string()
+        } else {
+            format!("{name}.exe")
+        };
+        for dir in path_var.split(';') {
+            let candidate = Path::new(dir).join(&exe_name);
+            if candidate.is_file() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(target_os = "windows")]
 fn has_webview2_runtime() -> bool {
-    let keys = [
-        format!(
-            r"HKLM\SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}"
+    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER};
+
+    let subkeys = [
+        (
+            HKEY_LOCAL_MACHINE,
+            format!("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_GUID}"),
         ),
-        format!(
-            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}"
+        (
+            HKEY_LOCAL_MACHINE,
+            format!("SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_GUID}"),
         ),
-        format!(
-            r"HKCU\SOFTWARE\Microsoft\EdgeUpdate\Clients\{WEBVIEW2_CLIENT_GUID}"
+        (
+            HKEY_CURRENT_USER,
+            format!("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_GUID}"),
         ),
     ];
 
-    keys.iter()
-        .any(|key| registry_value_exists(key, "pv"))
+    subkeys.iter().any(|(root, subkey)| {
+        read_registry_string(*root, subkey, "pv").is_some()
+    })
 }
 
+/// Read a REG_SZ value from the Windows registry without spawning any child process.
 #[cfg(target_os = "windows")]
-fn registry_value_exists(key: &str, value_name: &str) -> bool {
-    run_hidden("reg", &["query", key, "/v", value_name])
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+fn read_registry_string(
+    root: windows_sys::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<String> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, KEY_READ, REG_SZ,
+    };
+
+    let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+    let value_wide: Vec<u16> = value_name.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
+    let status = unsafe {
+        RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey)
+    };
+    if status as u32 != ERROR_SUCCESS {
+        return None;
+    }
+
+    let mut data_type: u32 = 0;
+    let mut data_size: u32 = 0;
+    let status = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_wide.as_ptr(),
+            std::ptr::null(),
+            &mut data_type,
+            std::ptr::null_mut(),
+            &mut data_size,
+        )
+    };
+    if status as u32 != ERROR_SUCCESS || data_type != REG_SZ {
+        unsafe { RegCloseKey(hkey) };
+        return None;
+    }
+
+    let mut buffer: Vec<u8> = vec![0u8; data_size as usize];
+    let status = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_wide.as_ptr(),
+            std::ptr::null(),
+            &mut data_type,
+            buffer.as_mut_ptr(),
+            &mut data_size,
+        )
+    };
+    unsafe { RegCloseKey(hkey) };
+
+    if status as u32 != ERROR_SUCCESS {
+        return None;
+    }
+
+    let wide_slice = unsafe {
+        std::slice::from_raw_parts(
+            buffer.as_ptr() as *const u16,
+            data_size as usize / 2,
+        )
+    };
+    let trimmed = wide_slice
+        .iter()
+        .copied()
+        .take_while(|&c| c != 0)
+        .collect::<Vec<u16>>();
+    Some(String::from_utf16_lossy(&trimmed))
 }
 
 #[cfg(target_os = "windows")]
