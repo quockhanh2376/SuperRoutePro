@@ -73,57 +73,20 @@ fn main() {
 /// Find the current InterfaceIndex of a NIC by matching its description (primary)
 /// or MAC address (fallback).
 fn find_nic_interface_index(nic: &NicIdentifier) -> Result<String, String> {
-    let output = Command::new("powershell")
-        .args(&[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-NetAdapter | Select-Object InterfaceIndex, InterfaceDescription, MacAddress | ConvertTo-Json",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run Get-NetAdapter: {e}"))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "Get-NetAdapter failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let adapters: Vec<serde_json::Value> = serde_json::from_str(text.trim())
-        .or_else(|_| {
-            // Single adapter returns an object, not an array
-            let single: serde_json::Value = serde_json::from_str(text.trim())
-                .map_err(|e| format!("JSON parse error: {e}"))?;
-            Ok::<Vec<serde_json::Value>, String>(vec![single])
-        })
-        .map_err(|e| format!("Failed to parse adapter list: {e}"))?;
+    let adapters = super_route_pro_lib::win32_net::enumerate_adapters()?;
 
     // Primary match: by description
     for adapter in &adapters {
-        let desc = adapter["InterfaceDescription"]
-            .as_str()
-            .unwrap_or_default();
-        if desc.eq_ignore_ascii_case(&nic.description) {
-            if let Some(idx) = adapter["InterfaceIndex"].as_u64() {
-                return Ok(idx.to_string());
-            }
+        if adapter.description.eq_ignore_ascii_case(&nic.description) {
+            return Ok(adapter.interface_index.to_string());
         }
     }
 
     // Fallback match: by MAC address
     let normalized_mac = nic.mac_address.replace(':', "-").to_uppercase();
     for adapter in &adapters {
-        let mac = adapter["MacAddress"]
-            .as_str()
-            .unwrap_or_default()
-            .to_uppercase();
-        if mac == normalized_mac {
-            if let Some(idx) = adapter["InterfaceIndex"].as_u64() {
-                return Ok(idx.to_string());
-            }
+        if adapter.mac_address.to_uppercase() == normalized_mac {
+            return Ok(adapter.interface_index.to_string());
         }
     }
 

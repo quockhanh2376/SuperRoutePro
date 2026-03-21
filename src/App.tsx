@@ -1214,11 +1214,18 @@ export default function App() {
     const port = Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 443;
     setDiagHost(host);
     setDiagPort(String(port));
-    await executeNetCmd(
-      `powershell -NoProfile -Command Test-NetConnection -ComputerName ${host} -Port ${port}`,
-      `Port Test ${host}:${port}`
-    );
-  }, [diagHost, diagPort, executeNetCmd, sanitizeHostToken]);
+    setDiagnosticView("command");
+    setStatusMsg(`Testing port ${host}:${port}...`);
+    try {
+      const result = await invoke<{ success: boolean; output: string }>("test_tcp_port", { host, port });
+      appendCommandOutput(`Port Test ${host}:${port}`, result.output);
+      setStatusMsg(result.success ? `Port ${port} open on ${host}` : `Port ${port} closed on ${host}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendCommandOutput(`Port Test ${host}:${port}`, `Error: ${msg}`);
+      setStatusMsg(`Port test failed: ${msg}`);
+    }
+  }, [diagHost, diagPort, appendCommandOutput, sanitizeHostToken]);
 
   const resolveIpScanPlan = useCallback((): IpScanPlan | null => {
     if (!selectedNic) return null;
@@ -1407,17 +1414,40 @@ export default function App() {
   }, []);
 
   const executeRemoveSelectedBloatware = useCallback(async () => {
+    console.log("[BLOATWARE] executeRemoveSelectedBloatware CALLED");
     const packages = Array.from(selectedBloatware);
     if (!packages.length) {
+      console.log("[BLOATWARE] No packages selected, returning");
       setStatusMsg("Select at least one app to remove");
       return;
     }
-    if (!selectedRepairTargetSid) {
-      setBloatwareModalOpen(false);
-      setStatusMsg("Select a target user before removing apps");
-      return;
+
+    // Resolve target SID — use state value or auto-load repair targets
+    let targetSid = selectedRepairTargetSid;
+    console.log("[BLOATWARE] Initial targetSid from state:", targetSid);
+    if (!targetSid) {
+      console.log("[BLOATWARE] No targetSid, auto-loading repair targets...");
+      try {
+        const targets = await listRepairTargets();
+        console.log("[BLOATWARE] Loaded repair targets:", targets.length, targets);
+        if (targets.length > 0) {
+          const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
+          targetSid = activeTarget.sid;
+          setSelectedRepairTargetSid(targetSid);
+          console.log("[BLOATWARE] Auto-selected targetSid:", targetSid);
+        } else {
+          console.log("[BLOATWARE] No repair targets found!");
+          setRemoveProgressText("Error: No repair target found. Unlock Repair Mode first.");
+          return;
+        }
+      } catch (err) {
+        console.error("[BLOATWARE] Failed to load repair targets:", err);
+        setRemoveProgressText("Error: Could not load repair targets. Unlock Repair Mode first.");
+        return;
+      }
     }
 
+    console.log("[BLOATWARE] Starting removal loop for", packages.length, "packages with SID:", targetSid);
     setBloatwareRemoving(true);
     setDiagnosticView("command");
     setDiagnosticsOpen(true);
@@ -1435,15 +1465,19 @@ export default function App() {
         setRemoveProgressText(`Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`);
 
         try {
+          console.log(`[BLOATWARE] Calling repairRemoveBloatware for ${packageName} with SID ${targetSid}`);
           const result = await repairRemoveBloatware(
-            selectedRepairTargetSid,
+            targetSid,
             [packageName],
             true
           );
+          console.log(`[BLOATWARE] Result for ${packageName}:`, result);
           appendCommandOutput(`Remove Apps - ${appLabel}`, result.output);
           if (result.requires_unlock) {
             failedCount += 1;
+            console.log("[BLOATWARE] Requires unlock! Breaking loop.");
             setStatusMsg("Unlock Repair Mode first to remove apps");
+            setRemoveProgressText("Error: Repair Mode is locked. Unlock first, then retry.");
             const status = await getRepairSessionStatus();
             setRepairSession(status);
             break;
@@ -1451,9 +1485,11 @@ export default function App() {
             successCount += 1;
           } else {
             failedCount += 1;
+            console.log(`[BLOATWARE] Failed for ${packageName}: ${result.output}`);
           }
         } catch (err) {
           failedCount += 1;
+          console.error(`[BLOATWARE] Exception for ${packageName}:`, err);
           appendCommandOutput(`Remove Apps - ${appLabel}`, `Error: ${err}`);
         }
 
@@ -1463,6 +1499,7 @@ export default function App() {
         setRemoveProgressText(`Processed ${processed}/${packages.length} (${percent}%)`);
       }
 
+      console.log(`[BLOATWARE] Loop done. Success: ${successCount}, Failed: ${failedCount}`);
       setStatusMsg(
         failedCount === 0
           ? `Remove Apps completed (${successCount}/${packages.length})`
@@ -1472,6 +1509,7 @@ export default function App() {
       setSelectedBloatware(new Set());
       await loadBloatwareList();
     } catch (err) {
+      console.error("[BLOATWARE] Outer error:", err);
       appendCommandOutput("Remove Apps", `Error: ${err}`);
       setStatusMsg(`Remove Apps error: ${err}`);
       setRemoveProgressText("Removal aborted by error.");
@@ -1527,9 +1565,23 @@ export default function App() {
       setStatusMsg("Select at least one cache target");
       return;
     }
-    if (!selectedRepairTargetSid) {
-      setStatusMsg("Select a target user before cleaning profile caches");
-      return;
+    // Resolve target SID — use state value or auto-load repair targets
+    let cacheTargetSid = selectedRepairTargetSid;
+    if (!cacheTargetSid) {
+      try {
+        const targets = await listRepairTargets();
+        if (targets.length > 0) {
+          const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
+          cacheTargetSid = activeTarget.sid;
+          setSelectedRepairTargetSid(cacheTargetSid);
+        } else {
+          setCacheProgressText("Error: No repair target found. Unlock Repair Mode first.");
+          return;
+        }
+      } catch {
+        setCacheProgressText("Error: Could not load repair targets. Unlock Repair Mode first.");
+        return;
+      }
     }
 
     setCacheCleaning(true);
@@ -1557,7 +1609,7 @@ export default function App() {
         );
 
         try {
-          const result = await repairClearCacheTargets(selectedRepairTargetSid, [target.id]);
+          const result = await repairClearCacheTargets(cacheTargetSid, [target.id]);
           appendCommandOutput(`Clear Cache - ${target.label}`, result.output);
           if (result.requires_unlock) {
             failedCount += 1;

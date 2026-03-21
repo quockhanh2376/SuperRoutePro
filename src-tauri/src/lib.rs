@@ -1,3 +1,4 @@
+pub mod win32_net;
 mod network;
 pub mod repair_actions;
 pub mod repair_ipc;
@@ -9,7 +10,7 @@ pub mod route_persist;
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
     flush_routes, set_default_gateway, set_wan_persist_on_startup, get_wan_persist_on_startup_status,
-    run_network_command, ping_host,
+    run_network_command, ping_host, test_tcp_port,
     check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
     clear_cache_targets, get_battery_report, get_battery_summary,
 };
@@ -42,7 +43,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 // Windows 10 RTM build. This also covers all Windows 11 builds.
 const MIN_WINDOWS_BUILD: u32 = 10240;
 #[cfg(target_os = "windows")]
-const REQUIRED_COMMANDS: [&str; 5] = ["route", "netsh", "ipconfig", "ping", "powershell"];
+const REQUIRED_COMMANDS: [&str; 4] = ["route", "netsh", "ipconfig", "ping"];
 #[cfg(target_os = "windows")]
 const WEBVIEW2_CLIENT_GUID: &str = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 #[cfg(target_os = "windows")]
@@ -122,6 +123,7 @@ pub fn run() {
             get_wan_persist_on_startup_status,
             run_network_command,
             ping_host,
+            test_tcp_port,
             fping_scan,
             check_internet,
             get_bloatware_candidates,
@@ -304,48 +306,20 @@ fn persist_load_config() -> Result<Option<route_persist::PersistConfig>, String>
 
 #[tauri::command]
 fn persist_get_nic_stable_id(interface_index: String) -> Result<route_persist::NicIdentifier, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = run_hidden(
-            "powershell",
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!(
-                    "Get-NetAdapter -InterfaceIndex {interface_index} | Select-Object -Property InterfaceDescription,MacAddress | ConvertTo-Json"
-                ),
-            ],
-        )
-        .ok_or_else(|| "Failed to query NIC details".to_string())?;
+    let target_idx: u32 = interface_index
+        .parse()
+        .map_err(|_| format!("Invalid interface index: {interface_index}"))?;
 
-        if !output.status.success() {
-            return Err(format!(
-                "PowerShell failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
+    let adapters = win32_net::enumerate_adapters()?;
+    let nic = adapters
+        .iter()
+        .find(|a| a.interface_index == target_idx)
+        .ok_or_else(|| format!("No adapter found with InterfaceIndex {target_idx}"))?;
 
-        let text = String::from_utf8_lossy(&output.stdout);
-        let v: serde_json::Value = serde_json::from_str(text.trim())
-            .map_err(|e| format!("Failed to parse NIC JSON: {e}"))?;
-
-        Ok(route_persist::NicIdentifier {
-            description: v["InterfaceDescription"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-            mac_address: v["MacAddress"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-        })
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("NIC lookup only supported on Windows".to_string())
-    }
+    Ok(route_persist::NicIdentifier {
+        description: nic.description.clone(),
+        mac_address: nic.mac_address.clone(),
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -356,19 +330,24 @@ fn register_startup_task() -> Result<(), String> {
     let service_exe = exe_dir.join("SuperRouteService.exe");
     let service_path = service_exe.to_string_lossy();
 
-    let ps_script = [
-        format!("$action = New-ScheduledTaskAction -Execute '{service_path}'"),
-        "$trigger = New-ScheduledTaskTrigger -AtLogOn".to_string(),
-        "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries".to_string(),
-        "if (Get-ScheduledTask -TaskName 'SuperRouteProPersist' -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName 'SuperRouteProPersist' -Confirm:$false }".to_string(),
-        "Register-ScheduledTask -TaskName 'SuperRouteProPersist' -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force".to_string(),
-    ].join("; ");
+    // First delete existing task if any (ignore errors)
+    let _ = run_hidden(
+        "schtasks",
+        &["/Delete", "/TN", "SuperRouteProPersist", "/F"],
+    );
 
     let output = run_hidden(
-        "powershell",
-        &["-NoProfile", "-NonInteractive", "-Command", &ps_script],
+        "schtasks",
+        &[
+            "/Create",
+            "/TN", "SuperRouteProPersist",
+            "/TR", &format!("\"{}\"", service_path),
+            "/SC", "ONLOGON",
+            "/RL", "HIGHEST",
+            "/F",
+        ],
     )
-    .ok_or_else(|| "Failed to run PowerShell for task registration".to_string())?;
+    .ok_or_else(|| "Failed to run schtasks for task registration".to_string())?;
 
     if !output.status.success() {
         return Err(format!(
@@ -382,21 +361,17 @@ fn register_startup_task() -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn unregister_startup_task() -> Result<(), String> {
     let output = run_hidden(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "if (Get-ScheduledTask -TaskName 'SuperRouteProPersist' -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName 'SuperRouteProPersist' -Confirm:$false }",
-        ],
+        "schtasks",
+        &["/Delete", "/TN", "SuperRouteProPersist", "/F"],
     )
-    .ok_or_else(|| "Failed to run PowerShell for task removal".to_string())?;
+    .ok_or_else(|| "Failed to run schtasks for task removal".to_string())?;
 
     if !output.status.success() {
-        return Err(format!(
-            "Task removal failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+        // Task might not exist, which is fine
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.contains("does not exist") && !stderr.contains("cannot find") {
+            return Err(format!("Task removal failed: {}", stderr));
+        }
     }
     Ok(())
 }

@@ -5,6 +5,46 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-21 — PowerShell → Native Rust Migration (v10.1.0)
+
+**Done**
+- Audited all 13+ PowerShell call sites across 5 Rust files (`network.rs`, `lib.rs`, `repair_actions.rs`, `route_service_main.rs`, `repair_targets.rs`).
+- **Cache Cleanup** (`repair_actions.rs` + `network.rs`): Replaced PowerShell `Remove-Item` with native `std::fs` operations (`clean_directory_contents`, `clean_files_with_prefix`). Windows Update cache now uses `net.exe stop/start`.
+- **Scheduled Tasks** (`lib.rs`): Replaced `Register-ScheduledTask` / `Unregister-ScheduledTask` with `schtasks.exe /Create` and `/Delete`.
+- **NIC Enumeration** (`win32_net.rs` — NEW FILE): Created native module using `netsh interface ipv4 show interfaces` + `netsh interface ipv4 show addresses` + `getmac /fo csv`. Replaced PowerShell `Get-NetAdapter` and `Get-WmiObject` calls in `network.rs`, `lib.rs`, `route_service_main.rs`.
+- **Routing Table** (`network.rs`): Replaced `Get-NetRoute` with `route print -4` text parsing.
+- **Gateway Cleanup** (`network.rs`): Replaced `Remove-NetRoute` PowerShell script with `route delete 0.0.0.0`.
+- **Battery Info** (`network.rs`): Replaced `Get-CimInstance Win32_Battery` PowerShell with native Win32 `GetSystemPowerStatus` + `DeviceIoControl` IOCTL (`IOCTL_BATTERY_QUERY_INFORMATION`) via `SetupDi` for detailed battery info (design capacity, full charge capacity, cycle count, chemistry, health%).
+- **Restart Adapters** (`repair_actions.rs`): Replaced PowerShell `Restart-NetAdapter` with `netsh interface set interface disable/enable` using `win32_net::enumerate_adapters`.
+- Removed `"powershell"` from `REQUIRED_COMMANDS` in `lib.rs`.
+- Removed PowerShell commands from `allowed_prefixes` whitelist in `network.rs`.
+- **Bloatware** (`Get-AppxPackage` / `Remove-AppxPackage`): Kept on PowerShell (no cmd.exe alternative) but runs with `CREATE_NO_WINDOW` — no PS window flash.
+- **WAN Persist Script**: Rewrote from `.ps1` PowerShell to `.cmd` batch using `route print` + `findstr` + `route delete/add`. `schtasks` now runs `cmd.exe /c` instead of `powershell.exe -File`.
+- **Test-NetConnection** (`App.tsx`): Replaced PowerShell `Test-NetConnection` with native Rust `test_tcp_port` Tauri command using `std::net::TcpStream::connect_timeout`. Frontend is now **0% PowerShell**.
+
+**Files Changed**
+| File | Change |
+|------|--------|
+| `src-tauri/src/win32_net.rs` | **NEW** — netsh-based NIC enumeration module |
+| `src-tauri/src/network.rs` | Major — NIC, routing, battery IOCTL, cache, gateway, WAN persist, test_tcp_port |
+| `src-tauri/src/repair_actions.rs` | Cache cleanup + restart adapters rewrite |
+| `src-tauri/src/lib.rs` | Scheduled tasks + NIC + test_tcp_port + removed PS from REQUIRED_COMMANDS |
+| `src-tauri/src/route_service_main.rs` | NIC lookup rewrite |
+| `src-tauri/Cargo.toml` | Added Win32 API features for battery IOCTL + SetupDi |
+| `src/App.tsx` | Bloatware UI fix + test_tcp_port migration |
+
+**Notes & Decisions**
+- `wmic` was deprecated/removed on this Windows 11 build — switched to `netsh` + `getmac` for NIC enumeration.
+- Battery IOCTL uses fully manual FFI declarations (`extern "system"`) due to `windows-sys 0.59` handle type inconsistencies across modules.
+- AppX bloatware operations (`Get-AppxPackage`/`Remove-AppxPackage`) remain on PowerShell as there is no native cmd.exe alternative. Runs hidden with `CREATE_NO_WINDOW`.
+
+**Next Steps**
+- Manual UI testing of all features (NIC, cache, remove apps, battery, routing).
+- Write unit tests for migrated functions.
+- Bump version to 10.1.0 and release on GitHub.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-14 - Release v9.0.9 (Output Console Polish)
 
 **Done**

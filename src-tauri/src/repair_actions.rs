@@ -167,59 +167,163 @@ fn cleanup_paths_for_target(target_user: &RepairTargetUser, target: &str) -> Opt
     }
 }
 
-fn cleanup_script_for_target(target_user: &RepairTargetUser, target: &str) -> Option<String> {
-    let profile_root = ps_escape_single_quoted(&target_user.profile_path);
+/// Clean all files and subdirectories inside a directory, leaving the directory itself.
+fn clean_directory_contents(path: &std::path::Path) -> (u64, u64) {
+    let mut deleted = 0u64;
+    let mut failed = 0u64;
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            match std::fs::remove_dir_all(&entry_path) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        } else {
+            match std::fs::remove_file(&entry_path) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        }
+    }
+    (deleted, failed)
+}
 
-    let local_setup = format!(
-        "$targetProfile = '{profile_root}'\n$targetLocalAppData = Join-Path $targetProfile 'AppData\\Local'\n"
-    );
+/// Delete files matching a glob-like prefix in a directory (e.g. thumbcache_*.db)
+fn clean_files_with_prefix(dir: &std::path::Path, prefix: &str, suffix: &str) -> (u64, u64) {
+    let mut deleted = 0u64;
+    let mut failed = 0u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(prefix) && name.ends_with(suffix) {
+            match std::fs::remove_file(entry.path()) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        }
+    }
+    (deleted, failed)
+}
 
-    let body = match target {
+/// Run a native cache cleanup for a specific target. Returns (label, success, detail).
+fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Option<(bool, String)> {
+    let profile_root = target_user.profile_path.trim_end_matches(['\\', '/']);
+    let local = format!(r"{profile_root}\AppData\Local");
+
+    match target {
         "user_temp" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'Temp\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] User Temp cleaned.'"
+            let path = std::path::Path::new(&local).join("Temp");
+            let (del, fail) = clean_directory_contents(&path);
+            Some((fail == 0, format!("[OK] User Temp cleaned ({del} items removed, {fail} failed).")))
         }
         "windows_temp" => {
-            "Remove-Item -Path 'C:\\Windows\\Temp\\*' -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Windows Temp cleaned.'"
+            let path = std::path::Path::new(r"C:\Windows\Temp");
+            let (del, fail) = clean_directory_contents(path);
+            Some((fail == 0, format!("[OK] Windows Temp cleaned ({del} items, {fail} failed).")))
         }
         "windows_update_cache" => {
-            "Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue\nStop-Service -Name bits -Force -ErrorAction SilentlyContinue\nRemove-Item -Path 'C:\\Windows\\SoftwareDistribution\\Download\\*' -Recurse -Force -ErrorAction SilentlyContinue\nStart-Service -Name wuauserv -ErrorAction SilentlyContinue\nStart-Service -Name bits -ErrorAction SilentlyContinue\nWrite-Output '[OK] Windows Update cache cleaned.'"
+            // Stop services, clean, restart
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("net")
+                    .args(["stop", "wuauserv", "/y"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+                let _ = Command::new("net")
+                    .args(["stop", "bits", "/y"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+            }
+            let path = std::path::Path::new(r"C:\Windows\SoftwareDistribution\Download");
+            let (del, fail) = clean_directory_contents(path);
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("net")
+                    .args(["start", "wuauserv"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+                let _ = Command::new("net")
+                    .args(["start", "bits"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+            }
+            Some((fail == 0, format!("[OK] Windows Update cache cleaned ({del} items, {fail} failed).")))
         }
         "prefetch" => {
-            "Remove-Item -Path 'C:\\Windows\\Prefetch\\*' -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Prefetch cleaned.'"
+            let path = std::path::Path::new(r"C:\Windows\Prefetch");
+            let (del, fail) = clean_directory_contents(path);
+            Some((fail == 0, format!("[OK] Prefetch cleaned ({del} items, {fail} failed).")))
         }
         "explorer_cache" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'Microsoft\\Windows\\Explorer\\thumbcache_*.db') -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $targetLocalAppData 'Microsoft\\Windows\\Explorer\\iconcache_*.db') -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Explorer thumbnail/icon cache cleaned.'"
+            let explorer_dir = std::path::Path::new(&local).join(r"Microsoft\Windows\Explorer");
+            let (d1, f1) = clean_files_with_prefix(&explorer_dir, "thumbcache_", ".db");
+            let (d2, f2) = clean_files_with_prefix(&explorer_dir, "iconcache_", ".db");
+            let del = d1 + d2;
+            let fail = f1 + f2;
+            Some((fail == 0, format!("[OK] Explorer cache cleaned ({del} items, {fail} failed).")))
         }
         "edge_cache" => {
-            "$base = Join-Path $targetLocalAppData 'Microsoft\\Edge\\User Data\\Default'\nRemove-Item -Path (Join-Path $base 'Cache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $base 'Code Cache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $base 'GPUCache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Microsoft Edge cache cleaned.'"
+            let base = std::path::Path::new(&local).join(r"Microsoft\Edge\User Data\Default");
+            let mut del = 0u64;
+            let mut fail = 0u64;
+            for sub in ["Cache", "Code Cache", "GPUCache"] {
+                let (d, f) = clean_directory_contents(&base.join(sub));
+                del += d; fail += f;
+            }
+            Some((fail == 0, format!("[OK] Microsoft Edge cache cleaned ({del} items, {fail} failed).")))
         }
         "chrome_cache" => {
-            "$base = Join-Path $targetLocalAppData 'Google\\Chrome\\User Data\\Default'\nRemove-Item -Path (Join-Path $base 'Cache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $base 'Code Cache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $base 'GPUCache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Google Chrome cache cleaned.'"
+            let base = std::path::Path::new(&local).join(r"Google\Chrome\User Data\Default");
+            let mut del = 0u64;
+            let mut fail = 0u64;
+            for sub in ["Cache", "Code Cache", "GPUCache"] {
+                let (d, f) = clean_directory_contents(&base.join(sub));
+                del += d; fail += f;
+            }
+            Some((fail == 0, format!("[OK] Google Chrome cache cleaned ({del} items, {fail} failed).")))
         }
         "firefox_cache" => {
-            "$profiles = Join-Path $targetLocalAppData 'Mozilla\\Firefox\\Profiles'\nRemove-Item -Path \"$profiles\\*\\cache2\\*\" -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Mozilla Firefox cache cleaned.'"
+            let profiles_dir = std::path::Path::new(&local).join(r"Mozilla\Firefox\Profiles");
+            let mut del = 0u64;
+            let mut fail = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
+                for entry in entries.flatten() {
+                    let cache2 = entry.path().join("cache2");
+                    let (d, f) = clean_directory_contents(&cache2);
+                    del += d; fail += f;
+                }
+            }
+            Some((fail == 0, format!("[OK] Mozilla Firefox cache cleaned ({del} items, {fail} failed).")))
         }
         "inet_cache" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'Microsoft\\Windows\\INetCache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] INetCache cleaned.'"
+            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\INetCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some((fail == 0, format!("[OK] INetCache cleaned ({del} items, {fail} failed).")))
         }
         "web_cache" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'Microsoft\\Windows\\WebCache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] WebCache cleaned.'"
+            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\WebCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some((fail == 0, format!("[OK] WebCache cleaned ({del} items, {fail} failed).")))
         }
         "crash_dumps" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'CrashDumps\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Crash dumps cleaned.'"
+            let path = std::path::Path::new(&local).join("CrashDumps");
+            let (del, fail) = clean_directory_contents(&path);
+            Some((fail == 0, format!("[OK] Crash dumps cleaned ({del} items, {fail} failed).")))
         }
         "wer_reports" => {
-            "Remove-Item -Path 'C:\\ProgramData\\Microsoft\\Windows\\WER\\*' -Recurse -Force -ErrorAction SilentlyContinue\nRemove-Item -Path (Join-Path $targetLocalAppData 'Microsoft\\Windows\\WER\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] Windows Error Reporting (WER) cache cleaned.'"
+            let (d1, f1) = clean_directory_contents(std::path::Path::new(r"C:\ProgramData\Microsoft\Windows\WER"));
+            let (d2, f2) = clean_directory_contents(&std::path::Path::new(&local).join(r"Microsoft\Windows\WER"));
+            let del = d1 + d2; let fail = f1 + f2;
+            Some((fail == 0, format!("[OK] Windows Error Reporting cleaned ({del} items, {fail} failed).")))
         }
         "d3d_shader_cache" => {
-            "Remove-Item -Path (Join-Path $targetLocalAppData 'D3DSCache\\*') -Recurse -Force -ErrorAction SilentlyContinue\nWrite-Output '[OK] DirectX Shader Cache cleaned.'"
+            let path = std::path::Path::new(&local).join("D3DSCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some((fail == 0, format!("[OK] DirectX Shader Cache cleaned ({del} items, {fail} failed).")))
         }
-        _ => return None,
-    };
-
-    Some(format!(
-        "$ErrorActionPreference='SilentlyContinue'\n{local_setup}{body}\n"
-    ))
+        _ => None,
+    }
 }
 
 pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
@@ -328,10 +432,43 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::ResetWinHttpProxy => network::run_network_command_blocking(
             "netsh winhttp reset proxy".to_string(),
         )?,
-        RepairMachineAction::RestartActiveAdapters => network::run_network_command_blocking(
-            "powershell -NoProfile -Command Get-NetAdapter -Physical ^| Where-Object {$_.Status -eq 'Up'} ^| Restart-NetAdapter -Confirm:$false"
-                .to_string(),
-        )?,
+        RepairMachineAction::RestartActiveAdapters => {
+            // Enumerate physical adapters that are up, then disable+enable each via netsh
+            match crate::win32_net::enumerate_adapters() {
+                Ok(adapters) => {
+                    let mut restarted = 0;
+                    let mut errors = Vec::new();
+                    for nic in adapters.iter().filter(|a| a.oper_status_up && !a.friendly_name.is_empty()) {
+                        let name = &nic.friendly_name;
+                        let disable = network::run_network_command_blocking(
+                            format!("netsh interface set interface \"{}\" disable", name),
+                        );
+                        let enable = network::run_network_command_blocking(
+                            format!("netsh interface set interface \"{}\" enable", name),
+                        );
+                        match (disable, enable) {
+                            (Ok(_), Ok(_)) => restarted += 1,
+                            _ => errors.push(format!("Failed to restart adapter: {}", name)),
+                        }
+                    }
+                    if errors.is_empty() {
+                        network::CommandResult {
+                            success: true,
+                            output: format!("Restarted {} active adapter(s).", restarted),
+                        }
+                    } else {
+                        network::CommandResult {
+                            success: false,
+                            output: format!("Restarted {} adapter(s). Errors: {}", restarted, errors.join("; ")),
+                        }
+                    }
+                }
+                Err(e) => network::CommandResult {
+                    success: false,
+                    output: format!("Failed to enumerate adapters: {}", e),
+                },
+            }
+        }
     };
 
     Ok(from_network_result(result))
@@ -441,31 +578,18 @@ pub fn clear_profile_caches_blocking(
 
     for target in selected_targets {
         output_lines.push(format!("[TARGET] {target}"));
-        let Some(script) = cleanup_script_for_target(&target_user, &target) else {
-            failed_count += 1;
-            output_lines.push(format!("[FAIL] Unsupported cleanup target: {target}"));
-            output_lines.push(String::new());
-            continue;
-        };
-
-        match run_powershell_script_blocking(script) {
-            Ok(script_output) => {
-                let clean_output = script_output.trim();
-                if clean_output.is_empty() {
+        match run_cleanup_for_target(&target_user, &target) {
+            Some((success, detail)) => {
+                output_lines.push(detail);
+                if success {
                     success_count += 1;
-                    output_lines.push(format!("[OK] {target} cleaned."));
                 } else {
-                    output_lines.extend(clean_output.lines().map(|line| line.trim_end().to_string()));
-                    if clean_output.contains("[FAIL]") {
-                        failed_count += 1;
-                    } else {
-                        success_count += 1;
-                    }
+                    failed_count += 1;
                 }
             }
-            Err(err) => {
+            None => {
                 failed_count += 1;
-                output_lines.push(format!("[FAIL] {target} cleanup error: {}", err.trim()));
+                output_lines.push(format!("[FAIL] Unsupported cleanup target: {target}"));
             }
         }
         output_lines.push(String::new());

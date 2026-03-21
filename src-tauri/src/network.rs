@@ -14,7 +14,7 @@ const DEFAULT_POWERSHELL_TIMEOUT_SECS: u64 = 45;
 const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
 const WAN_PERSIST_TASK_NAME: &str = "SuperRoutePro-PersistWAN";
 const WAN_PERSIST_DIR: &str = r"C:\ProgramData\SuperRoutePro";
-const WAN_PERSIST_SCRIPT_PATH: &str = r"C:\ProgramData\SuperRoutePro\persist-wan.ps1";
+const WAN_PERSIST_SCRIPT_PATH: &str = r"C:\ProgramData\SuperRoutePro\persist-wan.cmd";
 const BLOATWARE_CANDIDATES: [(&str, &str); 29] = [
     ("Clipchamp.Clipchamp", "Clipchamp"),
     ("Microsoft.BingNews", "Microsoft News"),
@@ -282,53 +282,33 @@ fn is_task_not_found_error(text: &str) -> bool {
 }
 
 fn build_wan_persist_script(interface_index: u32) -> String {
-    r#"
-$ErrorActionPreference='SilentlyContinue'
-$targetIf = __TARGET_IF__
-$gateway = (Get-NetIPConfiguration -InterfaceIndex $targetIf -ErrorAction SilentlyContinue |
-    Select-Object -ExpandProperty IPv4DefaultGateway -ErrorAction SilentlyContinue |
-    Select-Object -ExpandProperty NextHop -ErrorAction SilentlyContinue |
-    Select-Object -First 1)
+    // Native .cmd batch script using only route.exe (no PowerShell).
+    // 1. Parse 'route print -4' to find gateway for target interface index
+    // 2. Delete all 0.0.0.0 default routes
+    // 3. Add persistent route via target NIC gateway
+    format!(r#"@echo off
+setlocal enabledelayedexpansion
+set "TARGET_IF={target_if}"
+set "GATEWAY="
 
-if (-not $gateway) {
-    $gateway = (Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -InterfaceIndex $targetIf -ErrorAction SilentlyContinue |
-        Sort-Object RouteMetric |
-        Select-Object -ExpandProperty NextHop -First 1)
-}
+REM Parse route print to find gateway for our target interface
+for /f "tokens=1-5" %%a in ('route print -4 ^| findstr /r "^  *0\.0\.0\.0"') do (
+    if "%%e"=="!TARGET_IF!" (
+        set "GATEWAY=%%c"
+    )
+)
 
-if (-not $gateway) {
-    Write-Output "No gateway found for interface index $targetIf. Skip startup WAN apply."
-    exit 0
-}
+if "!GATEWAY!"=="" (
+    echo No gateway found for interface index %TARGET_IF%. Skipping startup WAN apply.
+    exit /b 0
+)
 
-$routes = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue
-foreach ($route in $routes) {
-    if ($route.InterfaceIndex -eq $targetIf) {
-        continue
-    }
+REM Delete all default routes then add persistent one for target NIC
+route delete 0.0.0.0 >nul 2>&1
+route -p add 0.0.0.0 mask 0.0.0.0 !GATEWAY! metric 1 if %TARGET_IF% >nul 2>&1
 
-    $params = @{
-        AddressFamily = 'IPv4'
-        DestinationPrefix = '0.0.0.0/0'
-        InterfaceIndex = $route.InterfaceIndex
-        NextHop = $route.NextHop
-        Confirm = $false
-        ErrorAction = 'SilentlyContinue'
-    }
-
-    if ($route.PolicyStore) {
-        $params['PolicyStore'] = [string]$route.PolicyStore
-    }
-
-    Remove-NetRoute @params | Out-Null
-}
-
-route delete 0.0.0.0 | Out-Null
-route -p add 0.0.0.0 mask 0.0.0.0 $gateway metric 1 if $targetIf | Out-Null
-
-Write-Output "Startup WAN applied on interface $targetIf via gateway $gateway."
-"#
-    .replace("__TARGET_IF__", &interface_index.to_string())
+echo Startup WAN applied on interface %TARGET_IF% via gateway !GATEWAY!.
+"#, target_if = interface_index)
 }
 
 fn ensure_wan_persist_script(interface_index: u32) -> Result<(), String> {
@@ -341,128 +321,157 @@ fn ensure_wan_persist_script(interface_index: u32) -> Result<(), String> {
     .map_err(|e| format!("Failed to write {}: {}", WAN_PERSIST_SCRIPT_PATH, e))
 }
 
-fn cache_cleanup_recipe(target: &str) -> Option<(&'static str, &'static str)> {
+/// Native cache cleanup for a target. Returns (label, success, detail).
+fn native_cache_cleanup(target: &str) -> Option<(&'static str, bool, String)> {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\Users\Default".to_string());
+        format!(r"{}\AppData\Local", user_profile)
+    });
+
     match target {
-        "user_temp" => Some((
-            "User Temp",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Temp\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] User Temp cleaned.'
-"#,
-        )),
-        "windows_temp" => Some((
-            "Windows Temp",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:WINDIR 'Temp\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Windows Temp cleaned.'
-"#,
-        )),
-        "windows_update_cache" => Some((
-            "Windows Update Cache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
-Stop-Service -Name bits -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $env:WINDIR 'SoftwareDistribution\Download\*') -Recurse -Force -ErrorAction SilentlyContinue
-Start-Service -Name wuauserv -ErrorAction SilentlyContinue
-Start-Service -Name bits -ErrorAction SilentlyContinue
-Write-Output '[OK] Windows Update cache cleaned.'
-"#,
-        )),
-        "prefetch" => Some((
-            "Prefetch",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:WINDIR 'Prefetch\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Prefetch cleaned.'
-"#,
-        )),
-        "explorer_cache" => Some((
-            "Explorer Cache (thumbnail/icon)",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer\thumbcache_*.db') -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer\iconcache_*.db') -Force -ErrorAction SilentlyContinue
-Start-Process -FilePath ie4uinit.exe -ArgumentList '-ClearIconCache' -NoNewWindow -Wait -ErrorAction SilentlyContinue
-Write-Output '[OK] Explorer thumbnail/icon cache cleaned.'
-"#,
-        )),
-        "edge_cache" => Some((
-            "Microsoft Edge Cache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-$base = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data\Default'
-Remove-Item -Path (Join-Path $base 'Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $base 'Code Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $base 'GPUCache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Microsoft Edge cache cleaned.'
-"#,
-        )),
-        "chrome_cache" => Some((
-            "Google Chrome Cache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-$base = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data\Default'
-Remove-Item -Path (Join-Path $base 'Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $base 'Code Cache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $base 'GPUCache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Google Chrome cache cleaned.'
-"#,
-        )),
-        "firefox_cache" => Some((
-            "Mozilla Firefox Cache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-$profiles = Join-Path $env:LOCALAPPDATA 'Mozilla\Firefox\Profiles'
-Remove-Item -Path "$profiles\*\cache2\*" -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Mozilla Firefox cache cleaned.'
-"#,
-        )),
-        "inet_cache" => Some((
-            "INetCache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\INetCache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] INetCache cleaned.'
-"#,
-        )),
-        "web_cache" => Some((
-            "WebCache",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\WebCache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] WebCache cleaned.'
-"#,
-        )),
-        "crash_dumps" => Some((
-            "Crash Dumps",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'CrashDumps\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Crash dumps cleaned.'
-"#,
-        )),
-        "wer_reports" => Some((
-            "Windows Error Reporting (WER)",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:ProgramData 'Microsoft\Windows\WER\*') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\WER\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] Windows Error Reporting (WER) cache cleaned.'
-"#,
-        )),
-        "d3d_shader_cache" => Some((
-            "DirectX Shader Cache (D3DSCache)",
-            r#"
-$ErrorActionPreference='SilentlyContinue'
-Remove-Item -Path (Join-Path $env:LOCALAPPDATA 'D3DSCache\*') -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output '[OK] DirectX Shader Cache cleaned.'
-"#,
-        )),
+        "user_temp" => {
+            let path = std::path::Path::new(&local).join("Temp");
+            let (del, fail) = clean_directory_contents(&path);
+            Some(("User Temp", fail == 0, format!("[OK] User Temp cleaned ({del} items, {fail} failed).")))
+        }
+        "windows_temp" => {
+            let path = std::path::Path::new(r"C:\Windows\Temp");
+            let (del, fail) = clean_directory_contents(path);
+            Some(("Windows Temp", fail == 0, format!("[OK] Windows Temp cleaned ({del} items, {fail} failed).")))
+        }
+        "windows_update_cache" => {
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("net").args(["stop", "wuauserv", "/y"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+                let _ = std::process::Command::new("net").args(["stop", "bits", "/y"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+            }
+            let path = std::path::Path::new(r"C:\Windows\SoftwareDistribution\Download");
+            let (del, fail) = clean_directory_contents(path);
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("net").args(["start", "wuauserv"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+                let _ = std::process::Command::new("net").args(["start", "bits"])
+                    .creation_flags(CREATE_NO_WINDOW).output();
+            }
+            Some(("Windows Update Cache", fail == 0, format!("[OK] Windows Update cache cleaned ({del} items, {fail} failed).")))
+        }
+        "prefetch" => {
+            let path = std::path::Path::new(r"C:\Windows\Prefetch");
+            let (del, fail) = clean_directory_contents(path);
+            Some(("Prefetch", fail == 0, format!("[OK] Prefetch cleaned ({del} items, {fail} failed).")))
+        }
+        "explorer_cache" => {
+            let explorer_dir = std::path::Path::new(&local).join(r"Microsoft\Windows\Explorer");
+            let (d1, f1) = clean_files_with_prefix(&explorer_dir, "thumbcache_", ".db");
+            let (d2, f2) = clean_files_with_prefix(&explorer_dir, "iconcache_", ".db");
+            let del = d1 + d2;
+            let fail = f1 + f2;
+            Some(("Explorer Cache (thumbnail/icon)", fail == 0, format!("[OK] Explorer cache cleaned ({del} items, {fail} failed).")))
+        }
+        "edge_cache" => {
+            let base = std::path::Path::new(&local).join(r"Microsoft\Edge\User Data\Default");
+            let mut del = 0u64; let mut fail = 0u64;
+            for sub in ["Cache", "Code Cache", "GPUCache"] {
+                let (d, f) = clean_directory_contents(&base.join(sub));
+                del += d; fail += f;
+            }
+            Some(("Microsoft Edge Cache", fail == 0, format!("[OK] Edge cache cleaned ({del} items, {fail} failed).")))
+        }
+        "chrome_cache" => {
+            let base = std::path::Path::new(&local).join(r"Google\Chrome\User Data\Default");
+            let mut del = 0u64; let mut fail = 0u64;
+            for sub in ["Cache", "Code Cache", "GPUCache"] {
+                let (d, f) = clean_directory_contents(&base.join(sub));
+                del += d; fail += f;
+            }
+            Some(("Google Chrome Cache", fail == 0, format!("[OK] Chrome cache cleaned ({del} items, {fail} failed).")))
+        }
+        "firefox_cache" => {
+            let profiles_dir = std::path::Path::new(&local).join(r"Mozilla\Firefox\Profiles");
+            let mut del = 0u64; let mut fail = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
+                for entry in entries.flatten() {
+                    let cache2 = entry.path().join("cache2");
+                    let (d, f) = clean_directory_contents(&cache2);
+                    del += d; fail += f;
+                }
+            }
+            Some(("Mozilla Firefox Cache", fail == 0, format!("[OK] Firefox cache cleaned ({del} items, {fail} failed).")))
+        }
+        "inet_cache" => {
+            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\INetCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some(("INetCache", fail == 0, format!("[OK] INetCache cleaned ({del} items, {fail} failed).")))
+        }
+        "web_cache" => {
+            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\WebCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some(("WebCache", fail == 0, format!("[OK] WebCache cleaned ({del} items, {fail} failed).")))
+        }
+        "crash_dumps" => {
+            let path = std::path::Path::new(&local).join("CrashDumps");
+            let (del, fail) = clean_directory_contents(&path);
+            Some(("Crash Dumps", fail == 0, format!("[OK] Crash dumps cleaned ({del} items, {fail} failed).")))
+        }
+        "wer_reports" => {
+            let (d1, f1) = clean_directory_contents(std::path::Path::new(r"C:\ProgramData\Microsoft\Windows\WER"));
+            let (d2, f2) = clean_directory_contents(&std::path::Path::new(&local).join(r"Microsoft\Windows\WER"));
+            let del = d1 + d2; let fail = f1 + f2;
+            Some(("Windows Error Reporting (WER)", fail == 0, format!("[OK] WER cleaned ({del} items, {fail} failed).")))
+        }
+        "d3d_shader_cache" => {
+            let path = std::path::Path::new(&local).join("D3DSCache");
+            let (del, fail) = clean_directory_contents(&path);
+            Some(("DirectX Shader Cache (D3DSCache)", fail == 0, format!("[OK] D3DSCache cleaned ({del} items, {fail} failed).")))
+        }
         _ => None,
     }
+}
+
+/// Clean all files and subdirectories inside a directory, leaving the directory itself.
+fn clean_directory_contents(path: &std::path::Path) -> (u64, u64) {
+    let mut deleted = 0u64;
+    let mut failed = 0u64;
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            match std::fs::remove_dir_all(&entry_path) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        } else {
+            match std::fs::remove_file(&entry_path) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        }
+    }
+    (deleted, failed)
+}
+
+/// Delete files matching a glob-like prefix in a directory (e.g. thumbcache_*.db)
+fn clean_files_with_prefix(dir: &std::path::Path, prefix: &str, suffix: &str) -> (u64, u64) {
+    let mut deleted = 0u64;
+    let mut failed = 0u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(prefix) && name.ends_with(suffix) {
+            match std::fs::remove_file(entry.path()) {
+                Ok(_) => deleted += 1,
+                Err(_) => failed += 1,
+            }
+        }
+    }
+    (deleted, failed)
 }
 
 fn parse_ping_latency(stdout: &str, elapsed_ms: u32) -> u32 {
@@ -518,22 +527,9 @@ fn ping_once_target(target: String, timeout_ms: &str) -> FpingHostResult {
 /// Get list of active network interfaces (NICs)
 #[tauri::command]
 pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
-    let ps_script = r#"
-        Get-WmiObject Win32_NetworkAdapterConfiguration |
-        Where-Object { $_.InterfaceIndex -ne $null } |
-        Select-Object InterfaceIndex, Description, IPAddress, DefaultIPGateway |
-        ConvertTo-Json -Compress
-    "#;
-
-    let output = run_powershell(ps_script).await?;
-    let data: serde_json::Value =
-        serde_json::from_str(&output).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    let items = match &data {
-        serde_json::Value::Array(arr) => arr.clone(),
-        obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-        _ => return Ok(vec![]),
-    };
+    let adapters = tauri::async_runtime::spawn_blocking(|| {
+        crate::win32_net::enumerate_adapters()
+    }).await.map_err(|e| format!("Task join error: {e}"))??;
 
     let blacklist = [
         "virtual", "vmware", "vbox", "loopback", "wintun", "kernel",
@@ -542,51 +538,32 @@ pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInte
 
     let mut interfaces: Vec<NetworkInterface> = Vec::new();
 
-    for item in &items {
-        let desc = item["Description"].as_str().unwrap_or("").to_string();
-        let desc_lower = desc.to_lowercase();
-
+    for nic in &adapters {
+        let desc_lower = nic.description.to_lowercase();
         if blacklist.iter().any(|b| desc_lower.contains(b)) {
             continue;
         }
 
-        let ip = match &item["IPAddress"] {
-            serde_json::Value::Array(arr) => {
-                arr.first()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0.0.0.0")
-                    .to_string()
-            }
-            serde_json::Value::String(s) => s.clone(),
-            _ => "0.0.0.0".to_string(),
-        };
+        // Get first IPv4 address
+        let ip = nic.ip_addresses.iter()
+            .find(|a| a.contains('.'))
+            .cloned()
+            .unwrap_or_else(|| "0.0.0.0".to_string());
 
         if active_only && (ip.is_empty() || ip == "0.0.0.0") {
             continue;
         }
 
-        let gateway = match &item["DefaultIPGateway"] {
-            serde_json::Value::Array(arr) => {
-                arr.first()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            }
-            serde_json::Value::String(s) => s.clone(),
-            _ => String::new(),
-        };
-
-        let index = match &item["InterfaceIndex"] {
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => s.clone(),
-            _ => String::new(),
-        };
+        let gateway = nic.gateways.iter()
+            .find(|g| g.contains('.'))
+            .cloned()
+            .unwrap_or_default();
 
         interfaces.push(NetworkInterface {
-            index,
+            index: nic.interface_index.to_string(),
             ip,
             gateway,
-            description: desc,
+            description: nic.description.clone(),
         });
     }
 
@@ -596,59 +573,42 @@ pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInte
 /// Get IPv4 routing table
 #[tauri::command]
 pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
-    let ps_script = r#"
-        Get-NetRoute -AddressFamily IPv4 |
-        Select-Object DestinationPrefix, NextHop, RouteMetric, InterfaceIndex |
-        ConvertTo-Json -Compress
-    "#;
-
-    let output = run_powershell(ps_script).await?;
-    let data: serde_json::Value =
-        serde_json::from_str(&output).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    let items = match &data {
-        serde_json::Value::Array(arr) => arr.clone(),
-        obj @ serde_json::Value::Object(_) => vec![obj.clone()],
-        _ => return Ok(vec![]),
-    };
+    // Use `route print -4` which always outputs IPv4 routes in a parseable table
+    let output = run_cmd("route", &["print", "-4"]).await?;
 
     let mut routes: Vec<RouteEntry> = Vec::new();
+    let mut in_active_routes = false;
 
-    for item in &items {
-        let prefix = item["DestinationPrefix"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        let next_hop = item["NextHop"].as_str().unwrap_or("").to_string();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("Active Routes:") {
+            in_active_routes = true;
+            continue;
+        }
+        if trimmed.starts_with("Persistent Routes:") || trimmed.starts_with("=========") {
+            if in_active_routes && trimmed.starts_with("Persistent") {
+                break;
+            }
+            continue;
+        }
+        if trimmed.starts_with("Network Destination") {
+            continue; // header
+        }
+        if !in_active_routes || trimmed.is_empty() {
+            continue;
+        }
 
-        let metric = match &item["RouteMetric"] {
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => s.clone(),
-            _ => "0".to_string(),
-        };
-
-        let if_index = match &item["InterfaceIndex"] {
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => s.clone(),
-            _ => "0".to_string(),
-        };
-
-        // Split prefix into destination and mask
-        let (dest, mask) = if let Some(pos) = prefix.find('/') {
-            let ip = prefix[..pos].to_string();
-            let prefix_len: u32 = prefix[pos + 1..].parse().unwrap_or(32);
-            (ip, prefix_to_mask(prefix_len))
-        } else {
-            (prefix, "255.255.255.255".to_string())
-        };
-
-        routes.push(RouteEntry {
-            destination: dest,
-            netmask: mask,
-            gateway: next_hop,
-            metric,
-            interface_index: if_index,
-        });
+        // Parse: "Network Destination   Netmask          Gateway       Interface  Metric"
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 5 {
+            routes.push(RouteEntry {
+                destination: parts[0].to_string(),
+                netmask: parts[1].to_string(),
+                gateway: parts[2].to_string(),
+                metric: parts[4].to_string(),
+                interface_index: String::new(), // route print doesn't show interface index directly
+            });
+        }
     }
 
     Ok(routes)
@@ -765,40 +725,12 @@ pub fn set_default_gateway_blocking(
         .parse::<u32>()
         .map_err(|_| "Invalid interface index".to_string())?;
 
-    let cleanup_script = r#"
-$ErrorActionPreference='SilentlyContinue'
-$targetIf = __TARGET_IF__
-$removed = 0
-$routes = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue
-foreach ($route in $routes) {
-    if ($route.InterfaceIndex -eq $targetIf) {
-        continue
-    }
-
-    $params = @{
-        AddressFamily = 'IPv4'
-        DestinationPrefix = '0.0.0.0/0'
-        InterfaceIndex = $route.InterfaceIndex
-        NextHop = $route.NextHop
-        Confirm = $false
-        ErrorAction = 'SilentlyContinue'
-    }
-
-    if ($route.PolicyStore) {
-        $params['PolicyStore'] = [string]$route.PolicyStore
-    }
-
-    Remove-NetRoute @params | Out-Null
-    $removed++
-}
-
-Write-Output ("Removed default routes from other interfaces: {0}" -f $removed)
-"#
-    .replace("__TARGET_IF__", &target_interface_index.to_string());
-    let cleanup_output = run_powershell_blocking(
-        &cleanup_script,
-        Duration::from_secs(DEFAULT_POWERSHELL_TIMEOUT_SECS),
-    )?;
+    // Clean up stale default routes using native `route delete`
+    let cleanup_output = run_cmd_blocking(
+        "route",
+        &["delete", "0.0.0.0"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    ).unwrap_or_else(|_| "No stale routes to remove.".to_string());
 
     let _ = run_cmd_blocking(
         "route",
@@ -855,7 +787,7 @@ pub fn set_wan_persist_on_startup_blocking(
         ensure_wan_persist_script(target_interface_index)?;
 
         let task_command = format!(
-            r#"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{}""#,
+            r#"cmd.exe /c "{}""#,
             WAN_PERSIST_SCRIPT_PATH
         );
         let create_output = run_cmd_blocking(
@@ -948,9 +880,8 @@ pub fn run_network_command_blocking(command: String) -> Result<CommandResult, St
         "netsh int ip reset",
         "netsh winsock reset",
         "netsh interface ip delete arpcache",
+        "netsh interface set interface",
         "netsh advfirewall reset",
-        "powershell -noprofile -command get-netadapter",
-        "powershell -noprofile -command test-netconnection",
     ];
 
     let cmd_lower = command.to_lowercase();
@@ -1004,6 +935,67 @@ pub async fn ping_host(target: String, count: Option<u32>) -> Result<PingResult,
         latency_ms: latency,
         output: stdout,
     })
+}
+
+/// Test TCP port connectivity (replaces PowerShell Test-NetConnection)
+#[tauri::command]
+pub async fn test_tcp_port(host: String, port: u16) -> Result<CommandResult, String> {
+    use std::net::{TcpStream, ToSocketAddrs};
+
+    let h = host.clone();
+    let p = port;
+    tauri::async_runtime::spawn_blocking(move || {
+        let addr_str = format!("{}:{}", h, p);
+        let start = Instant::now();
+
+        // Resolve DNS
+        let addrs: Vec<_> = match addr_str.to_socket_addrs() {
+            Ok(a) => a.collect(),
+            Err(e) => {
+                return Ok(CommandResult {
+                    success: false,
+                    output: format!(
+                        "ComputerName     : {}\nRemotePort       : {}\nTcpTestSucceeded : False\nError            : DNS resolution failed: {}",
+                        h, p, e
+                    ),
+                });
+            }
+        };
+
+        if addrs.is_empty() {
+            return Ok(CommandResult {
+                success: false,
+                output: format!(
+                    "ComputerName     : {}\nRemotePort       : {}\nTcpTestSucceeded : False\nError            : No addresses resolved",
+                    h, p
+                ),
+            });
+        }
+
+        let target = addrs[0];
+        let timeout = Duration::from_secs(5);
+        let result = TcpStream::connect_timeout(&target, timeout);
+        let elapsed = start.elapsed().as_millis();
+
+        match result {
+            Ok(_stream) => Ok(CommandResult {
+                success: true,
+                output: format!(
+                    "ComputerName     : {}\nRemoteAddress    : {}\nRemotePort       : {}\nTcpTestSucceeded : True\nLatency(ms)      : {}",
+                    h, target.ip(), p, elapsed
+                ),
+            }),
+            Err(e) => Ok(CommandResult {
+                success: false,
+                output: format!(
+                    "ComputerName     : {}\nRemoteAddress    : {}\nRemotePort       : {}\nTcpTestSucceeded : False\nLatency(ms)      : {}\nError            : {}",
+                    h, target.ip(), p, elapsed, e
+                ),
+            }),
+        }
+    })
+    .await
+    .map_err(|e| format!("TCP port test join error: {e}"))?
 }
 
 /// Get bloatware candidates and installation status
@@ -1230,140 +1222,393 @@ pub async fn get_battery_report() -> Result<BatteryReportResult, String> {
 /// Get battery health summary focused on wear level and estimated lifetime.
 #[tauri::command]
 pub async fn get_battery_summary() -> Result<BatterySummaryResult, String> {
-    let ps_script = r#"
-$ErrorActionPreference = 'SilentlyContinue'
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::System::Power::*;
 
-$battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $battery) {
-  [PSCustomObject]@{
-    present = $false
-    status = 'No battery detected'
-    charge_percent = $null
-    design_capacity_mwh = $null
-    full_charge_capacity_mwh = $null
-    health_percent = $null
-    wear_percent = $null
-    cycle_count = $null
-    estimated_runtime_minutes = $null
-    estimated_runtime_full_minutes = $null
-    note = 'This machine may be desktop-only or battery telemetry is unavailable.'
-  } | ConvertTo-Json -Compress
-  exit 0
-}
+            let mut sps: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
+            let result = unsafe { GetSystemPowerStatus(&mut sps) };
+            if result == 0 {
+                return Err("GetSystemPowerStatus failed".to_string());
+            }
 
-$staticData = Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -ErrorAction SilentlyContinue | Select-Object -First 1
-$fullCapacity = Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -ErrorAction SilentlyContinue | Select-Object -First 1
-$cycleInfo = Get-CimInstance -Namespace root\wmi -ClassName BatteryCycleCount -ErrorAction SilentlyContinue | Select-Object -First 1
+            // Check if battery is present
+            let no_battery = sps.BatteryFlag == 128 || sps.BatteryFlag == 255;
+            if no_battery {
+                return Ok(BatterySummaryResult {
+                    present: false,
+                    status: "No battery detected".to_string(),
+                    charge_percent: None,
+                    design_capacity_mwh: None,
+                    full_charge_capacity_mwh: None,
+                    health_percent: None,
+                    wear_percent: None,
+                    cycle_count: None,
+                    estimated_runtime_minutes: None,
+                    estimated_runtime_full_minutes: None,
+                    note: "This machine may be desktop-only or battery telemetry is unavailable.".to_string(),
+                });
+            }
 
-$chargePercent = if ($battery.EstimatedChargeRemaining -ge 0) { [int]$battery.EstimatedChargeRemaining } else { $null }
-$runtimeMinutes = if ($battery.EstimatedRunTime -gt 0 -and $battery.EstimatedRunTime -lt 71582) { [int]$battery.EstimatedRunTime } else { $null }
-$runtimeFullMinutes = if ($runtimeMinutes -and $chargePercent -and $chargePercent -gt 0) {
-  [int][math]::Round(($runtimeMinutes * 100.0) / $chargePercent)
-} else {
-  $null
-}
+            let charge_percent = if sps.BatteryLifePercent <= 100 {
+                Some(sps.BatteryLifePercent as u32)
+            } else {
+                None
+            };
 
-$designCapacity = if ($staticData -and $staticData.DesignedCapacity -gt 0) { [int]$staticData.DesignedCapacity } else { $null }
-$fullChargeCapacity = if ($fullCapacity -and $fullCapacity.FullChargedCapacity -gt 0) { [int]$fullCapacity.FullChargedCapacity } else { $null }
+            let status = match (sps.ACLineStatus, sps.BatteryFlag) {
+                (1, f) if f & 8 != 0 => "Charging".to_string(),
+                (1, _) => "Connected to AC".to_string(),
+                (0, f) if f & 4 != 0 => "Critical".to_string(),
+                (0, f) if f & 2 != 0 => "Low".to_string(),
+                (0, _) => "Discharging".to_string(),
+                _ => format!("AC={} Flag={}", sps.ACLineStatus, sps.BatteryFlag),
+            };
 
-$healthPercent = if ($designCapacity -and $fullChargeCapacity -and $designCapacity -gt 0) {
-  [math]::Round(($fullChargeCapacity * 100.0) / $designCapacity, 1)
-} else {
-  $null
-}
-$wearPercent = if ($healthPercent -ne $null) { [math]::Round((100.0 - $healthPercent), 1) } else { $null }
-$cycleCount = if ($cycleInfo -and $cycleInfo.CycleCount -ge 0) { [int]$cycleInfo.CycleCount } else { $null }
+            let estimated_runtime_minutes = if sps.BatteryLifeTime != u32::MAX && sps.BatteryLifeTime > 0 {
+                Some(sps.BatteryLifeTime / 60)
+            } else {
+                None
+            };
 
-$statusMap = @{
-  1 = 'Discharging'
-  2 = 'Connected to AC'
-  3 = 'Fully charged'
-  4 = 'Low'
-  5 = 'Critical'
-  6 = 'Charging'
-  7 = 'Charging (high)'
-  8 = 'Charging (low)'
-  9 = 'Charging (critical)'
-  11 = 'Partially charged'
-}
+            let estimated_runtime_full_minutes = if sps.BatteryFullLifeTime != u32::MAX && sps.BatteryFullLifeTime > 0 {
+                Some(sps.BatteryFullLifeTime / 60)
+            } else {
+                match (estimated_runtime_minutes, charge_percent) {
+                    (Some(rt), Some(cp)) if cp > 0 => Some((rt as f64 * 100.0 / cp as f64) as u32),
+                    _ => None,
+                }
+            };
 
-$statusCode = [int]$battery.BatteryStatus
-$statusText = if ($statusMap.ContainsKey($statusCode)) {
-  $statusMap[$statusCode]
-} else {
-  "Status code $statusCode"
-}
+            // Try to get detailed battery info via DeviceIoControl IOCTL
+            let ioctl_details = query_battery_details_ioctl();
 
-[PSCustomObject]@{
-  present = $true
-  status = $statusText
-  charge_percent = $chargePercent
-  design_capacity_mwh = $designCapacity
-  full_charge_capacity_mwh = $fullChargeCapacity
-  health_percent = $healthPercent
-  wear_percent = $wearPercent
-  cycle_count = $cycleCount
-  estimated_runtime_minutes = $runtimeMinutes
-  estimated_runtime_full_minutes = $runtimeFullMinutes
-  note = 'Wear level is computed from full charge capacity versus design capacity.'
-} | ConvertTo-Json -Compress
-"#;
+            let (design_cap, full_cap, cycle, health_pct, wear_pct, note) = match ioctl_details {
+                Some(details) => {
+                    let health = if details.designed_capacity_mwh > 0 {
+                        Some((details.full_charged_capacity_mwh as f32 / details.designed_capacity_mwh as f32) * 100.0)
+                    } else {
+                        None
+                    };
+                    let wear = health.map(|h| (100.0 - h).max(0.0));
+                    let cc = if details.cycle_count > 0 { Some(details.cycle_count) } else { None };
+                    (
+                        Some(details.designed_capacity_mwh),
+                        Some(details.full_charged_capacity_mwh),
+                        cc,
+                        health,
+                        wear,
+                        format!("Battery details from native IOCTL. Chemistry: {}", details.chemistry),
+                    )
+                }
+                None => (
+                    None, None, None, None, None,
+                    "Battery data from Win32 GetSystemPowerStatus. IOCTL detail query unavailable.".to_string(),
+                ),
+            };
 
-    let output = run_powershell(ps_script).await?;
-    let value: serde_json::Value = serde_json::from_str(output.trim())
-        .map_err(|e| format!("Battery summary JSON parse error: {}", e))?;
-
-    let get_optional_u32 = |key: &str| -> Option<u32> {
-        value
-            .get(key)
-            .and_then(|v| match v {
-                serde_json::Value::Number(n) => n
-                    .as_u64()
-                    .and_then(|n| u32::try_from(n).ok())
-                    .or_else(|| n.as_i64().and_then(|n| if n >= 0 { u32::try_from(n as u64).ok() } else { None })),
-                serde_json::Value::String(s) => s.trim().parse::<u32>().ok(),
-                _ => None,
+            Ok(BatterySummaryResult {
+                present: true,
+                status,
+                charge_percent,
+                design_capacity_mwh: design_cap,
+                full_charge_capacity_mwh: full_cap,
+                health_percent: health_pct,
+                wear_percent: wear_pct,
+                cycle_count: cycle,
+                estimated_runtime_minutes,
+                estimated_runtime_full_minutes,
+                note,
             })
-    };
-
-    let get_optional_f32 = |key: &str| -> Option<f32> {
-        value
-            .get(key)
-            .and_then(|v| match v {
-                serde_json::Value::Number(n) => n.as_f64().map(|n| n as f32),
-                serde_json::Value::String(s) => s.trim().parse::<f32>().ok(),
-                _ => None,
-            })
-    };
-
-    let present = value
-        .get("present")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let status = value
-        .get("status")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
-    let note = value
-        .get("note")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    Ok(BatterySummaryResult {
-        present,
-        status,
-        charge_percent: get_optional_u32("charge_percent"),
-        design_capacity_mwh: get_optional_u32("design_capacity_mwh"),
-        full_charge_capacity_mwh: get_optional_u32("full_charge_capacity_mwh"),
-        health_percent: get_optional_f32("health_percent"),
-        wear_percent: get_optional_f32("wear_percent"),
-        cycle_count: get_optional_u32("cycle_count"),
-        estimated_runtime_minutes: get_optional_u32("estimated_runtime_minutes"),
-        estimated_runtime_full_minutes: get_optional_u32("estimated_runtime_full_minutes"),
-        note,
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("Battery summary only supported on Windows".to_string())
+        }
     })
+    .await
+    .map_err(|e| format!("Battery task join error: {e}"))?
+}
+
+// ── Battery IOCTL helper ──
+
+/// Battery detail info obtained from DeviceIoControl.
+#[cfg(target_os = "windows")]
+struct BatteryIoctlDetails {
+    designed_capacity_mwh: u32,
+    full_charged_capacity_mwh: u32,
+    cycle_count: u32,
+    chemistry: String,
+}
+
+/// Battery IOCTL constants (from batclass.h / WDK — not in windows-sys)
+#[cfg(target_os = "windows")]
+mod battery_ioctl {
+    // CTL_CODE(FILE_DEVICE_BATTERY=0x29, function, METHOD_BUFFERED=0, FILE_READ_ACCESS=1)
+    pub const IOCTL_BATTERY_QUERY_TAG: u32 = (0x29 << 16) | (1 << 14) | (0x10 << 2) | 0;
+    pub const IOCTL_BATTERY_QUERY_INFORMATION: u32 = (0x29 << 16) | (1 << 14) | (0x11 << 2) | 0;
+
+    // BATTERY_QUERY_INFORMATION_LEVEL
+    pub const BATTERY_INFORMATION_LEVEL: u32 = 0;
+
+    #[repr(C)]
+    pub struct BatteryQueryInformation {
+        pub battery_tag: u32,
+        pub information_level: u32,
+        pub at_rate: i32,
+    }
+
+    #[repr(C)]
+    pub struct BatteryInformation {
+        pub capabilities: u32,
+        pub technology: u8,
+        pub reserved: [u8; 3],
+        pub chemistry: [u8; 4],
+        pub designed_capacity: u32,
+        pub full_charged_capacity: u32,
+        pub default_alert1: u32,
+        pub default_alert2: u32,
+        pub critical_bias: u32,
+        pub cycle_count: u32,
+    }
+
+    // GUID_DEVINTERFACE_BATTERY = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
+    pub const BATTERY_GUID: windows_sys::core::GUID = windows_sys::core::GUID {
+        data1: 0x72631e54,
+        data2: 0x78a4,
+        data3: 0x11d0,
+        data4: [0xbc, 0xf7, 0x00, 0xaa, 0x00, 0xb7, 0xb3, 0x2a],
+    };
+}
+
+/// Query battery details using SetupDi + DeviceIoControl.
+/// All Win32 FFI is declared manually to avoid windows-sys handle type inconsistencies.
+#[cfg(target_os = "windows")]
+fn query_battery_details_ioctl() -> Option<BatteryIoctlDetails> {
+    use battery_ioctl::*;
+    use std::ffi::c_void;
+
+    type HANDLE = *mut c_void;
+    const INVALID_HANDLE: HANDLE = -1isize as HANDLE;
+
+    // GUID struct for FFI
+    #[repr(C)]
+    struct GUID {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    #[repr(C)]
+    struct SP_DEVICE_INTERFACE_DATA {
+        cb_size: u32,
+        interface_class_guid: GUID,
+        flags: u32,
+        reserved: usize,
+    }
+
+    // SP_DEVICE_INTERFACE_DETAIL_DATA_W has a variable-length DevicePath at end
+    #[repr(C)]
+    struct SP_DEVINFO_DATA {
+        cb_size: u32,
+        class_guid: GUID,
+        dev_inst: u32,
+        reserved: usize,
+    }
+
+    const DIGCF_PRESENT: u32 = 0x2;
+    const DIGCF_DEVICEINTERFACE: u32 = 0x10;
+    const GENERIC_READ: u32 = 0x80000000;
+    const GENERIC_WRITE: u32 = 0x40000000;
+    const FILE_SHARE_READ: u32 = 1;
+    const FILE_SHARE_WRITE: u32 = 2;
+    const OPEN_EXISTING: u32 = 3;
+
+    extern "system" {
+        fn SetupDiGetClassDevsW(
+            class_guid: *const GUID,
+            enumerator: *const u16,
+            hwnd_parent: HANDLE,
+            flags: u32,
+        ) -> HANDLE;
+
+        fn SetupDiEnumDeviceInterfaces(
+            dev_info: HANDLE,
+            dev_info_data: *const c_void,
+            interface_class_guid: *const GUID,
+            member_index: u32,
+            device_interface_data: *mut SP_DEVICE_INTERFACE_DATA,
+        ) -> i32;
+
+        fn SetupDiGetDeviceInterfaceDetailW(
+            dev_info: HANDLE,
+            device_interface_data: *mut SP_DEVICE_INTERFACE_DATA,
+            device_interface_detail_data: *mut c_void,
+            device_interface_detail_data_size: u32,
+            required_size: *mut u32,
+            device_info_data: *mut c_void,
+        ) -> i32;
+
+        fn SetupDiDestroyDeviceInfoList(dev_info: HANDLE) -> i32;
+
+        fn CreateFileW(
+            file_name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security_attributes: *const c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template_file: HANDLE,
+        ) -> HANDLE;
+
+        fn DeviceIoControl(
+            device: HANDLE,
+            io_control_code: u32,
+            in_buffer: *const c_void,
+            in_buffer_size: u32,
+            out_buffer: *mut c_void,
+            out_buffer_size: u32,
+            bytes_returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+
+        fn CloseHandle(handle: HANDLE) -> i32;
+    }
+
+    let battery_guid = GUID {
+        data1: 0x72631e54,
+        data2: 0x78a4,
+        data3: 0x11d0,
+        data4: [0xbc, 0xf7, 0x00, 0xaa, 0x00, 0xb7, 0xb3, 0x2a],
+    };
+
+    unsafe {
+        // Find battery device
+        let dev_info = SetupDiGetClassDevsW(
+            &battery_guid,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
+        );
+        if dev_info == INVALID_HANDLE || dev_info.is_null() {
+            return None;
+        }
+
+        // Enumerate first battery interface
+        let mut iface_data: SP_DEVICE_INTERFACE_DATA = std::mem::zeroed();
+        iface_data.cb_size = std::mem::size_of::<SP_DEVICE_INTERFACE_DATA>() as u32;
+
+        if SetupDiEnumDeviceInterfaces(dev_info, std::ptr::null(), &battery_guid, 0, &mut iface_data) == 0 {
+            SetupDiDestroyDeviceInfoList(dev_info);
+            return None;
+        }
+
+        // Get required buffer size
+        let mut required_size: u32 = 0;
+        SetupDiGetDeviceInterfaceDetailW(
+            dev_info, &mut iface_data, std::ptr::null_mut(), 0, &mut required_size, std::ptr::null_mut(),
+        );
+        if required_size == 0 {
+            SetupDiDestroyDeviceInfoList(dev_info);
+            return None;
+        }
+
+        // Allocate and get device detail
+        // SP_DEVICE_INTERFACE_DETAIL_DATA_W: cbSize (u32) + DevicePath[1] (u16)
+        // On 64-bit: cbSize = 8 (due to alignment)
+        let mut detail_buf: Vec<u8> = vec![0u8; required_size as usize];
+        let cb_size_ptr = detail_buf.as_mut_ptr() as *mut u32;
+        *cb_size_ptr = 8; // sizeof SP_DEVICE_INTERFACE_DETAIL_DATA_W on 64-bit
+
+        if SetupDiGetDeviceInterfaceDetailW(
+            dev_info, &mut iface_data,
+            detail_buf.as_mut_ptr() as *mut c_void,
+            required_size, std::ptr::null_mut(), std::ptr::null_mut(),
+        ) == 0 {
+            SetupDiDestroyDeviceInfoList(dev_info);
+            return None;
+        }
+
+        // Device path starts at offset 4 (after cbSize u32)
+        let device_path = detail_buf.as_ptr().add(4) as *const u16;
+
+        // Open battery device
+        let handle = CreateFileW(
+            device_path,
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        );
+        SetupDiDestroyDeviceInfoList(dev_info);
+
+        if handle == INVALID_HANDLE || handle.is_null() {
+            return None;
+        }
+
+        // Query battery tag
+        let timeout: u32 = 0;
+        let mut battery_tag: u32 = 0;
+        let mut bytes_returned: u32 = 0;
+
+        let ok = DeviceIoControl(
+            handle,
+            IOCTL_BATTERY_QUERY_TAG,
+            &timeout as *const u32 as *const c_void,
+            4,
+            &mut battery_tag as *mut u32 as *mut c_void,
+            4,
+            &mut bytes_returned,
+            std::ptr::null_mut(),
+        );
+        if ok == 0 || battery_tag == 0 {
+            CloseHandle(handle);
+            return None;
+        }
+
+        // Query battery information
+        let query = BatteryQueryInformation {
+            battery_tag,
+            information_level: BATTERY_INFORMATION_LEVEL,
+            at_rate: 0,
+        };
+        let mut info: BatteryInformation = std::mem::zeroed();
+        bytes_returned = 0;
+
+        let ok = DeviceIoControl(
+            handle,
+            IOCTL_BATTERY_QUERY_INFORMATION,
+            &query as *const _ as *const c_void,
+            std::mem::size_of::<BatteryQueryInformation>() as u32,
+            &mut info as *mut _ as *mut c_void,
+            std::mem::size_of::<BatteryInformation>() as u32,
+            &mut bytes_returned,
+            std::ptr::null_mut(),
+        );
+        CloseHandle(handle);
+
+        if ok == 0 {
+            return None;
+        }
+
+        let chemistry = String::from_utf8_lossy(&info.chemistry).trim().to_string();
+
+        Some(BatteryIoctlDetails {
+            designed_capacity_mwh: info.designed_capacity,
+            full_charged_capacity_mwh: info.full_charged_capacity,
+            cycle_count: info.cycle_count,
+            chemistry,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn query_battery_details_ioctl() -> Option<()> {
+    None
 }
 
 /// Clear selected system/browser cache targets
@@ -1373,78 +1618,50 @@ pub async fn clear_cache_targets(targets: Vec<String>) -> Result<CommandResult, 
         return Err("No cache targets selected".to_string());
     }
 
-    let mut selected: Vec<(String, &'static str, &'static str)> = Vec::new();
-    let mut seen = HashSet::new();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut seen = HashSet::new();
+        let mut output_lines = Vec::new();
+        let mut success_count = 0u32;
+        let mut failed_count = 0u32;
+        let mut valid_count = 0u32;
 
-    for target in targets {
-        let trimmed = target.trim().to_lowercase();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let is_safe_token = trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
-        if !is_safe_token {
-            continue;
-        }
-
-        if seen.contains(&trimmed) {
-            continue;
-        }
-
-        if let Some((label, script)) = cache_cleanup_recipe(&trimmed) {
+        for target in &targets {
+            let trimmed = target.trim().to_lowercase();
+            if trimmed.is_empty() { continue; }
+            let is_safe_token = trimmed.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
+            if !is_safe_token || seen.contains(&trimmed) { continue; }
             seen.insert(trimmed.clone());
-            selected.push((trimmed, label, script));
-        }
-    }
 
-    if selected.is_empty() {
-        return Err("No valid cache targets selected".to_string());
-    }
-
-    let mut output_lines = vec![
-        format!("Requested cleanup for {} cache target(s).", selected.len()),
-        "Administrative privileges may be required for some targets.".to_string(),
-        String::new(),
-    ];
-    let mut success_count = 0u32;
-    let mut failed_count = 0u32;
-
-    for (_, label, script) in selected {
-        output_lines.push(format!("[TARGET] {}", label));
-        match run_powershell(script).await {
-            Ok(raw_output) => {
-                let clean_output = raw_output.trim();
-                if clean_output.is_empty() {
-                    output_lines.push(format!("[OK] {} cleaned.", label));
-                    success_count += 1;
-                } else {
-                    output_lines.extend(clean_output.lines().map(|line| line.trim_end().to_string()));
-                    if clean_output.contains("[FAIL]") {
-                        failed_count += 1;
-                    } else {
-                        success_count += 1;
-                    }
+            match native_cache_cleanup(&trimmed) {
+                Some((label, success, detail)) => {
+                    valid_count += 1;
+                    output_lines.push(format!("[TARGET] {}", label));
+                    output_lines.push(detail);
+                    if success { success_count += 1; } else { failed_count += 1; }
+                }
+                None => {
+                    // Skip unknown targets silently
                 }
             }
-            Err(err) => {
-                failed_count += 1;
-                output_lines.push(format!("[FAIL] {} cleanup error: {}", label, err.trim()));
-            }
+            output_lines.push(String::new());
         }
-        output_lines.push(String::new());
-    }
 
-    output_lines.push(format!(
-        "Summary: success={} failed={}",
-        success_count, failed_count
-    ));
+        if valid_count == 0 {
+            return Err("No valid cache targets selected".to_string());
+        }
 
-    Ok(CommandResult {
-        success: failed_count == 0,
-        output: output_lines.join("\n"),
-    })
+        output_lines.insert(0, format!("Requested cleanup for {} cache target(s).", valid_count));
+        output_lines.insert(1, "Administrative privileges may be required for some targets.".to_string());
+        output_lines.insert(2, String::new());
+        output_lines.push(format!("Summary: success={} failed={}", success_count, failed_count));
+
+        Ok(CommandResult {
+            success: failed_count == 0,
+            output: output_lines.join("\n"),
+        })
+    }).await.map_err(|e| format!("Cache cleanup task join error: {e}"))??;
+
+    Ok(result)
 }
 
 /// fping-like scan over multiple targets (parallel ping once per host)
