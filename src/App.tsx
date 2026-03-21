@@ -341,6 +341,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
       {
         title: "Header & Status",
         items: [
+          { name: "Lock / Unlock Repair Mode", detail: "Locked blocks admin-only fixes. Unlock starts an elevated Repair Mode session for this app session, and Lock closes that elevated session again." },
           { name: "Remove Apps", detail: "Open modal to select and remove built-in Windows apps (bloatware)." },
           { name: "Clear Cache", detail: "Open cache cleanup modal to select targets and run cleanup." },
           { name: "Light / Dark", detail: "Switch UI theme between dark mode and light mode." },
@@ -399,6 +400,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
       {
         title: "Thanh trên cùng & Trạng thái",
         items: [
+          { name: "Lock / Unlock Repair Mode", detail: "Khi Locked, app chặn các tác vụ cần quyền admin. Bấm Unlock để mở phiên Repair Mode nâng quyền cho đúng session app hiện tại, và bấm Lock để đóng lại phiên đó." },
           { name: "Remove Apps", detail: "Mở cửa sổ gỡ ứng dụng mặc định của Windows (bloatware), chọn app cần gỡ rồi chạy remove." },
           { name: "Clear Cache", detail: "Mở cửa sổ dọn cache hệ thống/trình duyệt; chọn mục cần dọn và bắt đầu cleanup." },
           { name: "Light / Dark", detail: "Đổi giao diện giữa sáng và tối." },

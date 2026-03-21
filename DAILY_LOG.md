@@ -29,6 +29,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Manual Verify Prep**: Wrote the focused `v10.1.0` manual verification checklist into beads issue `super-route-pro-erj.1` so QA/release can execute a single source of truth for the remaining UI pass.
 - **Manual Verify Execution**: Ran the main `v10.1.0` UI verification flow against a fresh `npm run release:build` artifact. Confirmed the packaged installer now emits `Super Route Pro_10.1.0_x64-setup.exe`, startup shows `10.1.0`, routing snapshot refresh works, Repair Mode unlock/lock works, Scan IP derives `192.168.1.0/24` and supports Force Stop, Port Test passes open/closed smoke cases, Battery Info loads native values, Add/Delete Route works once unlocked with real field values entered, Clear Cache completes with warnings, and Remove Apps list loads correctly.
 - **Manual Verify Findings**: Logged two follow-up bugs in beads from the execution pass: `super-route-pro-auy` for orphaned elevated `SuperRouteRepairBroker` processes after force-closing while unlocked, and `super-route-pro-nhl` for the NIC table sometimes showing `No interfaces found` during startup even while the footer already reports loaded NICs/routes.
+- **Help Copy Update**: Added a dedicated Help entry for `Lock / Unlock Repair Mode` in both English and Vietnamese so users understand that Locked blocks admin fixes, Unlock opens an elevated Repair Mode session for the current app session, and Lock closes that elevated session again.
 
 **Files Changed**
 | File | Change |
