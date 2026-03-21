@@ -5,10 +5,10 @@
 - Project: **Super Route Pro**
 - Audit date: **2026-02-10**
 - App type: **Windows desktop app** (Tauri v2 + React + Rust)
-- Current package/app version: **6.3.0**
-  - `package.json` = `6.3.0`
-  - `src-tauri/tauri.conf.json` = `6.3.0`
-- UI label mismatch: `src/App.tsx` still shows `APP_VERSION = "5.4"`
+- Current working version target: **10.1.0**
+  - `package.json` = `10.1.0`
+  - `src-tauri/tauri.conf.json` = `10.1.0`
+- Runtime version label is now read from Tauri `getVersion()`, so the old hardcoded `APP_VERSION` drift noted in this audit is resolved.
 
 ## 2. Tech Stack
 
@@ -250,8 +250,8 @@ Important state groups in `App.tsx`:
 
 ## 10. Current Differences and Doc Risks
 
-- Version label mismatch:
-  - UI shows `5.4` but package + tauri config are `6.3.0`.
+- Version alignment:
+  - package + tauri config are aligned on `10.1.0` for the current release-prep branch.
 - Old docs in repo mention files/features not in current code snapshot (example: older notes reference `LatencyChart.tsx`, but current source set has no such file).
 - Theme persistence is partial:
   - app writes theme to localStorage but does not read on startup.

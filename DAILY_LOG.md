@@ -25,6 +25,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Verification**: Re-ran `npm run check` and `cargo test --manifest-path src-tauri/Cargo.toml`; both passed after the hardening fixes.
 - **Release Gate Hardening**: Wired the existing Node test files and Rust test suite into `npm run check`, so `release-ship.ps1` now inherits broader verification without additional branching. Verified the expanded gate passes with frontend build, `cargo check`, Node tests, and `cargo test`.
 - **NotebookLM Sync**: Logged the release-gate hardening here so NotebookLM stays aligned with the stronger `v10.1.0` verification baseline.
+- **Version And Docs Alignment**: Bumped `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` to `10.1.0`, and refreshed release-facing docs to reflect the `v10.1.0` prep state without pointing release downloads at a tag that has not shipped yet.
 
 **Files Changed**
 | File | Change |
@@ -45,7 +46,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Next Steps**
 - Manual UI testing of all features (NIC, cache, remove apps, battery, routing).
 - Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
-- Bump version to 10.1.0 and release on GitHub.
+- Finalize release notes and publish `v10.1.0` on GitHub after the last verification pass.
 
 --------------------------------------------------------------------------------
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v10.1.0 (in preparation)
+
+### ✨ Highlights
+- Migrated the remaining practical PowerShell-dependent network flows to native Rust/cmd equivalents for NIC discovery, route parsing, cache cleanup, scheduled tasks, and TCP port testing.
+- Hardened route parsing so IPv4 routes are mapped back to NIC interface indexes, preserving route-dependent UI behavior after the native migration.
+- Updated installer packaging to stage both `SuperRouteRepairBroker` and `SuperRouteService`.
+- Expanded `npm run check` so the release baseline now includes frontend build, Rust compile, Node tests, and Rust tests.
+
 ## v10.0.8 (2026-03-21)
 
 ### ✨ New Features

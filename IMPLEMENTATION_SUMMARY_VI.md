@@ -76,4 +76,4 @@ Smoke test IPC da chay local:
 ## Gioi han con lai
 
 - Chua co bai test end-to-end thay the mot may Win11 that dang login bang standard user va unlock bang local admin credential.
-- Dieu nay can IT/QA chay tren may test that sau khi GitHub release `9.0.2` duoc publish.
+- Dieu nay can IT/QA chay tren may test that truoc khi GitHub release `10.1.0` duoc publish.

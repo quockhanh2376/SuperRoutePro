@@ -74,6 +74,6 @@ Artifacts duoc tao trong `release-artifacts/vX.Y.Z/`:
 
 ## 8. Ghi chu release
 
-- Release `9.0.2` dong goi elevated helper `SuperRouteRepairBroker`.
+- Nhanh chuan bi `10.1.0` dong goi ca `SuperRouteRepairBroker` va `SuperRouteService` sidecar cho installer.
 - Installer khong con co gang cai placeholder Windows service.
 - Neu IT cancel UAC luc unlock, app van giu UI o standard-user mode va bao loi unlock.

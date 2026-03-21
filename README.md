@@ -1,4 +1,4 @@
-# Super Route Pro v10.0.8
+# Super Route Pro v10.1.0
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
@@ -58,7 +58,7 @@ This app provides a practical control panel for Windows networking tasks:
 - Start/Stop controls
 - Tracert command from current input
 
-### Route Persistence Service (v10.0.8)
+### Route Persistence Service
 
 - Background service (`SuperRouteService.exe`) runs at login via Task Scheduler
 - Identifies NIC by description + MAC address (survives InterfaceIndex changes)
@@ -148,6 +148,12 @@ cd src-tauri
 cargo check
 ```
 
+Validate the release baseline:
+
+```powershell
+npm run check
+```
+
 ## 9) Build Release
 
 Build installers/executables via Tauri:
@@ -160,7 +166,6 @@ Typical outputs:
 
 - Installer bundles:
   - `src-tauri/target/release/bundle/nsis/`
-  - `src-tauri/target/release/bundle/msi/`
 - Release exe (bin name from Cargo):
   - `src-tauri/target/release/SuperRoute.exe`
 
@@ -190,8 +195,7 @@ git push -u origin main
 
 ## 11) Pre-Push Checklist
 
-- Run `npm run build`
-- Run `cargo check` in `src-tauri`
+- Run `npm run check`
 - Confirm no secrets/API keys are committed
 - Confirm large generated files are ignored (`node_modules`, `dist`, `src-tauri/target`)
 
@@ -204,4 +208,5 @@ git push -u origin main
 
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
-- Version v10.0.8: `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.0.8`
+- Current working version on `main`: `v10.1.0`
+- Latest published release: `v10.0.8` — `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.0.8`
