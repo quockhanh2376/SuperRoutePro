@@ -1,3 +1,4 @@
+use crate::route_persist;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +118,11 @@ pub struct SetWanPersistOnStartupRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistConfigRequest {
+    pub config: route_persist::PersistConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileCleanupRequest {
     pub target_sid: String,
     pub targets: Vec<String>,
@@ -136,6 +142,8 @@ pub enum RepairMachineAction {
     FlushRoutes,
     SetDefaultGateway(SetDefaultGatewayRequest),
     SetWanPersistOnStartup(SetWanPersistOnStartupRequest),
+    SavePersistConfig(PersistConfigRequest),
+    ClearPersistConfig,
     FlushDns,
     RenewDhcpLease,
     ClearArpCache,

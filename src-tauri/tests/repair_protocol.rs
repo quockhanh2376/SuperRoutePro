@@ -4,11 +4,12 @@ use super_route_pro_lib::repair_ipc::{
     handle_request,
 };
 use super_route_pro_lib::repair_protocol::{
-    AddRouteRequest, AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult,
-    RepairIpcRequest, RepairIpcResponse, RepairMachineAction, RepairServiceHealth,
-    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
+    AddRouteRequest, AppxRemovalRequest, PersistConfigRequest, ProfileCleanupRequest,
+    RepairCommandResult, RepairIpcRequest, RepairIpcResponse, RepairMachineAction,
+    RepairServiceHealth, RepairServiceRequest, RepairServiceResponse, RepairSessionStatus,
 };
 use super_route_pro_lib::repair_session::RepairSessionManager;
+use super_route_pro_lib::route_persist::{CustomRoute, NicIdentifier, PersistConfig, WanConfig};
 
 #[test]
 fn repair_protocol_types_serialize_expected_status_fields() {
@@ -120,6 +121,42 @@ fn typed_actions_serialize_expected_requests() {
     assert_eq!(json["AddRoute"]["gateway"], "10.10.10.1");
     assert_eq!(json["AddRoute"]["metric"], "5");
     assert_eq!(json["AddRoute"]["interface_index"], "12");
+}
+
+#[test]
+fn persist_config_actions_serialize_expected_requests() {
+    let action = RepairMachineAction::SavePersistConfig(PersistConfigRequest {
+        config: PersistConfig {
+            schema_version: 1,
+            enabled: true,
+            nic: NicIdentifier {
+                description: "Ethernet".to_string(),
+                mac_address: "00:11:22:33:44:55".to_string(),
+            },
+            wan: Some(WanConfig {
+                gateway: "192.168.1.1".to_string(),
+                metric: "1".to_string(),
+            }),
+            custom_routes: vec![CustomRoute {
+                destination: "10.0.0.0".to_string(),
+                mask: "255.255.255.0".to_string(),
+                gateway: "192.168.1.1".to_string(),
+                metric: "10".to_string(),
+            }],
+            updated_at: Some("2026-03-22T00:00:00Z".to_string()),
+        },
+    });
+
+    let json = serde_json::to_value(&action).expect("persist action should serialize");
+    assert_eq!(json["SavePersistConfig"]["config"]["enabled"], true);
+    assert_eq!(
+        json["SavePersistConfig"]["config"]["nic"]["description"],
+        "Ethernet"
+    );
+    assert_eq!(
+        json["SavePersistConfig"]["config"]["custom_routes"][0]["destination"],
+        "10.0.0.0"
+    );
 }
 
 #[test]

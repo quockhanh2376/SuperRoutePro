@@ -1,4 +1,5 @@
 use crate::network;
+use crate::persist_startup;
 use crate::repair_protocol::{
     AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
     RepairSessionStatus,
@@ -456,6 +457,23 @@ pub fn run_machine_action_blocking(
         }
         RepairMachineAction::SetWanPersistOnStartup(request) => {
             network::set_wan_persist_on_startup_blocking(request.interface_index, request.enabled)?
+        }
+        RepairMachineAction::SavePersistConfig(request) => {
+            persist_startup::save_enabled_config(&request.config)?;
+            network::CommandResult {
+                success: true,
+                output: format!(
+                    "Persist startup config saved for '{}'.",
+                    request.config.nic.description
+                ),
+            }
+        }
+        RepairMachineAction::ClearPersistConfig => {
+            persist_startup::clear_persisted_startup_state()?;
+            network::CommandResult {
+                success: true,
+                output: "Persist startup config cleared.".to_string(),
+            }
         }
         RepairMachineAction::FlushDns => {
             network::run_network_command_blocking("ipconfig /flushdns".to_string())?

@@ -34,6 +34,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **NIC Startup Empty-State Fix**: Closed `super-route-pro-nhl` by adding a NIC-table loading placeholder and stale-load guards, so startup no longer flashes `No interfaces found` while the first NIC snapshot is still loading.
 - **Persistence Tracking Update**: Logged the still-open release blocker as beads issue `super-route-pro-u3z` because the `Persist on startup OFF` path remains inconclusive and still needs direct repro before sign-off.
 - **Rust Warning Cleanup**: Removed the remaining `cargo check` warning debt by deleting unused battery/NIC helper remnants, dropping an unused registry import and raw target struct, and switching `SuperRouteService` to reuse the shared `route_persist` module instead of compiling its own warning-prone copy. Re-ran `cargo check` clean, then re-ran full `npm run check` clean.
+- **Persist OFF Root-Cause Fix**: Closed `super-route-pro-u3z` by moving startup-persistence save/clear operations onto the elevated repair broker path, so standard-user sessions no longer try to write `%ProgramData%\\SuperRoutePro\\persist.json` or register `SuperRouteProPersist` directly. The WAN flow now clears persisted startup state when OFF, keeps the checkbox aligned with either persisted config or the legacy WAN task, and ships with new Node + Rust coverage for the persist action contract.
 
 **Files Changed**
 | File | Change |
@@ -51,10 +52,11 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Battery IOCTL uses fully manual FFI declarations (`extern "system"`) due to `windows-sys 0.59` handle type inconsistencies across modules.
 - AppX bloatware operations (`Get-AppxPackage`/`Remove-AppxPackage`) remain on PowerShell as there is no native cmd.exe alternative. Runs hidden with `CREATE_NO_WINDOW`.
 - The current verification machine had no installed bloatware candidates from the supported remove-app list, so the destructive uninstall path could not be executed safely in this pass.
-- The Persist-on-startup OFF path remains inconclusive from UI automation alone because `persist.json` stayed enabled after the attempted toggle-off + WAN click; this is now tracked in beads as `super-route-pro-u3z` and still needs direct repro or code-level investigation before release sign-off.
+- The root cause for the Persist-on-startup OFF blocker was that the UI called `persist_save_config` directly from the standard-user app process, which could fail silently when writing `%ProgramData%` or touching the `SuperRouteProPersist` task. The fix routes those writes through Repair Mode elevation and treats OFF as clearing persisted startup state instead of leaving a disabled sentinel file behind.
 
 **Next Steps**
-- Investigate and fix `super-route-pro-u3z` (Persist-on-startup OFF can remain enabled after WAN apply), then complete the optional startup-task/logoff-reboot persistence verification.
+- Complete the optional startup-task/logoff-reboot persistence verification now that the Persist-on-startup OFF path is fixed.
+- Consider consolidating the legacy `SuperRoutePro-PersistWAN` task and the newer `SuperRouteProPersist` service flow after `v10.1.0` so startup persistence has a single mechanism/end-state.
 - Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
 - Decide the final public release number, finalize release notes/docs to match it, and publish on GitHub after the last verification pass.
 

@@ -12,8 +12,8 @@ import {
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
-  repairSetWanPersistOnStartup, runRepairMachineAction,
-  persistSaveConfig, persistGetNicStableId,
+  repairSetWanPersistOnStartup, repairSavePersistConfig, repairClearPersistConfig,
+  runRepairMachineAction, persistLoadConfig, persistGetNicStableId,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
@@ -24,6 +24,7 @@ import {
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
 import { getNicTableMessage } from "./nicTableModel";
+import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -587,20 +588,36 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const savedPreference = localStorage.getItem("wan-persist-on-startup");
-    if (savedPreference === "true") {
-      setPersistWanOnStartup(true);
-    } else if (savedPreference === "false") {
-      setPersistWanOnStartup(false);
-    }
+    const localPreference =
+      savedPreference === "true" ? true : savedPreference === "false" ? false : null;
 
     const loadPersistStatus = async () => {
+      let legacyTaskEnabled: boolean | null = null;
+      let persistedConfigEnabled: boolean | null = null;
+
       try {
-        const enabled = await getWanPersistOnStartupStatus();
-        if (active) {
-          setPersistWanOnStartup(enabled);
+        try {
+          legacyTaskEnabled = await getWanPersistOnStartupStatus();
+        } catch {
+          // Keep reading persisted config/local preference when legacy task query fails.
         }
-      } catch {
-        // Keep local preference when startup task query fails.
+
+        try {
+          const persistedConfig = await persistLoadConfig();
+          persistedConfigEnabled = persistedConfig ? persistedConfig.enabled : null;
+        } catch {
+          // Keep reading legacy task/local preference when config query fails.
+        }
+
+        if (active) {
+          setPersistWanOnStartup(
+            resolvePersistStartupEnabled({
+              localPreference,
+              legacyTaskEnabled,
+              persistedConfigEnabled,
+            }),
+          );
+        }
       } finally {
         if (active) {
           setPersistWanLoading(false);
@@ -943,17 +960,20 @@ export default function App() {
         selectedNic.index,
         persistWanOnStartup
       );
-      await handleRepairCommandResult("Persist WAN On Startup", persistResult, {
+      const persistTaskApplied = await handleRepairCommandResult("Persist WAN On Startup", persistResult, {
         appendOutput: true,
         refresh: true,
         successMessage: persistWanOnStartup
-          ? "Default gateway set. Persist on startup enabled."
-          : "Default gateway set. Persist on startup disabled.",
+          ? "Startup persistence task updated."
+          : "Startup persistence task removed.",
         failureMessage: "Persist WAN On Startup - Failed",
       });
+      if (!persistTaskApplied) {
+        return;
+      }
 
-      // Save full persist config (NIC + WAN + custom routes) for the service
-      if (persistWanOnStartup) {
+      const persistWriteMode = getPersistStartupWriteMode(persistWanOnStartup);
+      if (persistWriteMode === "save") {
         try {
           const nicId = await persistGetNicStableId(selectedNic.index);
           const config: PersistConfig = {
@@ -966,17 +986,22 @@ export default function App() {
               .map((r: RouteEntry) => ({ destination: r.destination, mask: r.netmask, gateway: r.gateway, metric: r.metric })),
             updated_at: new Date().toISOString(),
           };
-          await persistSaveConfig(config);
+          const persistConfigResult = await repairSavePersistConfig(config);
+          await handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
+            appendOutput: true,
+            successMessage: "Default gateway set. Persist on startup enabled.",
+            failureMessage: "Persist Startup Config - Failed",
+          });
         } catch (persistErr) {
           console.warn("Failed to save persist config:", persistErr);
         }
       } else {
         try {
-          await persistSaveConfig({
-            schema_version: 1,
-            enabled: false,
-            nic: { description: "", mac_address: "" },
-            custom_routes: [],
+          const persistConfigResult = await repairClearPersistConfig();
+          await handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
+            appendOutput: true,
+            successMessage: "Default gateway set. Persist on startup disabled.",
+            failureMessage: "Persist Startup Config - Failed",
           });
         } catch (persistErr) {
           console.warn("Failed to disable persist config:", persistErr);

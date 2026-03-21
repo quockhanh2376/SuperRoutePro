@@ -298,6 +298,16 @@ export async function repairSetWanPersistOnStartup(
   });
 }
 
+export async function repairSavePersistConfig(
+  config: PersistConfig,
+): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_save_persist_config", { config });
+}
+
+export async function repairClearPersistConfig(): Promise<RepairCommandResult> {
+  return invoke<RepairCommandResult>("repair_clear_persist_config");
+}
+
 export async function runRepairMachineAction(
   action: RepairMachineAction,
 ): Promise<RepairCommandResult> {

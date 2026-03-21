@@ -6,14 +6,14 @@ const CONFIG_FILE_NAME: &str = "persist.json";
 const SCHEMA_VERSION: u32 = 1;
 
 /// Stable NIC identifier that survives reboots (unlike InterfaceIndex).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NicIdentifier {
     pub description: String,
     pub mac_address: String,
 }
 
 /// WAN (default gateway) configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WanConfig {
     pub gateway: String,
     #[serde(default)]
@@ -21,7 +21,7 @@ pub struct WanConfig {
 }
 
 /// A single custom route entry.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomRoute {
     pub destination: String,
     pub mask: String,
@@ -31,7 +31,7 @@ pub struct CustomRoute {
 }
 
 /// Full persist configuration written by the UI and read by the service.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PersistConfig {
     pub schema_version: u32,
     pub enabled: bool,

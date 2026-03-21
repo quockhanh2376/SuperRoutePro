@@ -1,4 +1,5 @@
 mod network;
+pub mod persist_startup;
 pub mod repair_actions;
 pub mod repair_ipc;
 pub mod repair_protocol;
@@ -21,8 +22,8 @@ use repair_ipc::{
     run_profile_cleanup as dispatch_profile_cleanup,
 };
 use repair_protocol::{
-    AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
-    RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
+    AppxRemovalRequest, PersistConfigRequest, ProfileCleanupRequest, RepairCommandResult,
+    RepairMachineAction, RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 #[cfg(target_os = "windows")]
@@ -139,6 +140,8 @@ pub fn run() {
             repair_flush_routes,
             repair_set_default_gateway,
             repair_set_wan_persist_on_startup,
+            repair_save_persist_config,
+            repair_clear_persist_config,
             repair_run_machine_action,
             repair_clear_cache_targets,
             repair_remove_bloatware,
@@ -249,6 +252,20 @@ async fn repair_set_wan_persist_on_startup(
 }
 
 #[tauri::command]
+async fn repair_save_persist_config(
+    config: route_persist::PersistConfig,
+) -> Result<RepairCommandResult, String> {
+    dispatch_repair_machine_action(RepairMachineAction::SavePersistConfig(
+        PersistConfigRequest { config },
+    ))
+}
+
+#[tauri::command]
+async fn repair_clear_persist_config() -> Result<RepairCommandResult, String> {
+    dispatch_repair_machine_action(RepairMachineAction::ClearPersistConfig)
+}
+
+#[tauri::command]
 async fn repair_run_machine_action(
     action: RepairMachineAction,
 ) -> Result<RepairCommandResult, String> {
@@ -285,17 +302,7 @@ async fn repair_remove_bloatware(
 
 #[tauri::command]
 fn persist_save_config(config: route_persist::PersistConfig) -> Result<(), String> {
-    route_persist::save_config(&config)?;
-
-    #[cfg(target_os = "windows")]
-    {
-        if config.enabled {
-            register_startup_task()?;
-        } else {
-            unregister_startup_task()?;
-        }
-    }
-    Ok(())
+    persist_startup::save_enabled_config(&config)
 }
 
 #[tauri::command]
@@ -321,64 +328,6 @@ fn persist_get_nic_stable_id(
         description: nic.description.clone(),
         mac_address: nic.mac_address.clone(),
     })
-}
-
-#[cfg(target_os = "windows")]
-fn register_startup_task() -> Result<(), String> {
-    let exe =
-        std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
-    let exe_dir = exe.parent().ok_or("No parent dir")?;
-    let service_exe = exe_dir.join("SuperRouteService.exe");
-    let service_path = service_exe.to_string_lossy();
-
-    // First delete existing task if any (ignore errors)
-    let _ = run_hidden(
-        "schtasks",
-        &["/Delete", "/TN", "SuperRouteProPersist", "/F"],
-    );
-
-    let output = run_hidden(
-        "schtasks",
-        &[
-            "/Create",
-            "/TN",
-            "SuperRouteProPersist",
-            "/TR",
-            &format!("\"{}\"", service_path),
-            "/SC",
-            "ONLOGON",
-            "/RL",
-            "HIGHEST",
-            "/F",
-        ],
-    )
-    .ok_or_else(|| "Failed to run schtasks for task registration".to_string())?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "Task registration failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn unregister_startup_task() -> Result<(), String> {
-    let output = run_hidden(
-        "schtasks",
-        &["/Delete", "/TN", "SuperRouteProPersist", "/F"],
-    )
-    .ok_or_else(|| "Failed to run schtasks for task removal".to_string())?;
-
-    if !output.status.success() {
-        // Task might not exist, which is fine
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.contains("does not exist") && !stderr.contains("cannot find") {
-            return Err(format!("Task removal failed: {}", stderr));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(target_os = "windows")]
