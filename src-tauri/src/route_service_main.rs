@@ -8,9 +8,9 @@
 mod route_persist;
 
 use route_persist::{CustomRoute, NicIdentifier, PersistConfig, WanConfig};
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -41,7 +41,10 @@ fn main() {
     loop {
         match find_nic_interface_index(&config.nic) {
             Ok(index) => {
-                eprintln!("[SuperRouteService] NIC '{}' found at InterfaceIndex {index}", config.nic.description);
+                eprintln!(
+                    "[SuperRouteService] NIC '{}' found at InterfaceIndex {index}",
+                    config.nic.description
+                );
                 apply_routes(&config, &index);
                 eprintln!("[SuperRouteService] Routes applied. Exiting.");
                 return;
@@ -113,23 +116,48 @@ fn apply_routes(config: &PersistConfig, interface_index: &str) {
 }
 
 fn apply_wan(wan: &WanConfig, interface_index: &str) {
-    let metric = if wan.metric.is_empty() { "1" } else { &wan.metric };
+    let metric = if wan.metric.is_empty() {
+        "1"
+    } else {
+        &wan.metric
+    };
     let args = [
-        "add", "0.0.0.0", "mask", "0.0.0.0",
-        &wan.gateway, "metric", metric, "if", interface_index,
+        "add",
+        "0.0.0.0",
+        "mask",
+        "0.0.0.0",
+        &wan.gateway,
+        "metric",
+        metric,
+        "if",
+        interface_index,
     ];
 
     match run_route_command(&args) {
-        Ok(output) => eprintln!("[SuperRouteService] WAN gateway set to {} (if {interface_index}): {output}", wan.gateway),
+        Ok(output) => eprintln!(
+            "[SuperRouteService] WAN gateway set to {} (if {interface_index}): {output}",
+            wan.gateway
+        ),
         Err(e) => eprintln!("[SuperRouteService] Failed to set WAN: {e}"),
     }
 }
 
 fn apply_custom_route(route: &CustomRoute, interface_index: &str) {
-    let metric = if route.metric.is_empty() { "10" } else { &route.metric };
+    let metric = if route.metric.is_empty() {
+        "10"
+    } else {
+        &route.metric
+    };
     let args = [
-        "add", &route.destination, "mask", &route.mask,
-        &route.gateway, "metric", metric, "if", interface_index,
+        "add",
+        &route.destination,
+        "mask",
+        &route.mask,
+        &route.gateway,
+        "metric",
+        metric,
+        "if",
+        interface_index,
     ];
 
     match run_route_command(&args) {

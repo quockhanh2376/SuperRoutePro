@@ -80,8 +80,8 @@ pub fn normalize_profile_root(raw_path: &str) -> Option<PathBuf> {
 
 #[cfg(target_os = "windows")]
 pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
-    use windows_sys::Win32::System::Registry::*;
     use windows_sys::Win32::Foundation::*;
+    use windows_sys::Win32::System::Registry::*;
 
     const PROFILE_LIST_PATH: &[u8] =
         b"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\0";
@@ -134,9 +134,8 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
             }
 
             // Read ProfileImagePath from the subkey
-            let subkey_path = format!(
-                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\{sid}\0"
-            );
+            let subkey_path =
+                format!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\{sid}\0");
             let mut subkey: HKEY = std::ptr::null_mut();
             let open_result = RegOpenKeyExA(
                 HKEY_LOCAL_MACHINE,
@@ -213,13 +212,8 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
             // Check if profile is loaded by checking if the SID hive is loaded in HKU
             let hku_path = format!("{sid}\0");
             let mut hku_test: HKEY = std::ptr::null_mut();
-            let is_loaded = RegOpenKeyExA(
-                HKEY_USERS,
-                hku_path.as_ptr(),
-                0,
-                KEY_READ,
-                &mut hku_test,
-            ) == 0;
+            let is_loaded =
+                RegOpenKeyExA(HKEY_USERS, hku_path.as_ptr(), 0, KEY_READ, &mut hku_test) == 0;
             if is_loaded {
                 let _ = RegCloseKey(hku_test);
             }

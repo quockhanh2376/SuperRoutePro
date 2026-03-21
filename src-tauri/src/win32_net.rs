@@ -102,7 +102,10 @@ pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
             if trimmed.starts_with("IP Address:") {
                 let ip = trimmed.trim_start_matches("IP Address:").trim().to_string();
                 if !ip.is_empty() {
-                    if let Some(nic) = adapters.iter_mut().find(|a| a.friendly_name == current_name) {
+                    if let Some(nic) = adapters
+                        .iter_mut()
+                        .find(|a| a.friendly_name == current_name)
+                    {
                         nic.ip_addresses.push(ip);
                     }
                 }
@@ -110,9 +113,15 @@ pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
 
             // "Default Gateway:   192.168.1.1"
             if trimmed.starts_with("Default Gateway:") {
-                let gw = trimmed.trim_start_matches("Default Gateway:").trim().to_string();
+                let gw = trimmed
+                    .trim_start_matches("Default Gateway:")
+                    .trim()
+                    .to_string();
                 if !gw.is_empty() {
-                    if let Some(nic) = adapters.iter_mut().find(|a| a.friendly_name == current_name) {
+                    if let Some(nic) = adapters
+                        .iter_mut()
+                        .find(|a| a.friendly_name == current_name)
+                    {
                         nic.gateways.push(gw);
                     }
                 }

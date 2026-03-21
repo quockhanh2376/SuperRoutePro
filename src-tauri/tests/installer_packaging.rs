@@ -6,7 +6,7 @@ fn read_json(path: &str) -> Value {
 }
 
 #[test]
-fn installer_packaging_bundles_the_elevated_repair_broker_sidecar() {
+fn installer_packaging_bundles_required_sidecars() {
     let tauri_config = read_json("tauri.conf.json");
     let package_json = read_json("../package.json");
     let cargo_toml = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml should be readable");
@@ -28,10 +28,14 @@ fn installer_packaging_bundles_the_elevated_repair_broker_sidecar() {
         external_bin_values.contains(&"binaries/SuperRouteRepairBroker"),
         "repair broker sidecar should be bundled with the installer"
     );
+    assert!(
+        external_bin_values.contains(&"binaries/SuperRouteService"),
+        "route persistence service sidecar should be bundled with the installer"
+    );
     assert_eq!(
         external_bin_values.len(),
-        1,
-        "the release bundle should only stage the elevated repair broker sidecar"
+        2,
+        "the release bundle should stage both the repair broker and route persistence service sidecars"
     );
 
     let bundle_targets = tauri_config["bundle"]["targets"]

@@ -59,8 +59,8 @@ impl PersistConfig {
 
 /// Resolve the config directory: `%ProgramData%\SuperRoutePro\`.
 pub fn config_dir() -> Result<PathBuf, String> {
-    let program_data = std::env::var("ProgramData")
-        .unwrap_or_else(|_| r"C:\ProgramData".to_string());
+    let program_data =
+        std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".to_string());
     let dir = PathBuf::from(program_data).join(CONFIG_DIR_NAME);
     Ok(dir)
 }
@@ -93,8 +93,7 @@ pub fn save_config(config: &PersistConfig) -> Result<(), String> {
     let path = config_path()?;
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    std::fs::write(&path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
     Ok(())
 }
 
@@ -124,14 +123,12 @@ mod tests {
                 gateway: "192.168.1.1".into(),
                 metric: "1".into(),
             }),
-            custom_routes: vec![
-                CustomRoute {
-                    destination: "10.0.0.0".into(),
-                    mask: "255.255.255.0".into(),
-                    gateway: "192.168.1.1".into(),
-                    metric: "10".into(),
-                },
-            ],
+            custom_routes: vec![CustomRoute {
+                destination: "10.0.0.0".into(),
+                mask: "255.255.255.0".into(),
+                gateway: "192.168.1.1".into(),
+                metric: "10".into(),
+            }],
             updated_at: Some("2026-03-21T09:00:00Z".into()),
         }
     }

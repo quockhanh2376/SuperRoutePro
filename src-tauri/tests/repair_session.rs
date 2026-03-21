@@ -40,7 +40,10 @@ fn repair_session_locks_again_on_explicit_close() {
     manager.lock();
     let status = manager.status();
 
-    assert!(status.locked, "explicit close should lock the session again");
+    assert!(
+        status.locked,
+        "explicit close should lock the session again"
+    );
     assert!(
         status.requires_unlock,
         "explicit close should require a fresh unlock"
@@ -64,7 +67,10 @@ fn repair_session_locks_again_when_the_active_connection_disconnects() {
 
     manager.on_disconnect("conn-1");
     let status = manager.status();
-    assert!(status.locked, "disconnecting the active connection should lock");
+    assert!(
+        status.locked,
+        "disconnecting the active connection should lock"
+    );
     assert!(
         status.requires_unlock,
         "disconnecting the active connection should require a fresh unlock"
@@ -80,10 +86,16 @@ fn unlock_nonce_transitions_session_from_locked_to_unlocked() {
     let mut manager = RepairSessionManager::new();
 
     let request = manager.issue_unlock_request("app-1", "conn-1");
-    assert!(manager.status().locked, "issuing a nonce should not unlock by itself");
+    assert!(
+        manager.status().locked,
+        "issuing a nonce should not unlock by itself"
+    );
 
     let response = manager.unlock_with_request(&request);
-    assert!(response.unlocked, "matching nonce should unlock the session");
+    assert!(
+        response.unlocked,
+        "matching nonce should unlock the session"
+    );
     assert!(
         !manager.status().locked,
         "successful nonce verification should open the repair session"

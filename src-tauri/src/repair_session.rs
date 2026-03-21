@@ -61,7 +61,10 @@ impl RepairSessionManager {
     ) -> UnlockRepairSessionRequest {
         let app_instance_id = app_instance_id.into();
         let connection_id = connection_id.into();
-        let nonce = format!("unlock-{}", NEXT_UNLOCK_NONCE.fetch_add(1, Ordering::Relaxed));
+        let nonce = format!(
+            "unlock-{}",
+            NEXT_UNLOCK_NONCE.fetch_add(1, Ordering::Relaxed)
+        );
 
         self.pending_app_instance_id = Some(app_instance_id.clone());
         self.pending_connection_id = Some(connection_id.clone());
@@ -79,7 +82,8 @@ impl RepairSessionManager {
         &mut self,
         request: &UnlockRepairSessionRequest,
     ) -> UnlockRepairSessionResponse {
-        let request_matches = self.pending_app_instance_id.as_deref() == Some(&request.app_instance_id)
+        let request_matches = self.pending_app_instance_id.as_deref()
+            == Some(&request.app_instance_id)
             && self.pending_connection_id.as_deref() == Some(&request.connection_id)
             && self.pending_unlock_nonce.as_deref() == Some(&request.nonce);
 
@@ -95,7 +99,9 @@ impl RepairSessionManager {
         } else {
             UnlockRepairSessionResponse {
                 unlocked: false,
-                detail: Some("Unlock request did not match the pending repair session.".to_string()),
+                detail: Some(
+                    "Unlock request did not match the pending repair session.".to_string(),
+                ),
             }
         }
     }

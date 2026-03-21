@@ -1,16 +1,13 @@
+use super_route_pro_lib::repair_actions::validate_appx_removal_request;
 use super_route_pro_lib::repair_ipc::{
-    decode_message,
-    encode_message,
-    get_repair_service_health,
-    get_repair_session_status,
+    decode_message, encode_message, get_repair_service_health, get_repair_session_status,
     handle_request,
 };
 use super_route_pro_lib::repair_protocol::{
-    AddRouteRequest, AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairIpcRequest,
-    RepairIpcResponse, RepairMachineAction, RepairServiceHealth, RepairServiceRequest,
-    RepairServiceResponse, RepairSessionStatus, UnlockRepairSessionRequest,
+    AddRouteRequest, AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult,
+    RepairIpcRequest, RepairIpcResponse, RepairMachineAction, RepairServiceHealth,
+    RepairServiceRequest, RepairServiceResponse, RepairSessionStatus, UnlockRepairSessionRequest,
 };
-use super_route_pro_lib::repair_actions::validate_appx_removal_request;
 use super_route_pro_lib::repair_session::RepairSessionManager;
 
 #[test]
@@ -69,8 +66,8 @@ fn repair_protocol_placeholder_ipc_returns_service_unavailable_state() {
 
 #[test]
 fn service_health_round_trip_uses_stable_ipc_framing() {
-    let request_frame = encode_message(&RepairServiceRequest::GetServiceHealth)
-        .expect("request should encode");
+    let request_frame =
+        encode_message(&RepairServiceRequest::GetServiceHealth).expect("request should encode");
     let request: RepairServiceRequest =
         decode_message(&request_frame).expect("request should decode");
 
@@ -82,7 +79,10 @@ fn service_health_round_trip_uses_stable_ipc_framing() {
 
     match decoded {
         RepairServiceResponse::ServiceHealth(health) => {
-            assert!(!health.connected, "service skeleton should still be unavailable");
+            assert!(
+                !health.connected,
+                "service skeleton should still be unavailable"
+            );
             assert!(
                 health.requires_unlock,
                 "service skeleton should keep privileged actions gated"
@@ -224,8 +224,7 @@ fn repair_ipc_response_round_trips_machine_action_results() {
     };
 
     let encoded = encode_message(&response).expect("ipc response should encode");
-    let decoded: RepairIpcResponse =
-        decode_message(&encoded).expect("ipc response should decode");
+    let decoded: RepairIpcResponse = decode_message(&encoded).expect("ipc response should decode");
 
     match decoded.response {
         RepairServiceResponse::RepairAction(result) => {

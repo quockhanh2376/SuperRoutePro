@@ -1,4 +1,3 @@
-pub mod win32_net;
 mod network;
 pub mod repair_actions;
 pub mod repair_ipc;
@@ -6,21 +5,18 @@ pub mod repair_protocol;
 pub mod repair_session;
 pub mod repair_targets;
 pub mod route_persist;
+pub mod win32_net;
 
 use network::{
-    get_network_interfaces, get_routing_table, add_route, delete_route,
-    flush_routes, set_default_gateway, set_wan_persist_on_startup, get_wan_persist_on_startup_status,
-    run_network_command, ping_host, test_tcp_port,
-    check_internet, fping_scan, get_bloatware_candidates, remove_bloatware,
-    clear_cache_targets, get_battery_report, get_battery_summary,
+    add_route, check_internet, clear_cache_targets, delete_route, flush_routes, fping_scan,
+    get_battery_report, get_battery_summary, get_bloatware_candidates, get_network_interfaces,
+    get_routing_table, get_wan_persist_on_startup_status, ping_host, remove_bloatware,
+    run_network_command, set_default_gateway, set_wan_persist_on_startup, test_tcp_port,
 };
 use repair_ipc::{
-    complete_unlock_request,
-    get_repair_service_health as read_repair_service_health,
-    get_repair_session_status as read_repair_session_status,
-    issue_unlock_request,
-    lock_repair_mode as lock_repair_mode_state,
-    run_appx_removal as dispatch_appx_removal,
+    complete_unlock_request, get_repair_service_health as read_repair_service_health,
+    get_repair_session_status as read_repair_session_status, issue_unlock_request,
+    lock_repair_mode as lock_repair_mode_state, run_appx_removal as dispatch_appx_removal,
     run_machine_action as dispatch_repair_machine_action,
     run_profile_cleanup as dispatch_profile_cleanup,
 };
@@ -29,13 +25,13 @@ use repair_protocol::{
     RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
-use tauri::{Manager, WebviewWindowBuilder};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::process::Command;
+use tauri::{Manager, WebviewWindowBuilder};
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -102,7 +98,9 @@ pub fn run() {
 
                     let retry_dir = reset_webview_data_directory(&primary_webview_data_dir)
                         .map(|_| primary_webview_data_dir.clone())
-                        .or_else(|_| create_fallback_webview_data_directory(&primary_webview_data_dir))
+                        .or_else(|_| {
+                            create_fallback_webview_data_directory(&primary_webview_data_dir)
+                        })
                         .map_err(std::io::Error::other)?;
 
                     prepare_webview_data_directory(&retry_dir).map_err(std::io::Error::other)?;
@@ -262,7 +260,10 @@ async fn repair_clear_cache_targets(
     target_sid: String,
     targets: Vec<String>,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_profile_cleanup(ProfileCleanupRequest { target_sid, targets })
+    dispatch_profile_cleanup(ProfileCleanupRequest {
+        target_sid,
+        targets,
+    })
 }
 
 #[tauri::command]
@@ -283,9 +284,7 @@ async fn repair_remove_bloatware(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn persist_save_config(
-    config: route_persist::PersistConfig,
-) -> Result<(), String> {
+fn persist_save_config(config: route_persist::PersistConfig) -> Result<(), String> {
     route_persist::save_config(&config)?;
 
     #[cfg(target_os = "windows")]
@@ -305,7 +304,9 @@ fn persist_load_config() -> Result<Option<route_persist::PersistConfig>, String>
 }
 
 #[tauri::command]
-fn persist_get_nic_stable_id(interface_index: String) -> Result<route_persist::NicIdentifier, String> {
+fn persist_get_nic_stable_id(
+    interface_index: String,
+) -> Result<route_persist::NicIdentifier, String> {
     let target_idx: u32 = interface_index
         .parse()
         .map_err(|_| format!("Invalid interface index: {interface_index}"))?;
@@ -324,8 +325,8 @@ fn persist_get_nic_stable_id(interface_index: String) -> Result<route_persist::N
 
 #[cfg(target_os = "windows")]
 fn register_startup_task() -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
     let exe_dir = exe.parent().ok_or("No parent dir")?;
     let service_exe = exe_dir.join("SuperRouteService.exe");
     let service_path = service_exe.to_string_lossy();
@@ -340,10 +341,14 @@ fn register_startup_task() -> Result<(), String> {
         "schtasks",
         &[
             "/Create",
-            "/TN", "SuperRouteProPersist",
-            "/TR", &format!("\"{}\"", service_path),
-            "/SC", "ONLOGON",
-            "/RL", "HIGHEST",
+            "/TN",
+            "SuperRouteProPersist",
+            "/TR",
+            &format!("\"{}\"", service_path),
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "HIGHEST",
             "/F",
         ],
     )
@@ -484,7 +489,7 @@ fn command_exists(name: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 fn has_webview2_runtime() -> bool {
-    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER};
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
     let subkeys = [
         (
@@ -493,7 +498,9 @@ fn has_webview2_runtime() -> bool {
         ),
         (
             HKEY_LOCAL_MACHINE,
-            format!("SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_GUID}"),
+            format!(
+                "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_CLIENT_GUID}"
+            ),
         ),
         (
             HKEY_CURRENT_USER,
@@ -501,9 +508,9 @@ fn has_webview2_runtime() -> bool {
         ),
     ];
 
-    subkeys.iter().any(|(root, subkey)| {
-        read_registry_string(*root, subkey, "pv").is_some()
-    })
+    subkeys
+        .iter()
+        .any(|(root, subkey)| read_registry_string(*root, subkey, "pv").is_some())
 }
 
 /// Read a REG_SZ value from the Windows registry without spawning any child process.
@@ -519,12 +526,13 @@ fn read_registry_string(
     };
 
     let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
-    let value_wide: Vec<u16> = value_name.encode_utf16().chain(std::iter::once(0)).collect();
+    let value_wide: Vec<u16> = value_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
     let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
-    let status = unsafe {
-        RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey)
-    };
+    let status = unsafe { RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey) };
     if status as u32 != ERROR_SUCCESS {
         return None;
     }
@@ -564,10 +572,7 @@ fn read_registry_string(
     }
 
     let wide_slice = unsafe {
-        std::slice::from_raw_parts(
-            buffer.as_ptr() as *const u16,
-            data_size as usize / 2,
-        )
+        std::slice::from_raw_parts(buffer.as_ptr() as *const u16, data_size as usize / 2)
     };
     let trimmed = wide_slice
         .iter()
@@ -579,7 +584,7 @@ fn read_registry_string(
 
 #[cfg(target_os = "windows")]
 fn show_windows_error_dialog(title: &str, message: &str) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
     let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
     let message_wide: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
@@ -653,17 +658,17 @@ mod tests {
             "webview creation failed because the user data folder is not writable"
         ));
         assert!(
-            !super::should_retry_webview_data_dir("Microsoft Edge WebView2 Runtime is not installed."),
+            !super::should_retry_webview_data_dir(
+                "Microsoft Edge WebView2 Runtime is not installed."
+            ),
             "runtime install errors should not trigger a directory reset retry"
         );
     }
 
     #[test]
     fn reset_webview_data_directory_moves_stale_state_out_of_the_way() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "srp-webview-reset-test-{}",
-            std::process::id()
-        ));
+        let temp_root =
+            std::env::temp_dir().join(format!("srp-webview-reset-test-{}", std::process::id()));
         let primary = temp_root.join("main-webview");
         let stale_file = primary.join("stale.txt");
         std::fs::create_dir_all(&primary).expect("primary webview dir should be creatable");
@@ -673,7 +678,10 @@ mod tests {
             .expect("reset should rotate the stale webview directory");
 
         assert_eq!(primary, PathBuf::from(&primary));
-        assert!(primary.exists(), "primary webview directory should be recreated");
+        assert!(
+            primary.exists(),
+            "primary webview directory should be recreated"
+        );
         assert!(
             !stale_file.exists(),
             "stale files should be moved out of the fresh primary directory"
@@ -714,12 +722,7 @@ fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), Stri
     );
     let output = run_hidden(
         "powershell",
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script.as_str(),
-        ],
+        &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
     )
     .ok_or_else(|| "Unable to invoke the repair broker elevation command.".to_string())?;
 
@@ -745,8 +748,12 @@ fn launch_repair_broker(_request: &UnlockRepairSessionRequest) -> Result<(), Str
 
 #[cfg(target_os = "windows")]
 fn prepare_webview_data_directory(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path)
-        .map_err(|err| format!("Unable to create WebView data directory {}: {err}", path.display()))?;
+    std::fs::create_dir_all(path).map_err(|err| {
+        format!(
+            "Unable to create WebView data directory {}: {err}",
+            path.display()
+        )
+    })?;
 
     let webview_runtime_root = path.join("EBWebView");
     std::fs::create_dir_all(&webview_runtime_root).map_err(|err| {

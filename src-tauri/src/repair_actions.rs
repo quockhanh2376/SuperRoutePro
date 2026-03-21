@@ -3,9 +3,7 @@ use crate::repair_protocol::{
     AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
     RepairSessionStatus,
 };
-use crate::repair_targets::{
-    resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser,
-};
+use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser};
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -50,8 +48,7 @@ const ALLOWED_BLOATWARE_PACKAGES: [&str; 29] = [
 fn locked_result() -> RepairCommandResult {
     RepairCommandResult {
         success: false,
-        output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes."
-            .to_string(),
+        output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes.".to_string(),
         requires_unlock: true,
     }
 }
@@ -137,11 +134,11 @@ fn cleanup_paths_for_target(target_user: &RepairTargetUser, target: &str) -> Opt
     match target {
         "user_temp" => Some(vec![format!(r"{local}\Temp")]),
         "windows_temp" => Some(vec![r"C:\Windows\Temp".to_string()]),
-        "windows_update_cache" => Some(vec![r"C:\Windows\SoftwareDistribution\Download".to_string()]),
+        "windows_update_cache" => {
+            Some(vec![r"C:\Windows\SoftwareDistribution\Download".to_string()])
+        }
         "prefetch" => Some(vec![r"C:\Windows\Prefetch".to_string()]),
-        "explorer_cache" => Some(vec![
-            format!(r"{local}\Microsoft\Windows\Explorer"),
-        ]),
+        "explorer_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\Explorer")]),
         "edge_cache" => Some(vec![
             format!(r"{local}\Microsoft\Edge\User Data\Default\Cache"),
             format!(r"{local}\Microsoft\Edge\User Data\Default\Code Cache"),
@@ -152,9 +149,7 @@ fn cleanup_paths_for_target(target_user: &RepairTargetUser, target: &str) -> Opt
             format!(r"{local}\Google\Chrome\User Data\Default\Code Cache"),
             format!(r"{local}\Google\Chrome\User Data\Default\GPUCache"),
         ]),
-        "firefox_cache" => Some(vec![
-            format!(r"{local}\Mozilla\Firefox\Profiles"),
-        ]),
+        "firefox_cache" => Some(vec![format!(r"{local}\Mozilla\Firefox\Profiles")]),
         "inet_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\INetCache")]),
         "web_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\WebCache")]),
         "crash_dumps" => Some(vec![format!(r"{local}\CrashDumps")]),
@@ -219,12 +214,18 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
         "user_temp" => {
             let path = std::path::Path::new(&local).join("Temp");
             let (del, fail) = clean_directory_contents(&path);
-            Some((fail == 0, format!("[OK] User Temp cleaned ({del} items removed, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] User Temp cleaned ({del} items removed, {fail} failed)."),
+            ))
         }
         "windows_temp" => {
             let path = std::path::Path::new(r"C:\Windows\Temp");
             let (del, fail) = clean_directory_contents(path);
-            Some((fail == 0, format!("[OK] Windows Temp cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Windows Temp cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "windows_update_cache" => {
             // Stop services, clean, restart
@@ -232,10 +233,12 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
             {
                 let _ = Command::new("net")
                     .args(["stop", "wuauserv", "/y"])
-                    .creation_flags(CREATE_NO_WINDOW).output();
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
                 let _ = Command::new("net")
                     .args(["stop", "bits", "/y"])
-                    .creation_flags(CREATE_NO_WINDOW).output();
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
             }
             let path = std::path::Path::new(r"C:\Windows\SoftwareDistribution\Download");
             let (del, fail) = clean_directory_contents(path);
@@ -243,17 +246,25 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
             {
                 let _ = Command::new("net")
                     .args(["start", "wuauserv"])
-                    .creation_flags(CREATE_NO_WINDOW).output();
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
                 let _ = Command::new("net")
                     .args(["start", "bits"])
-                    .creation_flags(CREATE_NO_WINDOW).output();
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
             }
-            Some((fail == 0, format!("[OK] Windows Update cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Windows Update cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "prefetch" => {
             let path = std::path::Path::new(r"C:\Windows\Prefetch");
             let (del, fail) = clean_directory_contents(path);
-            Some((fail == 0, format!("[OK] Prefetch cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Prefetch cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "explorer_cache" => {
             let explorer_dir = std::path::Path::new(&local).join(r"Microsoft\Windows\Explorer");
@@ -261,7 +272,10 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
             let (d2, f2) = clean_files_with_prefix(&explorer_dir, "iconcache_", ".db");
             let del = d1 + d2;
             let fail = f1 + f2;
-            Some((fail == 0, format!("[OK] Explorer cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Explorer cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "edge_cache" => {
             let base = std::path::Path::new(&local).join(r"Microsoft\Edge\User Data\Default");
@@ -269,9 +283,13 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
             let mut fail = 0u64;
             for sub in ["Cache", "Code Cache", "GPUCache"] {
                 let (d, f) = clean_directory_contents(&base.join(sub));
-                del += d; fail += f;
+                del += d;
+                fail += f;
             }
-            Some((fail == 0, format!("[OK] Microsoft Edge cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Microsoft Edge cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "chrome_cache" => {
             let base = std::path::Path::new(&local).join(r"Google\Chrome\User Data\Default");
@@ -279,9 +297,13 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
             let mut fail = 0u64;
             for sub in ["Cache", "Code Cache", "GPUCache"] {
                 let (d, f) = clean_directory_contents(&base.join(sub));
-                del += d; fail += f;
+                del += d;
+                fail += f;
             }
-            Some((fail == 0, format!("[OK] Google Chrome cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Google Chrome cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "firefox_cache" => {
             let profiles_dir = std::path::Path::new(&local).join(r"Mozilla\Firefox\Profiles");
@@ -291,36 +313,60 @@ fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Optio
                 for entry in entries.flatten() {
                     let cache2 = entry.path().join("cache2");
                     let (d, f) = clean_directory_contents(&cache2);
-                    del += d; fail += f;
+                    del += d;
+                    fail += f;
                 }
             }
-            Some((fail == 0, format!("[OK] Mozilla Firefox cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Mozilla Firefox cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "inet_cache" => {
             let path = std::path::Path::new(&local).join(r"Microsoft\Windows\INetCache");
             let (del, fail) = clean_directory_contents(&path);
-            Some((fail == 0, format!("[OK] INetCache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] INetCache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "web_cache" => {
             let path = std::path::Path::new(&local).join(r"Microsoft\Windows\WebCache");
             let (del, fail) = clean_directory_contents(&path);
-            Some((fail == 0, format!("[OK] WebCache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] WebCache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "crash_dumps" => {
             let path = std::path::Path::new(&local).join("CrashDumps");
             let (del, fail) = clean_directory_contents(&path);
-            Some((fail == 0, format!("[OK] Crash dumps cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] Crash dumps cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "wer_reports" => {
-            let (d1, f1) = clean_directory_contents(std::path::Path::new(r"C:\ProgramData\Microsoft\Windows\WER"));
-            let (d2, f2) = clean_directory_contents(&std::path::Path::new(&local).join(r"Microsoft\Windows\WER"));
-            let del = d1 + d2; let fail = f1 + f2;
-            Some((fail == 0, format!("[OK] Windows Error Reporting cleaned ({del} items, {fail} failed).")))
+            let (d1, f1) = clean_directory_contents(std::path::Path::new(
+                r"C:\ProgramData\Microsoft\Windows\WER",
+            ));
+            let (d2, f2) = clean_directory_contents(
+                &std::path::Path::new(&local).join(r"Microsoft\Windows\WER"),
+            );
+            let del = d1 + d2;
+            let fail = f1 + f2;
+            Some((
+                fail == 0,
+                format!("[OK] Windows Error Reporting cleaned ({del} items, {fail} failed)."),
+            ))
         }
         "d3d_shader_cache" => {
             let path = std::path::Path::new(&local).join("D3DSCache");
             let (del, fail) = clean_directory_contents(&path);
-            Some((fail == 0, format!("[OK] DirectX Shader Cache cleaned ({del} items, {fail} failed).")))
+            Some((
+                fail == 0,
+                format!("[OK] DirectX Shader Cache cleaned ({del} items, {fail} failed)."),
+            ))
         }
         _ => None,
     }
@@ -417,9 +463,9 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::RenewDhcpLease => network::run_network_command_blocking(
             "ipconfig /release && ipconfig /renew".to_string(),
         )?,
-        RepairMachineAction::ClearArpCache => network::run_network_command_blocking(
-            "netsh interface ip delete arpcache".to_string(),
-        )?,
+        RepairMachineAction::ClearArpCache => {
+            network::run_network_command_blocking("netsh interface ip delete arpcache".to_string())?
+        }
         RepairMachineAction::ResetTcpIp => {
             network::run_network_command_blocking("netsh int ip reset".to_string())?
         }
@@ -429,23 +475,28 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::ResetFirewall => {
             network::run_network_command_blocking("netsh advfirewall reset".to_string())?
         }
-        RepairMachineAction::ResetWinHttpProxy => network::run_network_command_blocking(
-            "netsh winhttp reset proxy".to_string(),
-        )?,
+        RepairMachineAction::ResetWinHttpProxy => {
+            network::run_network_command_blocking("netsh winhttp reset proxy".to_string())?
+        }
         RepairMachineAction::RestartActiveAdapters => {
             // Enumerate physical adapters that are up, then disable+enable each via netsh
             match crate::win32_net::enumerate_adapters() {
                 Ok(adapters) => {
                     let mut restarted = 0;
                     let mut errors = Vec::new();
-                    for nic in adapters.iter().filter(|a| a.oper_status_up && !a.friendly_name.is_empty()) {
+                    for nic in adapters
+                        .iter()
+                        .filter(|a| a.oper_status_up && !a.friendly_name.is_empty())
+                    {
                         let name = &nic.friendly_name;
-                        let disable = network::run_network_command_blocking(
-                            format!("netsh interface set interface \"{}\" disable", name),
-                        );
-                        let enable = network::run_network_command_blocking(
-                            format!("netsh interface set interface \"{}\" enable", name),
-                        );
+                        let disable = network::run_network_command_blocking(format!(
+                            "netsh interface set interface \"{}\" disable",
+                            name
+                        ));
+                        let enable = network::run_network_command_blocking(format!(
+                            "netsh interface set interface \"{}\" enable",
+                            name
+                        ));
                         match (disable, enable) {
                             (Ok(_), Ok(_)) => restarted += 1,
                             _ => errors.push(format!("Failed to restart adapter: {}", name)),
@@ -459,7 +510,11 @@ pub fn run_machine_action_blocking(
                     } else {
                         network::CommandResult {
                             success: false,
-                            output: format!("Restarted {} adapter(s). Errors: {}", restarted, errors.join("; ")),
+                            output: format!(
+                                "Restarted {} adapter(s). Errors: {}",
+                                restarted,
+                                errors.join("; ")
+                            ),
                         }
                     }
                 }
@@ -486,8 +541,7 @@ pub async fn add_route(
         return Ok(locked_result());
     }
 
-    let result =
-        network::add_route(destination, mask, gateway, metric, interface_index).await?;
+    let result = network::add_route(destination, mask, gateway, metric, interface_index).await?;
     Ok(from_network_result(result))
 }
 
@@ -654,7 +708,10 @@ pub fn remove_appx_for_target_blocking(
             target_user.account_name,
             target_user.sid
         ),
-        format!("Remove provisioned packages: {}", request.remove_provisioned),
+        format!(
+            "Remove provisioned packages: {}",
+            request.remove_provisioned
+        ),
         String::new(),
     ];
     let mut removed = 0u32;
@@ -664,7 +721,11 @@ pub fn remove_appx_for_target_blocking(
     for package_name in selected {
         let escaped_name = ps_escape_single_quoted(&package_name);
         let escaped_sid = ps_escape_single_quoted(&request.target_sid);
-        let remove_provisioned = if request.remove_provisioned { "$true" } else { "$false" };
+        let remove_provisioned = if request.remove_provisioned {
+            "$true"
+        } else {
+            "$false"
+        };
         let script = format!(
             r#"
 $pkgName = '{escaped_name}'
@@ -720,7 +781,8 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
                     skipped += 1;
                     output_lines.push(format!("[SKIP] {package_name} no output returned"));
                 } else {
-                    output_lines.extend(clean_output.lines().map(|line| line.trim_end().to_string()));
+                    output_lines
+                        .extend(clean_output.lines().map(|line| line.trim_end().to_string()));
                     let has_fail = clean_output.contains("[FAIL]");
                     let has_ok = clean_output.contains("[OK]");
                     let has_skip = clean_output.contains("[SKIP]");

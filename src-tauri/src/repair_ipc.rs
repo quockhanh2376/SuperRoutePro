@@ -37,8 +37,7 @@ fn active_repair_host() -> &'static Mutex<Option<RepairHostConnection>> {
 fn locked_result() -> RepairCommandResult {
     RepairCommandResult {
         success: false,
-        output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes."
-            .to_string(),
+        output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes.".to_string(),
         requires_unlock: true,
     }
 }
@@ -186,7 +185,9 @@ pub fn handle_request(
             RepairServiceResponse::RepairSessionStatus(session_manager.status())
         }
         RepairServiceRequest::UnlockRepairSession(request) => {
-            RepairServiceResponse::UnlockRepairSession(session_manager.unlock_with_request(&request))
+            RepairServiceResponse::UnlockRepairSession(
+                session_manager.unlock_with_request(&request),
+            )
         }
         RepairServiceRequest::LockRepairSession | RepairServiceRequest::Shutdown => {
             session_manager.lock();
@@ -245,9 +246,7 @@ pub fn issue_unlock_request(
         ))
 }
 
-pub fn complete_unlock_request(
-    request: UnlockRepairSessionRequest,
-) -> UnlockRepairSessionResponse {
+pub fn complete_unlock_request(request: UnlockRepairSessionRequest) -> UnlockRepairSessionResponse {
     let deadline = Instant::now() + REPAIR_HOST_UNLOCK_WAIT;
     let candidate_host = RepairHostConnection {
         port: request.port,
@@ -275,7 +274,8 @@ pub fn complete_unlock_request(
             | Ok(RepairServiceResponse::RepairSessionStatus(_))
             | Ok(RepairServiceResponse::UnlockRepairSession(_))
             | Ok(RepairServiceResponse::RepairAction(_)) => {
-                last_error = Some("Repair host returned an unexpected unlock response.".to_string());
+                last_error =
+                    Some("Repair host returned an unexpected unlock response.".to_string());
             }
             Err(err) => {
                 last_error = Some(err);
@@ -287,12 +287,10 @@ pub fn complete_unlock_request(
 
     UnlockRepairSessionResponse {
         unlocked: false,
-        detail: Some(
-            last_error.unwrap_or_else(|| {
-                "Timed out waiting for the elevated repair host to accept the unlock request."
-                    .to_string()
-            }),
-        ),
+        detail: Some(last_error.unwrap_or_else(|| {
+            "Timed out waiting for the elevated repair host to accept the unlock request."
+                .to_string()
+        })),
     }
 }
 
@@ -314,9 +312,7 @@ pub fn lock_repair_mode() -> RepairSessionStatus {
         .status()
 }
 
-pub fn run_machine_action(
-    action: RepairMachineAction,
-) -> Result<RepairCommandResult, String> {
+pub fn run_machine_action(action: RepairMachineAction) -> Result<RepairCommandResult, String> {
     match request_with_active_host(RepairServiceRequest::RunMachineAction(action)) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected machine-action response.".to_string()),
@@ -324,9 +320,7 @@ pub fn run_machine_action(
     }
 }
 
-pub fn run_profile_cleanup(
-    request: ProfileCleanupRequest,
-) -> Result<RepairCommandResult, String> {
+pub fn run_profile_cleanup(request: ProfileCleanupRequest) -> Result<RepairCommandResult, String> {
     match request_with_active_host(RepairServiceRequest::RunProfileCleanup(request)) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected cleanup response.".to_string()),
@@ -334,9 +328,7 @@ pub fn run_profile_cleanup(
     }
 }
 
-pub fn run_appx_removal(
-    request: AppxRemovalRequest,
-) -> Result<RepairCommandResult, String> {
+pub fn run_appx_removal(request: AppxRemovalRequest) -> Result<RepairCommandResult, String> {
     match request_with_active_host(RepairServiceRequest::RunAppxRemoval(request)) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected Appx response.".to_string()),

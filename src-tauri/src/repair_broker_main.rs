@@ -61,7 +61,12 @@ fn run() -> Result<(), String> {
         let response = if request.auth_token != auth_token {
             unauthorized_response(&request.request)
         } else {
-            handle_request(&mut session_manager, port, request.request, &mut should_exit)
+            handle_request(
+                &mut session_manager,
+                port,
+                request.request,
+                &mut should_exit,
+            )
         };
 
         let framed = encode_message(&RepairIpcResponse { response })?;
@@ -138,7 +143,9 @@ fn handle_request(
             RepairServiceResponse::RepairSessionStatus(session_manager.status())
         }
         RepairServiceRequest::UnlockRepairSession(request) => {
-            RepairServiceResponse::UnlockRepairSession(session_manager.unlock_with_request(&request))
+            RepairServiceResponse::UnlockRepairSession(
+                session_manager.unlock_with_request(&request),
+            )
         }
         RepairServiceRequest::LockRepairSession => {
             session_manager.lock();
