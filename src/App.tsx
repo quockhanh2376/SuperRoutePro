@@ -13,7 +13,9 @@ import {
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSetWanPersistOnStartup, runRepairMachineAction,
+  persistSaveConfig, persistGetNicStableId,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
+  type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
 } from "./api";
 import {
@@ -924,10 +926,41 @@ export default function App() {
           : "Default gateway set. Persist on startup disabled.",
         failureMessage: "Persist WAN On Startup - Failed",
       });
+
+      // Save full persist config (NIC + WAN + custom routes) for the service
+      if (persistWanOnStartup) {
+        try {
+          const nicId = await persistGetNicStableId(selectedNic.index);
+          const config: PersistConfig = {
+            schema_version: 1,
+            enabled: true,
+            nic: nicId,
+            wan: { gateway: selectedNic.gateway, metric: "1" },
+            custom_routes: routes
+              .filter((r: RouteEntry) => r.destination !== "0.0.0.0" && r.interface_index === selectedNic.index)
+              .map((r: RouteEntry) => ({ destination: r.destination, mask: r.netmask, gateway: r.gateway, metric: r.metric })),
+            updated_at: new Date().toISOString(),
+          };
+          await persistSaveConfig(config);
+        } catch (persistErr) {
+          console.warn("Failed to save persist config:", persistErr);
+        }
+      } else {
+        try {
+          await persistSaveConfig({
+            schema_version: 1,
+            enabled: false,
+            nic: { description: "", mac_address: "" },
+            custom_routes: [],
+          });
+        } catch (persistErr) {
+          console.warn("Failed to disable persist config:", persistErr);
+        }
+      }
     } catch (err) {
       setStatusMsg(`Error: ${err}`);
     }
-  }, [handleRepairCommandResult, persistWanOnStartup, selectedNic]);
+  }, [handleRepairCommandResult, persistWanOnStartup, routes, selectedNic]);
 
   const executeFlush = useCallback(async () => {
     setStatusMsg("Flushing routes...");

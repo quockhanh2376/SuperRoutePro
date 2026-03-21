@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Path $binariesDir -Force | Out-Null
 
 Write-Host "Preparing repair sidecars for target $targetTriple" -ForegroundColor Cyan
 
-$bins = @("SuperRouteRepairBroker")
+$bins = @("SuperRouteRepairBroker", "SuperRouteService")
 foreach ($bin in $bins) {
     & cargo build --manifest-path (Join-Path $tauriDir "Cargo.toml") --release --target $targetTriple --bin $bin
 
