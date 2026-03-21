@@ -299,3 +299,47 @@ export async function runRepairMachineAction(
 ): Promise<RepairCommandResult> {
   return invoke<RepairCommandResult>("repair_run_machine_action", { action });
 }
+
+// ======================== PERSIST CONFIG ========================
+
+export interface NicIdentifier {
+  description: string;
+  mac_address: string;
+}
+
+export interface WanConfig {
+  gateway: string;
+  metric: string;
+}
+
+export interface CustomRoute {
+  destination: string;
+  mask: string;
+  gateway: string;
+  metric: string;
+}
+
+export interface PersistConfig {
+  schema_version: number;
+  enabled: boolean;
+  nic: NicIdentifier;
+  wan?: WanConfig;
+  custom_routes: CustomRoute[];
+  updated_at?: string;
+}
+
+export async function persistSaveConfig(
+  config: PersistConfig,
+): Promise<void> {
+  return invoke<void>("persist_save_config", { config });
+}
+
+export async function persistLoadConfig(): Promise<PersistConfig | null> {
+  return invoke<PersistConfig | null>("persist_load_config");
+}
+
+export async function persistGetNicStableId(
+  interfaceIndex: string,
+): Promise<NicIdentifier> {
+  return invoke<NicIdentifier>("persist_get_nic_stable_id", { interfaceIndex });
+}

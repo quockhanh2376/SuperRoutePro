@@ -4,6 +4,7 @@ pub mod repair_ipc;
 pub mod repair_protocol;
 pub mod repair_session;
 pub mod repair_targets;
+pub mod route_persist;
 
 use network::{
     get_network_interfaces, get_routing_table, add_route, delete_route,
@@ -141,6 +142,9 @@ pub fn run() {
             repair_run_machine_action,
             repair_clear_cache_targets,
             repair_remove_bloatware,
+            persist_save_config,
+            persist_load_config,
+            persist_get_nic_stable_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -270,6 +274,131 @@ async fn repair_remove_bloatware(
         packages,
         remove_provisioned,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Persist config commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn persist_save_config(
+    config: route_persist::PersistConfig,
+) -> Result<(), String> {
+    route_persist::save_config(&config)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if config.enabled {
+            register_startup_task()?;
+        } else {
+            unregister_startup_task()?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn persist_load_config() -> Result<Option<route_persist::PersistConfig>, String> {
+    route_persist::load_config()
+}
+
+#[tauri::command]
+fn persist_get_nic_stable_id(interface_index: String) -> Result<route_persist::NicIdentifier, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let output = run_hidden(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Get-NetAdapter -InterfaceIndex {interface_index} | Select-Object -Property InterfaceDescription,MacAddress | ConvertTo-Json"
+                ),
+            ],
+        )
+        .ok_or_else(|| "Failed to query NIC details".to_string())?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "PowerShell failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let v: serde_json::Value = serde_json::from_str(text.trim())
+            .map_err(|e| format!("Failed to parse NIC JSON: {e}"))?;
+
+        Ok(route_persist::NicIdentifier {
+            description: v["InterfaceDescription"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            mac_address: v["MacAddress"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("NIC lookup only supported on Windows".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn register_startup_task() -> Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+    let exe_dir = exe.parent().ok_or("No parent dir")?;
+    let service_exe = exe_dir.join("SuperRouteService.exe");
+    let service_path = service_exe.to_string_lossy();
+
+    let ps_script = [
+        format!("$action = New-ScheduledTaskAction -Execute '{service_path}'"),
+        "$trigger = New-ScheduledTaskTrigger -AtLogOn".to_string(),
+        "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries".to_string(),
+        "if (Get-ScheduledTask -TaskName 'SuperRouteProPersist' -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName 'SuperRouteProPersist' -Confirm:$false }".to_string(),
+        "Register-ScheduledTask -TaskName 'SuperRouteProPersist' -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force".to_string(),
+    ].join("; ");
+
+    let output = run_hidden(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", &ps_script],
+    )
+    .ok_or_else(|| "Failed to run PowerShell for task registration".to_string())?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Task registration failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn unregister_startup_task() -> Result<(), String> {
+    let output = run_hidden(
+        "powershell",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "if (Get-ScheduledTask -TaskName 'SuperRouteProPersist' -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName 'SuperRouteProPersist' -Confirm:$false }",
+        ],
+    )
+    .ok_or_else(|| "Failed to run PowerShell for task removal".to_string())?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Task removal failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]

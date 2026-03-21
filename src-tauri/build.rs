@@ -7,7 +7,7 @@ fn ensure_sidecar_stubs() {
     let binaries_dir = manifest_dir.join("binaries");
     std::fs::create_dir_all(&binaries_dir).expect("binaries directory should be creatable");
 
-    for binary_name in ["SuperRouteRepairBroker"] {
+    for binary_name in ["SuperRouteRepairBroker", "SuperRouteService"] {
         let staged_path = binaries_dir.join(format!("{binary_name}-{target}.exe"));
         if !staged_path.exists() {
             std::fs::write(&staged_path, []).expect("sidecar stub should be writable");
