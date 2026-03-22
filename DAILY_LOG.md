@@ -11,14 +11,14 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Retired Beads from the tracked Super Route Pro workflow and kept `DAILY_LOG.md` as the single running narrative for NotebookLM follow-ups.
 - Removed the local `.beads/` workspace and local `AGENTS.md` after migrating the remaining post-release follow-up and startup-persistence debt into this log.
 - Scrubbed tracked repo references to Beads so the shipped project no longer points contributors at a retired issue-tracking layer.
+- Confirmed the dedicated GitHub repo `quockhanh2376/SuperRoutePro-beads` has been deleted; `gh repo view quockhanh2376/SuperRoutePro-beads` now fails with repository not found.
 
 **Notes And Decisions**
-- The dedicated GitHub repo `quockhanh2376/SuperRoutePro-beads` still exists at the time of this entry because the current `gh` credential is missing the `delete_repo` scope, so remote deletion is blocked until GitHub auth is refreshed with that permission.
-- Re-checked the blocker from the shell: `gh auth status` still reports only `gist`, `read:org`, `repo`, and `workflow`, and `gh repo view quockhanh2376/SuperRoutePro-beads` still resolves successfully.
 - Super Route Pro now treats `DAILY_LOG.md`, OpenSpec artifacts, and GitHub releases/issues as the maintained delivery trail instead of Beads/Dolt.
+- Beads retirement is now complete both locally and on GitHub; there is no remaining Dolt/beads remote attached to the active SRP workflow.
 
 **Next Steps**
-- Refresh GitHub CLI auth with `delete_repo`, delete `quockhanh2376/SuperRoutePro-beads`, and log the final remote-retirement confirmation here.
+- Continue tracking post-release follow-ups directly in `DAILY_LOG.md` and the existing release/docs workflow.
 
 --------------------------------------------------------------------------------
 
