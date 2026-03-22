@@ -36,6 +36,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - **Rust Warning Cleanup**: Removed the remaining `cargo check` warning debt by deleting unused battery/NIC helper remnants, dropping an unused registry import and raw target struct, and switching `SuperRouteService` to reuse the shared `route_persist` module instead of compiling its own warning-prone copy. Re-ran `cargo check` clean, then re-ran full `npm run check` clean.
 - **Persist OFF Root-Cause Fix**: Closed `super-route-pro-u3z` by moving startup-persistence save/clear operations onto the elevated repair broker path, so standard-user sessions no longer try to write `%ProgramData%\\SuperRoutePro\\persist.json` or register `SuperRouteProPersist` directly. The WAN flow now clears persisted startup state when OFF, keeps the checkbox aligned with either persisted config or the legacy WAN task, and ships with new Node + Rust coverage for the persist action contract.
 - **GitHub Gate Alignment**: Updated `.github/workflows/ci.yml` and `.github/workflows/release.yml` so GitHub now runs the same `npm run check` release gate as local shipping, preventing installer publication from a weaker signal than the local baseline.
+- **Release Published**: GitHub CI run `23391640153` passed with the new full gate, then tag `v10.1.0` triggered release workflow `23391750805`, which built/published `Super.Route.Pro_10.1.0_x64-setup.exe`, `SuperRoute.exe`, and `SHA256SUMS.txt` to the GitHub release page.
 
 **Files Changed**
 | File | Change |
@@ -59,7 +60,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Complete the optional startup-task/logoff-reboot persistence verification now that the Persist-on-startup OFF path is fixed.
 - Consider consolidating the legacy `SuperRoutePro-PersistWAN` task and the newer `SuperRouteProPersist` service flow after `v10.1.0` so startup persistence has a single mechanism/end-state.
 - Expand automated coverage further for the migrated native-Rust paths beyond the current route parser and Node smoke tests.
-- Decide the final public release number, finalize release notes/docs to match it, and publish on GitHub after the last verification pass.
+- Run a post-release reboot/logon verification pass against the shipped `v10.1.0` installer so the startup persistence flow is exercised once on a real reboot boundary.
 
 --------------------------------------------------------------------------------
 
