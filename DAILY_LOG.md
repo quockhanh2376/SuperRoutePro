@@ -5,6 +5,22 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-22 - Post-Release Workflow Cleanup
+
+**Done**
+- Retired Beads from the tracked Super Route Pro workflow and kept `DAILY_LOG.md` as the single running narrative for NotebookLM follow-ups.
+- Removed the local `.beads/` workspace and local `AGENTS.md` after migrating the remaining post-release follow-up and startup-persistence debt into this log.
+- Scrubbed tracked repo references to Beads so the shipped project no longer points contributors at a retired issue-tracking layer.
+
+**Notes And Decisions**
+- The dedicated GitHub repo `quockhanh2376/SuperRoutePro-beads` still exists at the time of this entry because the current `gh` credential is missing the `delete_repo` scope, so remote deletion is blocked until GitHub auth is refreshed with that permission.
+- Super Route Pro now treats `DAILY_LOG.md`, OpenSpec artifacts, and GitHub releases/issues as the maintained delivery trail instead of Beads/Dolt.
+
+**Next Steps**
+- Refresh GitHub CLI auth with `delete_repo`, delete `quockhanh2376/SuperRoutePro-beads`, and log the final remote-retirement confirmation here.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-21 — PowerShell → Native Rust Migration (v10.1.0)
 
 **Done**
