@@ -14,6 +14,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 **Notes And Decisions**
 - The dedicated GitHub repo `quockhanh2376/SuperRoutePro-beads` still exists at the time of this entry because the current `gh` credential is missing the `delete_repo` scope, so remote deletion is blocked until GitHub auth is refreshed with that permission.
+- Re-checked the blocker from the shell: `gh auth status` still reports only `gist`, `read:org`, `repo`, and `workflow`, and `gh repo view quockhanh2376/SuperRoutePro-beads` still resolves successfully.
 - Super Route Pro now treats `DAILY_LOG.md`, OpenSpec artifacts, and GitHub releases/issues as the maintained delivery trail instead of Beads/Dolt.
 
 **Next Steps**
