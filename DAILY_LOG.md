@@ -5,6 +5,21 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-23 - Network Command Whitelist Hardening
+
+**Done**
+- Hardened `run_network_command` so an allowed prefix is no longer enough on its own; commands are now rejected if they contain `cmd.exe` shell metacharacters such as chaining, pipes, redirection, or grouped command syntax.
+- Added focused Rust regression tests covering both the expected `tracert` / `nslookup` allow cases and rejected shell-chaining cases after an otherwise valid prefix.
+- Re-ran `npm run check` successfully after the whitelist hardening change.
+
+**Notes And Decisions**
+- Kept the change narrow by validating the existing string command path before `cmd /C` executes, instead of broadening this slice into a full command-parser rewrite.
+
+**Next Steps**
+- If we want to go further later, the next security step would be replacing the remaining `cmd /C` path with explicit program/argument dispatch for each allowed diagnostic command.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-23 - NIC Active Filter Hotfix (v10.1.0)
 
 **Done**

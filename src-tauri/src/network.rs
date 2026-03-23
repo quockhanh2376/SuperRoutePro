@@ -969,7 +969,7 @@ pub async fn get_wan_persist_on_startup_status() -> Result<bool, String> {
     }
 }
 
-pub fn run_network_command_blocking(command: String) -> Result<CommandResult, String> {
+fn validate_network_command(command: &str) -> Result<(), String> {
     let allowed_prefixes = [
         "ipconfig",
         "ipconfig /displaydns",
@@ -985,17 +985,36 @@ pub fn run_network_command_blocking(command: String) -> Result<CommandResult, St
         "netsh advfirewall reset",
     ];
 
-    let cmd_lower = command.to_lowercase();
-    if !allowed_prefixes
-        .iter()
-        .any(|prefix| cmd_lower.starts_with(prefix))
-    {
+    let trimmed = command.trim();
+    let cmd_lower = trimmed.to_ascii_lowercase();
+    let has_shell_metacharacters = trimmed.chars().any(|ch| {
+        matches!(
+            ch,
+            '&' | '|' | '>' | '<' | '^' | '%' | '(' | ')' | '\r' | '\n'
+        )
+    });
+
+    if trimmed.is_empty() || has_shell_metacharacters {
         return Err("Command not allowed".to_string());
     }
 
+    if allowed_prefixes
+        .iter()
+        .any(|prefix| cmd_lower.starts_with(prefix))
+    {
+        Ok(())
+    } else {
+        Err("Command not allowed".to_string())
+    }
+}
+
+pub fn run_network_command_blocking(command: String) -> Result<CommandResult, String> {
+    validate_network_command(&command)?;
+    let trimmed_command = command.trim().to_string();
+
     let output = run_process_blocking(
         "cmd",
-        &["/C", &command],
+        &["/C", &trimmed_command],
         Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
     )?;
 
@@ -1936,7 +1955,10 @@ pub async fn check_internet() -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_interface_index_lookup, build_network_interfaces, parse_ipv4_route_print};
+    use super::{
+        build_interface_index_lookup, build_network_interfaces, parse_ipv4_route_print,
+        validate_network_command,
+    };
     use crate::win32_net::NativeNic;
 
     #[test]
@@ -2013,5 +2035,17 @@ Persistent Routes:
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].index, "7");
         assert_eq!(interfaces[0].ip, "192.168.1.10");
+    }
+
+    #[test]
+    fn validate_network_command_allows_expected_diagnostic_commands() {
+        assert!(validate_network_command("tracert -d 8.8.8.8").is_ok());
+        assert!(validate_network_command("nslookup example.com 8.8.8.8").is_ok());
+    }
+
+    #[test]
+    fn validate_network_command_rejects_shell_chaining_after_allowed_prefix() {
+        assert!(validate_network_command("tracert -d 8.8.8.8 && whoami").is_err());
+        assert!(validate_network_command("nslookup example.com | more").is_err());
     }
 }
