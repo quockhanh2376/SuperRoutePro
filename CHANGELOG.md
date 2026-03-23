@@ -1,5 +1,16 @@
 # Changelog
 
+## v10.1.1 (2026-03-23)
+
+### Bug Fixes
+- Tightened the active-only NIC filter so adapters must be up and have a real IPv4 address before they appear in the main NIC table.
+- Rejected empty, `0.0.0.0`, and APIPA/link-local `169.254.x.x` values in the shared IPv4 validator used by NIC discovery.
+- Hardened the network command whitelist so otherwise allowed diagnostics commands cannot append shell chaining, pipes, redirection, or grouped command syntax.
+
+### Verification
+- Added focused Rust regression coverage for the NIC active-only filter and whitelist hardening paths.
+- Re-ran the full `npm run check` release gate before shipping.
+
 ## v10.1.0 (2026-03-22)
 
 ### ✨ Highlights
