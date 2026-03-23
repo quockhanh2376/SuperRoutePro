@@ -5,6 +5,22 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-23 - v10.1.1 Release Published
+
+**Done**
+- Merged the NIC active-filter hotfix onto `main`, then added a follow-up whitelist hardening patch that blocks shell chaining and other `cmd.exe` metacharacters after otherwise allowed diagnostic prefixes.
+- Bumped release metadata to `10.1.1` across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, and the top-level release-facing docs/changelog entries.
+- Re-ran `npm run check` successfully on the release candidate and completed a local `npm run release:build`, which produced `Super Route Pro_10.1.1_x64-setup.exe`.
+- Pushed `main` and tag `v10.1.1`, then confirmed GitHub Actions release workflow `23446094024` published `Super.Route.Pro_10.1.1_x64-setup.exe`, `SuperRoute.exe`, and `SHA256SUMS.txt`.
+
+**Notes And Decisions**
+- Kept the release as a patch bump because the shipped changes are hotfix-level behavior/security hardening on top of the already published `v10.1.0` baseline.
+
+**Next Steps**
+- Run the shipped `v10.1.1` installer on a real Windows machine with the target NIC mix to verify the active-only filter and diagnostic command flows end-to-end.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-23 - Network Command Whitelist Hardening
 
 **Done**

@@ -209,4 +209,4 @@ git push -u origin main
 - All releases: `https://github.com/quockhanh2376/SuperRoutePro/releases`
 - Latest release: `https://github.com/quockhanh2376/SuperRoutePro/releases/latest`
 - Current working version on `main`: `v10.1.1`
-- Latest published release: `v10.1.0` — `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.1.0`
+- Latest published release: `v10.1.1` — `https://github.com/quockhanh2376/SuperRoutePro/releases/tag/v10.1.1`
