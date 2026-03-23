@@ -630,15 +630,7 @@ fn ping_once_target(target: String, timeout_ms: &str) -> FpingHostResult {
     }
 }
 
-// ======================== TAURI COMMANDS ========================
-
-/// Get list of active network interfaces (NICs)
-#[tauri::command]
-pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
-    let adapters = tauri::async_runtime::spawn_blocking(|| crate::win32_net::enumerate_adapters())
-        .await
-        .map_err(|e| format!("Task join error: {e}"))??;
-
+fn build_network_interfaces(adapters: &[crate::win32_net::NativeNic], active_only: bool) -> Vec<NetworkInterface> {
     let blacklist = [
         "virtual",
         "vmware",
@@ -655,23 +647,30 @@ pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInte
 
     let mut interfaces: Vec<NetworkInterface> = Vec::new();
 
-    for nic in &adapters {
+    for nic in adapters {
         let desc_lower = nic.description.to_lowercase();
         if blacklist.iter().any(|b| desc_lower.contains(b)) {
             continue;
         }
 
-        // Get first IPv4 address
-        let ip = nic
+        let first_ipv4 = nic.ip_addresses.iter().find(|a| a.contains('.')).cloned();
+        let valid_ipv4 = nic
             .ip_addresses
             .iter()
-            .find(|a| a.contains('.'))
-            .cloned()
-            .unwrap_or_else(|| "0.0.0.0".to_string());
+            .find(|ip| crate::win32_net::is_valid_ipv4_address(ip))
+            .cloned();
 
-        if active_only && (ip.is_empty() || ip == "0.0.0.0") {
+        if active_only && (!nic.oper_status_up || valid_ipv4.is_none()) {
             continue;
         }
+
+        let ip = if active_only {
+            valid_ipv4.unwrap_or_else(|| "0.0.0.0".to_string())
+        } else {
+            valid_ipv4
+                .or(first_ipv4)
+                .unwrap_or_else(|| "0.0.0.0".to_string())
+        };
 
         let gateway = nic
             .gateways
@@ -688,7 +687,18 @@ pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInte
         });
     }
 
-    Ok(interfaces)
+    interfaces
+}
+
+// ======================== TAURI COMMANDS ========================
+
+/// Get list of active network interfaces (NICs)
+#[tauri::command]
+pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
+    let adapters = tauri::async_runtime::spawn_blocking(|| crate::win32_net::enumerate_adapters())
+        .await
+        .map_err(|e| format!("Task join error: {e}"))??;
+    Ok(build_network_interfaces(&adapters, active_only))
 }
 
 /// Get IPv4 routing table
@@ -1926,7 +1936,7 @@ pub async fn check_internet() -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_interface_index_lookup, parse_ipv4_route_print};
+    use super::{build_interface_index_lookup, build_network_interfaces, parse_ipv4_route_print};
     use crate::win32_net::NativeNic;
 
     #[test]
@@ -1964,5 +1974,44 @@ Persistent Routes:
         assert_eq!(routes[1].interface_index, "7");
         assert_eq!(routes[0].gateway, "192.168.1.1");
         assert_eq!(routes[1].gateway, "On-link");
+    }
+
+    #[test]
+    fn build_network_interfaces_active_only_requires_up_nics_with_real_ipv4() {
+        let adapters = vec![
+            NativeNic {
+                interface_index: 7,
+                description: "Intel(R) Wi-Fi".to_string(),
+                mac_address: "AA-BB-CC-DD-EE-FF".to_string(),
+                friendly_name: "Wi-Fi".to_string(),
+                ip_addresses: vec!["192.168.1.10".to_string()],
+                gateways: vec!["192.168.1.1".to_string()],
+                oper_status_up: true,
+            },
+            NativeNic {
+                interface_index: 11,
+                description: "USB Ethernet".to_string(),
+                mac_address: "11-22-33-44-55-66".to_string(),
+                friendly_name: "Ethernet 2".to_string(),
+                ip_addresses: vec!["169.254.10.20".to_string()],
+                gateways: vec![],
+                oper_status_up: true,
+            },
+            NativeNic {
+                interface_index: 12,
+                description: "Dock Ethernet".to_string(),
+                mac_address: "22-33-44-55-66-77".to_string(),
+                friendly_name: "Ethernet 3".to_string(),
+                ip_addresses: vec!["192.168.50.10".to_string()],
+                gateways: vec!["192.168.50.1".to_string()],
+                oper_status_up: false,
+            },
+        ];
+
+        let interfaces = build_network_interfaces(&adapters, true);
+
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].index, "7");
+        assert_eq!(interfaces[0].ip, "192.168.1.10");
     }
 }
