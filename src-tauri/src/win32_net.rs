@@ -4,6 +4,7 @@
 //! Uses netsh (always available on Windows) instead of wmic (deprecated/removed in Windows 11).
 
 use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::process::Command;
 
 #[cfg(target_os = "windows")]
@@ -22,6 +23,20 @@ pub struct NativeNic {
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub fn is_valid_ipv4_address(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let Ok(address) = trimmed.parse::<Ipv4Addr>() else {
+        return false;
+    };
+    let octets = address.octets();
+
+    !address.is_unspecified() && !(octets[0] == 169 && octets[1] == 254)
+}
 
 /// Run a command with CREATE_NO_WINDOW and timeout, return stdout as String.
 #[cfg(target_os = "windows")]
@@ -197,4 +212,18 @@ fn parse_csv_line(line: &str) -> Vec<String> {
     }
     fields.push(current.trim().to_string());
     fields
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_ipv4_address;
+
+    #[test]
+    fn valid_ipv4_filter_rejects_unspecified_link_local_and_non_ipv4_values() {
+        assert!(is_valid_ipv4_address("192.168.1.25"));
+        assert!(!is_valid_ipv4_address(""));
+        assert!(!is_valid_ipv4_address("0.0.0.0"));
+        assert!(!is_valid_ipv4_address("169.254.10.20"));
+        assert!(!is_valid_ipv4_address("fe80::1"));
+    }
 }

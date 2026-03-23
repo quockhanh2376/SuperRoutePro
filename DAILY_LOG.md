@@ -5,6 +5,22 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-23 - NIC Active Filter Hotfix (v10.1.0)
+
+**Done**
+- Tightened the active-only NIC list so it now requires both `oper_status_up` and at least one real IPv4 address before showing an adapter in the main table.
+- Added a shared IPv4 validator in `src-tauri/src/win32_net.rs` that rejects empty values, `0.0.0.0`, APIPA/link-local `169.254.x.x`, and non-IPv4 strings.
+- Extracted the NIC list builder in `src-tauri/src/network.rs` so the active-filter behavior is covered by direct Rust unit tests instead of only manual UI verification.
+- Added regression coverage for the IPv4 validator and the active-only NIC builder, then re-ran `cargo test --manifest-path src-tauri/Cargo.toml --lib` successfully.
+
+**Notes And Decisions**
+- Kept the patch narrow to the active-only filter path and left the non-active NIC listing behavior unchanged outside of preferring a real IPv4 when one is present.
+
+**Next Steps**
+- Push `fix-nic-active-filter` for review and, if needed, follow with a Windows `npm run tauri dev` smoke pass on a machine that has the expected NIC mix (virtual NIC + Ethernet + Wi-Fi).
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-22 - Post-Release Workflow Cleanup
 
 **Done**
