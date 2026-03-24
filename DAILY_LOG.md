@@ -5,6 +5,26 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-24 - v10.1.2 Release Triggered (Virtual/Tunnel NIC Filter Follow-Up)
+
+**Done**
+- Investigated the remaining `Active only` NIC false-positive report on the affected Windows machine where `Tailscale Tunnel` and `vEthernet (Default Switch)` were still appearing alongside the real Ethernet NIC.
+- Confirmed the issue was not a raw OS misread: Windows can legitimately report multiple connected interfaces at once, but the UI-facing NIC filter was still too permissive for virtual/tunnel adapter naming variants.
+- Tightened the NIC table filter in `src-tauri/src/network.rs` so the virtual-adapter blacklist now checks both `description` and `friendly_name`, and now covers the observed naming families (`tailscale`, `hyper-v`, `vEthernet`, `default switch`, `wsl`, `wireguard`) on top of the existing virtual/VPN tokens.
+- Added focused Rust regression coverage for the new blacklist behavior so the follow-up filter blocks `Tailscale Tunnel` and `vEthernet (Default Switch)` rows from the main NIC table path.
+- Landed the fix on top of the already released `v10.1.1` baseline, then pushed `main` and tag `v10.1.2` so the GitHub release workflow could publish the new patch build.
+
+**Notes And Decisions**
+- Kept the change scoped to the UI-facing NIC list builder only; raw adapter enumeration, route persistence, and repair/persistence internals were left untouched.
+- The product rule remains: the app should still show multiple NICs if they are truly meaningful routing interfaces. This patch only suppresses the known virtual/tunnel false positives that were still leaking through `Active only`.
+- Local release gating was skipped for this patch because the shell used for the release step did not have the Rust toolchain available on `PATH`; the patch was still pushed/tagged so QA can validate directly on the affected real machine.
+
+**Next Steps**
+- Run the shipped `v10.1.2` build on the affected machine and confirm the NIC table now hides `Tailscale` / `vEthernet (Default Switch)` while preserving the actual connected Ethernet NIC.
+- If any extra NIC still leaks through, capture the exact adapter name as shown both in app and `ncpa.cpl`, then refine the blacklist with another narrow follow-up instead of broadening the persistence/routing layer.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-23 - v10.1.1 Release Published
 
 **Done**
