@@ -106,7 +106,7 @@ fn build_client() -> Result<Client, String> {
         .timeout(REQUEST_TIMEOUT)
         .user_agent("SuperRoutePro-SpeedTest/1.0")
         .build()
-        .map_err(|error| format!("Could not initialize speed test client: {error}"))
+        .map_err(|error| describe_reqwest_error("Speed test client setup", &error))
 }
 
 async fn measure_latency(client: &Client) -> Result<Vec<f64>, String> {
@@ -119,9 +119,9 @@ async fn measure_latency(client: &Client) -> Result<Vec<f64>, String> {
             .get(&url)
             .send()
             .await
-            .map_err(|error| format!("Latency probe failed: {error}"))?
+            .map_err(|error| describe_reqwest_error("Latency probe", &error))?
             .error_for_status()
-            .map_err(|error| format!("Latency probe returned an error: {error}"))?;
+            .map_err(|error| describe_reqwest_error("Latency probe", &error))?;
         points.push(started.elapsed().as_secs_f64() * 1000.0);
     }
 
@@ -150,9 +150,9 @@ async fn measure_download(
         .get(&url)
         .send()
         .await
-        .map_err(|error| format!("Download test failed to start: {error}"))?
+        .map_err(|error| describe_reqwest_error("Download test", &error))?
         .error_for_status()
-        .map_err(|error| format!("Download test returned an error: {error}"))?;
+        .map_err(|error| describe_reqwest_error("Download test", &error))?;
 
     let mut total_bytes = 0usize;
     let started = Instant::now();
@@ -182,6 +182,7 @@ async fn measure_download(
         }
     }
 
+    ensure_bytes_transferred("Download test", total_bytes)?;
     let elapsed = started.elapsed().as_secs_f64().max(0.001);
     Ok(bytes_to_mbps(total_bytes, elapsed))
 }
@@ -206,9 +207,9 @@ async fn measure_upload(
         .body(payload)
         .send()
         .await
-        .map_err(|error| format!("Upload test failed to start: {error}"))?
+        .map_err(|error| describe_reqwest_error("Upload test", &error))?
         .error_for_status()
-        .map_err(|error| format!("Upload test returned an error: {error}"))?;
+        .map_err(|error| describe_reqwest_error("Upload test", &error))?;
 
     let elapsed = started.elapsed().as_secs_f64().max(0.001);
     let upload_mbps = bytes_to_mbps(upload_bytes, elapsed);
@@ -229,12 +230,12 @@ async fn fetch_public_ip(client: &Client) -> Result<String, String> {
         .get(TRACE_API_URL)
         .send()
         .await
-        .map_err(|error| format!("Could not resolve public IP: {error}"))?
+        .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
         .error_for_status()
-        .map_err(|error| format!("Public IP lookup returned an error: {error}"))?
+        .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
         .text()
         .await
-        .map_err(|error| format!("Could not read public IP response: {error}"))?;
+        .map_err(|error| format!("Public IP lookup response could not be read: {error}"))?;
 
     Ok(parse_trace_ip(&trace).unwrap_or_else(|| "Unavailable".to_string()))
 }
@@ -262,6 +263,52 @@ fn sanitize_download_mb(value: Option<u32>) -> u32 {
     value
         .unwrap_or(DEFAULT_DOWNLOAD_MB)
         .clamp(MIN_DOWNLOAD_MB, MAX_DOWNLOAD_MB)
+}
+
+fn describe_reqwest_error(stage: &str, error: &reqwest::Error) -> String {
+    describe_transport_error(
+        stage,
+        error.is_timeout(),
+        error.is_connect(),
+        error.status().map(|status| status.as_u16()),
+        &error.to_string(),
+    )
+}
+
+fn describe_transport_error(
+    stage: &str,
+    is_timeout: bool,
+    is_connect: bool,
+    status_code: Option<u16>,
+    raw: &str,
+) -> String {
+    if is_timeout {
+        return format!(
+            "{stage} timed out. Check internet connectivity or try again in a moment."
+        );
+    }
+
+    if is_connect {
+        return format!(
+            "{stage} could not reach the test server. Verify the network path and retry."
+        );
+    }
+
+    if let Some(status_code) = status_code {
+        return format!("{stage} returned HTTP {status_code}. The test server may be unavailable.");
+    }
+
+    format!("{stage} failed: {raw}")
+}
+
+fn ensure_bytes_transferred(stage: &str, total_bytes: usize) -> Result<(), String> {
+    if total_bytes == 0 {
+        return Err(format!(
+            "{stage} returned no payload bytes. Check connectivity and try again."
+        ));
+    }
+
+    Ok(())
 }
 
 fn bytes_to_mbps(total_bytes: usize, elapsed_seconds: f64) -> f64 {
@@ -297,7 +344,10 @@ fn parse_trace_ip(trace: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_jitter, parse_trace_ip, sanitize_download_mb};
+    use super::{
+        calculate_jitter, describe_transport_error, ensure_bytes_transferred, parse_trace_ip,
+        sanitize_download_mb,
+    };
 
     #[test]
     fn sanitize_download_mb_clamps_supported_range() {
@@ -318,5 +368,38 @@ mod tests {
         let points = [10.0, 14.0, 15.0, 21.0];
         let jitter = calculate_jitter(&points);
         assert!((jitter - 3.6666666667).abs() < 0.0001);
+    }
+
+    #[test]
+    fn describe_transport_error_prefers_timeout_message() {
+        let message = describe_transport_error("Download test", true, false, None, "request timed out");
+        assert_eq!(
+            message,
+            "Download test timed out. Check internet connectivity or try again in a moment."
+        );
+    }
+
+    #[test]
+    fn describe_transport_error_handles_connectivity_and_status() {
+        let connect = describe_transport_error("Upload test", false, true, None, "dns failed");
+        assert_eq!(
+            connect,
+            "Upload test could not reach the test server. Verify the network path and retry."
+        );
+
+        let status = describe_transport_error("Latency probe", false, false, Some(503), "service unavailable");
+        assert_eq!(
+            status,
+            "Latency probe returned HTTP 503. The test server may be unavailable."
+        );
+    }
+
+    #[test]
+    fn ensure_bytes_transferred_rejects_empty_payloads() {
+        assert_eq!(
+            ensure_bytes_transferred("Download test", 0),
+            Err("Download test returned no payload bytes. Check connectivity and try again.".to_string())
+        );
+        assert_eq!(ensure_bytes_transferred("Download test", 128), Ok(()));
     }
 }

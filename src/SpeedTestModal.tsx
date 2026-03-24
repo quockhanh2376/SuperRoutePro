@@ -6,6 +6,7 @@ import {
   type SpeedTestProgress,
   type SpeedTestResult,
 } from "./api";
+import { formatSpeedTestError } from "./speedTestError";
 import { isTauriRuntime, runMockSpeedTest } from "./speedTestDemo";
 import "./SpeedTestModal.css";
 
@@ -119,7 +120,7 @@ export function SpeedTestModal({
           : `Speed test demo ready: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatSpeedTestError(err);
       setError(message);
       setProgress({
         stage: "idle",
