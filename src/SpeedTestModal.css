@@ -163,6 +163,16 @@
   padding: 0.95rem;
 }
 
+.speed-test-demo-banner {
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 0.9rem;
+  padding: 0.8rem 0.95rem;
+  background: rgba(13, 148, 136, 0.12);
+  color: #99f6e4;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .speed-test-progress-topline {
   display: flex;
   justify-content: space-between;
@@ -342,6 +352,12 @@
 .theme-light .speed-test-meta-grid {
   border-color: rgba(148, 163, 184, 0.75);
   background: rgba(255, 255, 255, 0.96);
+}
+
+.theme-light .speed-test-demo-banner {
+  border-color: rgba(13, 148, 136, 0.24);
+  background: rgba(204, 251, 241, 0.92);
+  color: #0f766e;
 }
 
 .theme-light .speed-test-stage-chip {
