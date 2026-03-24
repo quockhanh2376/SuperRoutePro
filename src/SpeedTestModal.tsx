@@ -97,21 +97,26 @@ export function SpeedTestModal({
         ? "Starting native speed test..."
         : "Starting browser preview flow...",
     });
-    onStatusChange?.("Speed test started...");
+    onStatusChange?.(tauriRuntime ? "Speed test started..." : "Speed test demo started...");
 
     try {
       const response = tauriRuntime
         ? await runSpeedTest(24)
         : await runMockSpeedTest(setProgress);
+
       setResult(response);
       setProgress({
         stage: "finalize",
         percent: 100,
         current_speed_mbps: Math.max(response.download_mbps, response.upload_mbps),
-        message: `Speed test finished via ${response.provider}.`,
+        message: tauriRuntime
+          ? `Speed test finished via ${response.provider}.`
+          : `Speed test demo finished via ${response.provider}.`,
       });
       onStatusChange?.(
-        `Speed test done: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`,
+        tauriRuntime
+          ? `Speed test done: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`
+          : `Speed test demo ready: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -138,14 +143,16 @@ export function SpeedTestModal({
               <span>Speed Test</span>
             </div>
             <p className="speed-test-launch-subtitle">
-              Open a dedicated modal for download, upload, ping, and jitter.
+              {tauriRuntime
+                ? "Open a dedicated modal for download, upload, ping, and jitter."
+                : "Preview the dedicated modal in browser demo mode before the native desktop runtime is available."}
             </p>
           </div>
           <button
             onClick={handleOpen}
             className="speed-test-open-btn capsule-btn"
           >
-            Open
+            {tauriRuntime ? "Open" : "Preview"}
           </button>
         </div>
 
@@ -171,7 +178,9 @@ export function SpeedTestModal({
             </div>
           ) : (
             <div className="speed-test-launch-placeholder">
-              Start a native test run to capture live throughput and latency from a dedicated modal.
+              {tauriRuntime
+                ? "Start a native test run to capture live throughput and latency from a dedicated modal."
+                : "Run a browser-safe mock sequence to preview the speed test flow before using the desktop runtime."}
             </div>
           )}
         </div>
@@ -195,7 +204,7 @@ export function SpeedTestModal({
                 <p className="text-xs text-slate-400 mt-0.5">
                   {tauriRuntime
                     ? "Dedicated throughput modal using native backend progress events."
-                    : "Browser preview mode is active. Start Test runs a mock flow for UI demo."}
+                    : "Browser preview mode is active. Start Demo runs a mock flow for UI preview."}
                 </p>
               </div>
               <button
@@ -211,7 +220,7 @@ export function SpeedTestModal({
             <div className="speed-test-modal-body">
               {!tauriRuntime && (
                 <div className="speed-test-demo-banner">
-                  Browser preview mode is active. Progress and result values are mocked so anh có thể xem demo flow trước khi chạy Tauri runtime thật.
+                  Browser demo mode is active. Progress and throughput are mocked here so the UI can be reviewed before the native Tauri runtime is available.
                 </div>
               )}
 
@@ -291,7 +300,9 @@ export function SpeedTestModal({
                   ? tauriRuntime
                     ? "Running native network measurement. Keep the modal open until it finishes."
                     : "Running browser preview flow. This simulates progress before desktop runtime is available."
-                  : "Results stream live during the run and return as a final snapshot when complete."}
+                  : tauriRuntime
+                    ? "Results stream live during the run and return as a final snapshot when complete."
+                    : "Browser demo mode mirrors the modal flow. Native Tauri runtime will replace the mocked measurements."}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -307,7 +318,7 @@ export function SpeedTestModal({
                   className="speed-test-run-btn capsule-btn"
                 >
                   <RefreshCw className={`w-4 h-4 ${isTesting ? "animate-spin" : ""}`} />
-                  {result ? "Retest" : "Start Test"}
+                  {result ? (tauriRuntime ? "Retest" : "Replay Demo") : tauriRuntime ? "Start Test" : "Start Demo"}
                 </button>
               </div>
             </div>
