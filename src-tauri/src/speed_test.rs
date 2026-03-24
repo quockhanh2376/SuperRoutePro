@@ -11,6 +11,7 @@ const MIN_DOWNLOAD_MB: u32 = 8;
 const MAX_DOWNLOAD_MB: u32 = 32;
 const DEFAULT_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
 const LATENCY_SAMPLES: usize = 6;
+const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 3;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
@@ -128,22 +129,29 @@ fn build_client() -> Result<Client, String> {
 
 async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec<f64>, String> {
     let mut points = Vec::with_capacity(LATENCY_SAMPLES);
+    let mut last_error: Option<String> = None;
 
     for sample in 0..LATENCY_SAMPLES {
         let url = format!("{}?bytes=0&sample={sample}", target.download_api_url);
         let started = Instant::now();
-        client
+        let response = client
             .get(&url)
             .send()
             .await
-            .map_err(|error| describe_reqwest_error("Latency probe", &error))?
-            .error_for_status()
-            .map_err(|error| describe_reqwest_error("Latency probe", &error))?;
-        points.push(started.elapsed().as_secs_f64() * 1000.0);
+            .map_err(|error| describe_reqwest_error("Latency probe", &error));
+
+        match response.and_then(|response| {
+            response
+                .error_for_status()
+                .map_err(|error| describe_reqwest_error("Latency probe", &error))
+        }) {
+            Ok(_) => points.push(started.elapsed().as_secs_f64() * 1000.0),
+            Err(error) => last_error = Some(error),
+        }
     }
 
-    if points.is_empty() {
-        return Err("Latency probe returned no samples.".to_string());
+    if points.len() < MIN_SUCCESSFUL_LATENCY_SAMPLES {
+        return Err(describe_latency_probe_failure(points.len(), last_error.as_deref()));
     }
 
     Ok(points)
@@ -330,6 +338,19 @@ fn ensure_bytes_transferred(stage: &str, total_bytes: usize) -> Result<(), Strin
     Ok(())
 }
 
+fn describe_latency_probe_failure(sample_count: usize, last_error: Option<&str>) -> String {
+    let mut message = format!(
+        "Latency check collected only {sample_count} stable sample(s). At least {MIN_SUCCESSFUL_LATENCY_SAMPLES} successful probes are required."
+    );
+
+    if let Some(last_error) = last_error {
+        message.push(' ');
+        message.push_str(last_error);
+    }
+
+    message
+}
+
 fn bytes_to_mbps(total_bytes: usize, elapsed_seconds: f64) -> f64 {
     if total_bytes == 0 || elapsed_seconds <= 0.0 {
         return 0.0;
@@ -365,7 +386,7 @@ fn parse_trace_ip(trace: &str) -> Option<String> {
 mod tests {
     use super::{
         calculate_jitter, describe_transport_error, ensure_bytes_transferred, parse_trace_ip,
-        resolve_speed_test_target, sanitize_download_mb,
+        resolve_speed_test_target, sanitize_download_mb, describe_latency_probe_failure,
     };
 
     #[test]
@@ -430,5 +451,14 @@ mod tests {
         assert_eq!(target.download_api_url, "https://speed.cloudflare.com/__down");
         assert_eq!(target.upload_api_url, "https://speed.cloudflare.com/__up");
         assert_eq!(target.trace_api_url, "https://speed.cloudflare.com/cdn-cgi/trace");
+    }
+
+    #[test]
+    fn describe_latency_probe_failure_mentions_threshold_and_last_error() {
+        let message = describe_latency_probe_failure(1, Some("Latency probe timed out."));
+        assert_eq!(
+            message,
+            "Latency check collected only 1 stable sample(s). At least 3 successful probes are required. Latency probe timed out."
+        );
     }
 }
