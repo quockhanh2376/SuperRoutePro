@@ -6,11 +6,6 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const SPEED_TEST_PROGRESS_EVENT: &str = "speed-test://progress";
-const PROVIDER_NAME: &str = "Cloudflare";
-const SERVER_LABEL: &str = "Cloudflare Auto";
-const DOWNLOAD_API_URL: &str = "https://speed.cloudflare.com/__down";
-const UPLOAD_API_URL: &str = "https://speed.cloudflare.com/__up";
-const TRACE_API_URL: &str = "https://speed.cloudflare.com/cdn-cgi/trace";
 const DEFAULT_DOWNLOAD_MB: u32 = 24;
 const MIN_DOWNLOAD_MB: u32 = 8;
 const MAX_DOWNLOAD_MB: u32 = 32;
@@ -19,6 +14,23 @@ const LATENCY_SAMPLES: usize = 6;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
+
+#[derive(Clone, Copy, Debug)]
+struct SpeedTestTarget {
+    provider: &'static str,
+    server_label: &'static str,
+    download_api_url: &'static str,
+    upload_api_url: &'static str,
+    trace_api_url: &'static str,
+}
+
+const DEFAULT_SPEED_TEST_TARGET: SpeedTestTarget = SpeedTestTarget {
+    provider: "Cloudflare",
+    server_label: "Cloudflare Auto",
+    download_api_url: "https://speed.cloudflare.com/__down",
+    upload_api_url: "https://speed.cloudflare.com/__up",
+    trace_api_url: "https://speed.cloudflare.com/cdn-cgi/trace",
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,6 +59,7 @@ pub async fn run_speed_test(
     app: AppHandle,
     download_mb: Option<u32>,
 ) -> Result<SpeedTestResult, String> {
+    let target = resolve_speed_test_target();
     let download_bytes = sanitize_download_mb(download_mb) as usize * 1024 * 1024;
     let upload_bytes = DEFAULT_UPLOAD_BYTES.min((download_bytes / 2).max(2 * 1024 * 1024));
     let client = build_client()?;
@@ -56,10 +69,10 @@ pub async fn run_speed_test(
         "preflight",
         4.0,
         0.0,
-        format!("Preparing native speed test via {PROVIDER_NAME}."),
+        format!("Preparing native speed test via {}.", target.provider),
     )?;
 
-    let latency_points = measure_latency(&client).await?;
+    let latency_points = measure_latency(&client, target).await?;
     let ping_ms = average(&latency_points);
     let jitter_ms = calculate_jitter(&latency_points);
 
@@ -74,9 +87,9 @@ pub async fn run_speed_test(
         ),
     )?;
 
-    let download_mbps = measure_download(&client, &app, download_bytes).await?;
-    let upload_mbps = measure_upload(&client, &app, upload_bytes).await?;
-    let ip = fetch_public_ip(&client)
+    let download_mbps = measure_download(&client, &app, target, download_bytes).await?;
+    let upload_mbps = measure_upload(&client, &app, target, upload_bytes).await?;
+    let ip = fetch_public_ip(&client, target)
         .await
         .unwrap_or_else(|_| "Unavailable".to_string());
 
@@ -89,8 +102,8 @@ pub async fn run_speed_test(
     )?;
 
     Ok(SpeedTestResult {
-        provider: PROVIDER_NAME.to_string(),
-        server_label: SERVER_LABEL.to_string(),
+        provider: target.provider.to_string(),
+        server_label: target.server_label.to_string(),
         download_mbps,
         upload_mbps,
         ping_ms,
@@ -98,6 +111,10 @@ pub async fn run_speed_test(
         ip,
         timestamp: Utc::now().to_rfc3339(),
     })
+}
+
+fn resolve_speed_test_target() -> SpeedTestTarget {
+    DEFAULT_SPEED_TEST_TARGET
 }
 
 fn build_client() -> Result<Client, String> {
@@ -109,11 +126,11 @@ fn build_client() -> Result<Client, String> {
         .map_err(|error| describe_reqwest_error("Speed test client setup", &error))
 }
 
-async fn measure_latency(client: &Client) -> Result<Vec<f64>, String> {
+async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec<f64>, String> {
     let mut points = Vec::with_capacity(LATENCY_SAMPLES);
 
     for sample in 0..LATENCY_SAMPLES {
-        let url = format!("{DOWNLOAD_API_URL}?bytes=0&sample={sample}");
+        let url = format!("{}?bytes=0&sample={sample}", target.download_api_url);
         let started = Instant::now();
         client
             .get(&url)
@@ -135,6 +152,7 @@ async fn measure_latency(client: &Client) -> Result<Vec<f64>, String> {
 async fn measure_download(
     client: &Client,
     app: &AppHandle,
+    target: SpeedTestTarget,
     download_bytes: usize,
 ) -> Result<f64, String> {
     emit_progress(
@@ -145,7 +163,7 @@ async fn measure_download(
         format!("Downloading ~{} MB test payload...", download_bytes / 1024 / 1024),
     )?;
 
-    let url = format!("{DOWNLOAD_API_URL}?bytes={download_bytes}");
+    let url = format!("{}?bytes={download_bytes}", target.download_api_url);
     let response = client
         .get(&url)
         .send()
@@ -190,6 +208,7 @@ async fn measure_download(
 async fn measure_upload(
     client: &Client,
     app: &AppHandle,
+    target: SpeedTestTarget,
     upload_bytes: usize,
 ) -> Result<f64, String> {
     emit_progress(
@@ -203,7 +222,7 @@ async fn measure_upload(
     let payload = vec![0u8; upload_bytes];
     let started = Instant::now();
     client
-        .post(format!("{UPLOAD_API_URL}?bytes={upload_bytes}"))
+        .post(format!("{}?bytes={upload_bytes}", target.upload_api_url))
         .body(payload)
         .send()
         .await
@@ -225,9 +244,9 @@ async fn measure_upload(
     Ok(upload_mbps)
 }
 
-async fn fetch_public_ip(client: &Client) -> Result<String, String> {
+async fn fetch_public_ip(client: &Client, target: SpeedTestTarget) -> Result<String, String> {
     let trace = client
-        .get(TRACE_API_URL)
+        .get(target.trace_api_url)
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
@@ -346,7 +365,7 @@ fn parse_trace_ip(trace: &str) -> Option<String> {
 mod tests {
     use super::{
         calculate_jitter, describe_transport_error, ensure_bytes_transferred, parse_trace_ip,
-        sanitize_download_mb,
+        resolve_speed_test_target, sanitize_download_mb,
     };
 
     #[test]
@@ -401,5 +420,15 @@ mod tests {
             Err("Download test returned no payload bytes. Check connectivity and try again.".to_string())
         );
         assert_eq!(ensure_bytes_transferred("Download test", 128), Ok(()));
+    }
+
+    #[test]
+    fn resolve_speed_test_target_defaults_to_cloudflare_auto() {
+        let target = resolve_speed_test_target();
+        assert_eq!(target.provider, "Cloudflare");
+        assert_eq!(target.server_label, "Cloudflare Auto");
+        assert_eq!(target.download_api_url, "https://speed.cloudflare.com/__down");
+        assert_eq!(target.upload_api_url, "https://speed.cloudflare.com/__up");
+        assert_eq!(target.trace_api_url, "https://speed.cloudflare.com/cdn-cgi/trace");
     }
 }
