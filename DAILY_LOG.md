@@ -5,6 +5,48 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-24 - Speed Test Feature Branch Progress (Modal + Demo Mode + Runtime Hardening)
+
+**Done**
+- Built the first dedicated Speed Test feature slice on `feature/speed-test-modal-v1`, including a standalone modal/card flow in the lower-right panel area instead of reusing the existing Ping/Tracert console space.
+- Added the native Rust `run_speed_test` command in `src-tauri/src/speed_test.rs`, wired through `src-tauri/src/lib.rs`, `src/api.ts`, and `src/App.tsx`, with the agreed `event + return` contract (`speed-test://progress` + final result payload).
+- Added a browser-safe preview path via `src/speedTestDemo.ts`, so the Speed Test modal can be demonstrated in plain Vite/browser mode even when the Tauri desktop runtime or local Rust toolchain is unavailable.
+- Restored and polished the modal preview UX in `src/SpeedTestModal.tsx` and `src/SpeedTestModal.css`, including clearer browser-demo copy (`Preview`, `Start Demo`, `Replay Demo`) and explicit in-modal demo-state messaging.
+- Hardened native runtime error handling in `src-tauri/src/speed_test.rs` by mapping `reqwest` failures into more user-readable per-stage errors and rejecting the false-success case where the download stage returns `0` payload bytes.
+- Added frontend-side error formatting in `src/speedTestError.ts` so timeouts, latency-probe failures, and test-server reachability issues surface as clearer UI messages inside the modal.
+- Refactored target/provider selection in `src-tauri/src/speed_test.rs` into an isolated `SpeedTestTarget` resolver so the current Cloudflare-backed implementation can later be swapped to an Asia-specific server strategy without reworking the full measurement flow.
+- Hardened latency sampling so the native flow no longer aborts the whole test on a single failed probe; it now tolerates partial probe failures and only fails if too few stable latency samples are collected.
+- Added/updated focused Node-side test coverage for the browser demo and speed-test error formatter, and re-ran `npm run test:node` plus `npm run build` successfully after each meaningful Speed Test slice.
+
+**Files Changed**
+| File | Change |
+|------|--------|
+| `src-tauri/src/speed_test.rs` | **NEW** native speed test engine + later hardening for transport errors, target selection, and latency tolerance |
+| `src-tauri/src/lib.rs` | Registered `run_speed_test` command |
+| `src-tauri/Cargo.toml` | Added native HTTP/streaming/time dependencies required by speed test |
+| `src/App.tsx` | Mounted the Speed Test launch card/modal into the right-side panel area |
+| `src/api.ts` | Added `SpeedTestProgress`, `SpeedTestResult`, and `runSpeedTest()` wrapper |
+| `src/SpeedTestModal.tsx` | **NEW** dedicated Speed Test modal UI and browser-preview/native-runtime switching |
+| `src/SpeedTestModal.css` | **NEW** Speed Test modal/card styling |
+| `src/speedTestDemo.ts` | **NEW** browser preview/demo-mode flow for non-Tauri runtime |
+| `src/speedTestError.ts` | **NEW** user-facing error formatter for speed test failures |
+| `tests/speedTestDemo.test.ts` | **NEW** demo-mode flow tests |
+| `tests/speedTestError.test.ts` | **NEW** speed-test error mapping tests |
+| `package.json` | Added new Speed Test-focused Node tests into `test:node` |
+
+**Notes And Decisions**
+- Kept the first real native backend on the existing Cloudflare endpoints so the feature can run end-to-end now, but isolated target selection because the likely next product decision is still an Asia-oriented server strategy.
+- The browser demo mode is intentional product/dev tooling, not a fallback release path: it exists so UI review and flow demos can continue even on machines that cannot run `tauri dev`.
+- Local frontend verification stayed green (`npm run test:node`, `npm run build`) throughout the branch work.
+- Native Rust compilation is still not fully verified on this machine because `cargo` is not available on `PATH`; the native side has therefore been validated by code review, contract wiring, focused pure tests, and frontend integration rather than local `cargo check`.
+
+**Next Steps**
+- Decide and implement the final Asia-oriented `SpeedTestTarget` policy inside the isolated resolver instead of leaving the branch on generic `Cloudflare Auto`.
+- Run native `cargo check` / `cargo test` for the Speed Test backend on a machine with a working Rust toolchain.
+- Perform manual desktop smoke validation of the real Speed Test modal on Windows: progress events, download/upload completion, public-IP display, timeout messaging, and latency-probe tolerance.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-24 - v10.1.2 Release Triggered (Virtual/Tunnel NIC Filter Follow-Up)
 
 **Done**
