@@ -630,7 +630,7 @@ fn ping_once_target(target: String, timeout_ms: &str) -> FpingHostResult {
     }
 }
 
-fn build_network_interfaces(adapters: &[crate::win32_net::NativeNic], active_only: bool) -> Vec<NetworkInterface> {
+fn is_blacklisted_nic(nic: &crate::win32_net::NativeNic) -> bool {
     let blacklist = [
         "virtual",
         "vmware",
@@ -643,13 +643,30 @@ fn build_network_interfaces(adapters: &[crate::win32_net::NativeNic], active_onl
         "tap-",
         "pseudo",
         "ethernet adapter v",
+        "tailscale",
+        "hyper-v",
+        "vethernet",
+        "default switch",
+        "wsl",
+        "wireguard",
     ];
 
+    let desc_lower = nic.description.to_lowercase();
+    let friendly_name_lower = nic.friendly_name.to_lowercase();
+
+    blacklist
+        .iter()
+        .any(|token| desc_lower.contains(token) || friendly_name_lower.contains(token))
+}
+
+fn build_network_interfaces(
+    adapters: &[crate::win32_net::NativeNic],
+    active_only: bool,
+) -> Vec<NetworkInterface> {
     let mut interfaces: Vec<NetworkInterface> = Vec::new();
 
     for nic in adapters {
-        let desc_lower = nic.description.to_lowercase();
-        if blacklist.iter().any(|b| desc_lower.contains(b)) {
+        if is_blacklisted_nic(nic) {
             continue;
         }
 
@@ -1956,7 +1973,8 @@ pub async fn check_internet() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_interface_index_lookup, build_network_interfaces, parse_ipv4_route_print,
+        build_interface_index_lookup, build_network_interfaces, is_blacklisted_nic,
+        parse_ipv4_route_print,
         validate_network_command,
     };
     use crate::win32_net::NativeNic;
@@ -2035,6 +2053,32 @@ Persistent Routes:
         assert_eq!(interfaces.len(), 1);
         assert_eq!(interfaces[0].index, "7");
         assert_eq!(interfaces[0].ip, "192.168.1.10");
+    }
+
+    #[test]
+    fn blacklisted_nic_detection_checks_friendly_name_and_virtual_tokens() {
+        let tailscale = NativeNic {
+            interface_index: 30,
+            description: "Tunnel".to_string(),
+            mac_address: "00-11-22-33-44-88".to_string(),
+            friendly_name: "Tailscale Tunnel".to_string(),
+            ip_addresses: vec!["100.115.14.41".to_string()],
+            gateways: vec![],
+            oper_status_up: true,
+        };
+        let hyper_v = NativeNic {
+            interface_index: 31,
+            description: "vEthernet (Default Switch)".to_string(),
+            mac_address: "00-11-22-33-44-99".to_string(),
+            friendly_name: "vEthernet (Default Switch)".to_string(),
+            ip_addresses: vec!["172.18.224.1".to_string()],
+            gateways: vec![],
+            oper_status_up: true,
+        };
+
+        assert!(is_blacklisted_nic(&tailscale));
+        assert!(is_blacklisted_nic(&hyper_v));
+        assert!(build_network_interfaces(&[tailscale, hyper_v], true).is_empty());
     }
 
     #[test]
