@@ -25,6 +25,7 @@ import {
 } from "./repairModeModel";
 import { getNicTableMessage } from "./nicTableModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
+import { SpeedTestModal } from "./SpeedTestModal";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -2315,6 +2316,8 @@ export default function App() {
               Ping and tracert logs are shown in the left Output Console.
             </div>
           </Section>
+
+          <SpeedTestModal onStatusChange={setStatusMsg} />
         </div>
       </div>
 

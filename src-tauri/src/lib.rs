@@ -6,6 +6,7 @@ pub mod repair_protocol;
 pub mod repair_session;
 pub mod repair_targets;
 pub mod route_persist;
+mod speed_test;
 pub mod win32_net;
 
 use network::{
@@ -26,6 +27,7 @@ use repair_protocol::{
     RepairMachineAction, RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
+use speed_test::run_speed_test;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
@@ -124,6 +126,7 @@ pub fn run() {
             ping_host,
             test_tcp_port,
             fping_scan,
+            run_speed_test,
             check_internet,
             get_bloatware_candidates,
             remove_bloatware,

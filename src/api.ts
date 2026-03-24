@@ -40,6 +40,24 @@ export interface FpingScanResult {
   hosts: FpingHostResult[];
 }
 
+export interface SpeedTestProgress {
+  stage: string;
+  percent: number;
+  current_speed_mbps: number;
+  message: string;
+}
+
+export interface SpeedTestResult {
+  provider: string;
+  server_label: string;
+  download_mbps: number;
+  upload_mbps: number;
+  ping_ms: number;
+  jitter_ms: number;
+  ip: string;
+  timestamp: string;
+}
+
 export interface CommandResult {
   success: boolean;
   output: string;
@@ -176,6 +194,12 @@ export async function fpingScan(
   return invoke<FpingScanResult>("fping_scan", {
     targets,
     timeoutMs: timeoutMs || null,
+  });
+}
+
+export async function runSpeedTest(downloadMb?: number): Promise<SpeedTestResult> {
+  return invoke<SpeedTestResult>("run_speed_test", {
+    downloadMb: downloadMb || null,
   });
 }
 
