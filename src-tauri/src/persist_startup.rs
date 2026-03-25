@@ -1,11 +1,11 @@
 use crate::route_persist::{self, PersistConfig};
 #[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 const STARTUP_TASK_NAME: &str = "SuperRouteProPersist";
 

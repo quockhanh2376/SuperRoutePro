@@ -6,14 +6,14 @@ import {
   ChevronDown, ChevronUp, ArrowDownUp, X, CircleHelp
 } from "lucide-react";
 import {
-  getNetworkInterfaces, getRoutingTable,
+  getNetworkSnapshot, getRoutingTable,
   runNetworkCommand, pingHost, testTcpPort,
   fpingScan, getWanPersistOnStartupStatus, checkInternet,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSetWanPersistOnStartup, repairSavePersistConfig, repairClearPersistConfig,
-  runRepairMachineAction, persistLoadConfig, persistGetNicStableId,
+  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
@@ -24,6 +24,7 @@ import {
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
 import { getNicTableMessage } from "./nicTableModel";
+import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
 import { SpeedTestModal } from "./SpeedTestModal";
 
@@ -460,7 +461,10 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
 export default function App() {
   const APP_AUTHOR = "Zonzon";
   const [appVersion, setAppVersion] = useState("dev");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("ui-theme");
+    return saved === "light" || saved === "dark" ? saved : "dark";
+  });
   const [persistWanOnStartup, setPersistWanOnStartup] = useState(false);
   const [persistWanLoading, setPersistWanLoading] = useState(true);
 
@@ -593,22 +597,17 @@ export default function App() {
       savedPreference === "true" ? true : savedPreference === "false" ? false : null;
 
     const loadPersistStatus = async () => {
-      let legacyTaskEnabled: boolean | null = null;
-      let persistedConfigEnabled: boolean | null = null;
-
       try {
-        try {
-          legacyTaskEnabled = await getWanPersistOnStartupStatus();
-        } catch {
-          // Keep reading persisted config/local preference when legacy task query fails.
-        }
-
-        try {
-          const persistedConfig = await persistLoadConfig();
-          persistedConfigEnabled = persistedConfig ? persistedConfig.enabled : null;
-        } catch {
-          // Keep reading legacy task/local preference when config query fails.
-        }
+        const [legacyTaskResult, persistedConfigResult] = await Promise.allSettled([
+          getWanPersistOnStartupStatus(),
+          persistLoadConfig(),
+        ]);
+        const legacyTaskEnabled =
+          legacyTaskResult.status === "fulfilled" ? legacyTaskResult.value : null;
+        const persistedConfigEnabled =
+          persistedConfigResult.status === "fulfilled"
+            ? (persistedConfigResult.value ? persistedConfigResult.value.enabled : null)
+            : null;
 
         if (active) {
           setPersistWanOnStartup(
@@ -672,9 +671,27 @@ export default function App() {
   const refreshRepairContext = useCallback(async () => {
     setRepairLoading(true);
     try {
-      const sessionStatus = await getRepairSessionStatus();
-      setRepairSession(sessionStatus);
-      await loadRepairTargets();
+      const [sessionResult, targetsResult] = await Promise.allSettled([
+        getRepairSessionStatus(),
+        listRepairTargets(),
+      ]);
+      if (sessionResult.status === "fulfilled") {
+        setRepairSession(sessionResult.value);
+      }
+      if (targetsResult.status === "fulfilled" && targetsResult.value.length > 0) {
+        const targets = targetsResult.value;
+        const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
+        setSelectedRepairTargetSid(activeTarget.sid);
+        console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
+      }
+      const sessionFailure =
+        sessionResult.status === "rejected" ? sessionResult.reason : null;
+      const targetsFailure =
+        targetsResult.status === "rejected" ? targetsResult.reason : null;
+      const failure = sessionFailure ?? targetsFailure;
+      if (failure) {
+        setStatusMsg(`Repair context error: ${failure}`);
+      }
     } catch (err) {
       setStatusMsg(`Repair context error: ${err}`);
     } finally {
@@ -717,18 +734,15 @@ export default function App() {
     setLoading(true);
     setStatusMsg("Loading data...");
     try {
-      const [nicData, routeData] = await Promise.all([
-        getNetworkInterfaces(activeOnly),
-        getRoutingTable(),
-      ]);
+      const snapshot = await getNetworkSnapshot(activeOnly);
       if (requestId !== latestLoadRequestRef.current) {
         return;
       }
-      setNics(nicData);
-      setRoutes(routeData);
-      setRoutingOutput(formatRoutingSnapshot(routeData));
+      setNics(snapshot.interfaces);
+      setRoutes(snapshot.routes);
+      setRoutingOutput(formatRoutingSnapshot(snapshot.routes));
       setHasLoadedNicSnapshot(true);
-      setStatusMsg(`Loaded ${nicData.length} NICs, ${routeData.length} routes`);
+      setStatusMsg(`Loaded ${snapshot.interfaces.length} NICs, ${snapshot.routes.length} routes`);
     } catch (err) {
       if (requestId !== latestLoadRequestRef.current) {
         return;
@@ -976,15 +990,30 @@ export default function App() {
       const persistWriteMode = getPersistStartupWriteMode(persistWanOnStartup);
       if (persistWriteMode === "save") {
         try {
-          const nicId = await persistGetNicStableId(selectedNic.index);
+          const persistRouteInterfaceIndexes = getPersistRouteInterfaceIndexes(routes);
+          const stableIdIndexes = Array.from(
+            new Set([selectedNic.index, ...persistRouteInterfaceIndexes]),
+          );
+          const stableIds = await persistGetNicStableIds(stableIdIndexes);
+          const nicId = stableIds[0];
+          const routeNicEntries = new Map(
+            [
+              [selectedNic.index, nicId] as const,
+              ...stableIdIndexes.slice(1).map((interfaceIndex, index) => [
+                interfaceIndex,
+                stableIds[index + 1],
+              ] as const),
+            ],
+          );
           const config: PersistConfig = {
             schema_version: 1,
             enabled: true,
             nic: nicId,
             wan: { gateway: selectedNic.gateway, metric: "1" },
-            custom_routes: routes
-              .filter((r: RouteEntry) => r.destination !== "0.0.0.0" && r.interface_index === selectedNic.index)
-              .map((r: RouteEntry) => ({ destination: r.destination, mask: r.netmask, gateway: r.gateway, metric: r.metric })),
+            custom_routes: buildPersistCustomRoutes(
+              routes,
+              routeNicEntries,
+            ),
             updated_at: new Date().toISOString(),
           };
           const persistConfigResult = await repairSavePersistConfig(config);
@@ -1160,6 +1189,12 @@ export default function App() {
   const handleShowRoutingOutput = useCallback(async () => {
     setDiagnosticsOpen(true);
     setDiagnosticView("routing");
+    if (routes.length > 0) {
+      setRoutingOutput(formatRoutingSnapshot(routes));
+      setStatusMsg(`Routing table snapshot loaded (${routes.length} cached routes)`);
+      return;
+    }
+
     setStatusMsg("Loading routing table snapshot...");
     try {
       const routeData = await getRoutingTable();
@@ -1171,7 +1206,7 @@ export default function App() {
       setRoutingOutput(`Failed to load routing table snapshot.\n${errorText}`);
       setStatusMsg(errorText);
     }
-  }, []);
+  }, [routes]);
 
   const handleShowCommandOutput = useCallback(() => {
     setDiagnosticView("command");

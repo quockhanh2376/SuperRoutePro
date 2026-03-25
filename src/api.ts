@@ -17,6 +17,11 @@ export interface RouteEntry {
   interface_index: string;
 }
 
+export interface NetworkSnapshot {
+  interfaces: NetworkInterface[];
+  routes: RouteEntry[];
+}
+
 export interface PingResult {
   success: boolean;
   latency_ms: number;
@@ -127,6 +132,10 @@ export type RepairMachineAction =
 
 export async function getNetworkInterfaces(activeOnly: boolean): Promise<NetworkInterface[]> {
   return invoke<NetworkInterface[]>("get_network_interfaces", { activeOnly });
+}
+
+export async function getNetworkSnapshot(activeOnly: boolean): Promise<NetworkSnapshot> {
+  return invoke<NetworkSnapshot>("get_network_snapshot", { activeOnly });
 }
 
 export async function getRoutingTable(): Promise<RouteEntry[]> {
@@ -355,6 +364,7 @@ export interface CustomRoute {
   mask: string;
   gateway: string;
   metric: string;
+  nic?: NicIdentifier;
 }
 
 export interface PersistConfig {
@@ -380,4 +390,10 @@ export async function persistGetNicStableId(
   interfaceIndex: string,
 ): Promise<NicIdentifier> {
   return invoke<NicIdentifier>("persist_get_nic_stable_id", { interfaceIndex });
+}
+
+export async function persistGetNicStableIds(
+  interfaceIndexes: string[],
+): Promise<NicIdentifier[]> {
+  return invoke<NicIdentifier[]>("persist_get_nic_stable_ids", { interfaceIndexes });
 }

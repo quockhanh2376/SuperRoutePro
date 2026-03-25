@@ -25,9 +25,15 @@ struct SpeedTestTarget {
     trace_api_url: &'static str,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SpeedTestTraceMetadata {
+    ip: Option<String>,
+    colo: Option<String>,
+}
+
 const DEFAULT_SPEED_TEST_TARGET: SpeedTestTarget = SpeedTestTarget {
     provider: "Cloudflare",
-    server_label: "Cloudflare Auto",
+    server_label: "Asia Preferred (Cloudflare edge auto)",
     download_api_url: "https://speed.cloudflare.com/__down",
     upload_api_url: "https://speed.cloudflare.com/__up",
     trace_api_url: "https://speed.cloudflare.com/cdn-cgi/trace",
@@ -64,6 +70,15 @@ pub async fn run_speed_test(
     let download_bytes = sanitize_download_mb(download_mb) as usize * 1024 * 1024;
     let upload_bytes = DEFAULT_UPLOAD_BYTES.min((download_bytes / 2).max(2 * 1024 * 1024));
     let client = build_client()?;
+    let trace_metadata = fetch_trace_metadata(&client, target.trace_api_url)
+        .await
+        .ok();
+    let server_label = resolve_speed_test_server_label(trace_metadata.as_ref());
+    let ip = trace_metadata
+        .as_ref()
+        .and_then(|trace| trace.ip.as_deref())
+        .unwrap_or("Unavailable")
+        .to_string();
 
     emit_progress(
         &app,
@@ -90,9 +105,6 @@ pub async fn run_speed_test(
 
     let download_mbps = measure_download(&client, &app, target, download_bytes).await?;
     let upload_mbps = measure_upload(&client, &app, target, upload_bytes).await?;
-    let ip = fetch_public_ip(&client, target)
-        .await
-        .unwrap_or_else(|_| "Unavailable".to_string());
 
     emit_progress(
         &app,
@@ -104,7 +116,7 @@ pub async fn run_speed_test(
 
     Ok(SpeedTestResult {
         provider: target.provider.to_string(),
-        server_label: target.server_label.to_string(),
+        server_label,
         download_mbps,
         upload_mbps,
         ping_ms,
@@ -151,7 +163,10 @@ async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec
     }
 
     if points.len() < MIN_SUCCESSFUL_LATENCY_SAMPLES {
-        return Err(describe_latency_probe_failure(points.len(), last_error.as_deref()));
+        return Err(describe_latency_probe_failure(
+            points.len(),
+            last_error.as_deref(),
+        ));
     }
 
     Ok(points)
@@ -168,7 +183,10 @@ async fn measure_download(
         "download",
         24.0,
         0.0,
-        format!("Downloading ~{} MB test payload...", download_bytes / 1024 / 1024),
+        format!(
+            "Downloading ~{} MB test payload...",
+            download_bytes / 1024 / 1024
+        ),
     )?;
 
     let url = format!("{}?bytes={download_bytes}", target.download_api_url);
@@ -192,7 +210,8 @@ async fn measure_download(
         if last_emit.elapsed() >= EMIT_INTERVAL {
             let elapsed = started.elapsed().as_secs_f64().max(0.001);
             let current_speed_mbps = bytes_to_mbps(total_bytes, elapsed);
-            let percent = 24.0 + ((total_bytes as f64 / download_bytes as f64).clamp(0.0, 1.0) * 44.0);
+            let percent =
+                24.0 + ((total_bytes as f64 / download_bytes as f64).clamp(0.0, 1.0) * 44.0);
             emit_progress(
                 app,
                 "download",
@@ -224,7 +243,10 @@ async fn measure_upload(
         "upload",
         72.0,
         0.0,
-        format!("Uploading ~{} MB validation payload...", upload_bytes / 1024 / 1024),
+        format!(
+            "Uploading ~{} MB validation payload...",
+            upload_bytes / 1024 / 1024
+        ),
     )?;
 
     let payload = vec![0u8; upload_bytes];
@@ -252,9 +274,12 @@ async fn measure_upload(
     Ok(upload_mbps)
 }
 
-async fn fetch_public_ip(client: &Client, target: SpeedTestTarget) -> Result<String, String> {
+async fn fetch_trace_metadata(
+    client: &Client,
+    trace_api_url: &str,
+) -> Result<SpeedTestTraceMetadata, String> {
     let trace = client
-        .get(target.trace_api_url)
+        .get(trace_api_url)
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
@@ -264,7 +289,7 @@ async fn fetch_public_ip(client: &Client, target: SpeedTestTarget) -> Result<Str
         .await
         .map_err(|error| format!("Public IP lookup response could not be read: {error}"))?;
 
-    Ok(parse_trace_ip(&trace).unwrap_or_else(|| "Unavailable".to_string()))
+    Ok(parse_trace_metadata(&trace))
 }
 
 fn emit_progress(
@@ -310,9 +335,7 @@ fn describe_transport_error(
     raw: &str,
 ) -> String {
     if is_timeout {
-        return format!(
-            "{stage} timed out. Check internet connectivity or try again in a moment."
-        );
+        return format!("{stage} timed out. Check internet connectivity or try again in a moment.");
     }
 
     if is_connect {
@@ -378,15 +401,37 @@ fn calculate_jitter(points: &[f64]) -> f64 {
     average(&deltas)
 }
 
-fn parse_trace_ip(trace: &str) -> Option<String> {
-    trace.lines().find_map(|line| line.strip_prefix("ip=").map(str::to_string))
+fn parse_trace_metadata(trace: &str) -> SpeedTestTraceMetadata {
+    let mut metadata = SpeedTestTraceMetadata::default();
+
+    for line in trace.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+
+        match key {
+            "ip" => metadata.ip = Some(value.trim().to_string()),
+            "colo" => metadata.colo = Some(value.trim().to_string()),
+            _ => {}
+        }
+    }
+
+    metadata
+}
+
+fn resolve_speed_test_server_label(trace: Option<&SpeedTestTraceMetadata>) -> String {
+    match trace.and_then(|trace| trace.colo.as_deref()) {
+        Some(colo) => format!("Asia Preferred ({colo} edge)"),
+        None => DEFAULT_SPEED_TEST_TARGET.server_label.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        calculate_jitter, describe_transport_error, ensure_bytes_transferred, parse_trace_ip,
-        resolve_speed_test_target, sanitize_download_mb, describe_latency_probe_failure,
+        calculate_jitter, describe_latency_probe_failure, describe_transport_error,
+        ensure_bytes_transferred, parse_trace_metadata, resolve_speed_test_server_label,
+        resolve_speed_test_target, sanitize_download_mb, SpeedTestTraceMetadata,
     };
 
     #[test]
@@ -398,9 +443,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_trace_ip_reads_cloudflare_trace_format() {
-        let trace = "fl=29f64\nh=speed.cloudflare.com\nip=203.0.113.7\nts=1711111111.111\n";
-        assert_eq!(parse_trace_ip(trace).as_deref(), Some("203.0.113.7"));
+    fn parse_trace_metadata_reads_cloudflare_trace_format() {
+        let trace =
+            "fl=29f64\nh=speed.cloudflare.com\nip=203.0.113.7\ncolo=SIN\nts=1711111111.111\n";
+        assert_eq!(
+            parse_trace_metadata(trace),
+            SpeedTestTraceMetadata {
+                ip: Some("203.0.113.7".to_string()),
+                colo: Some("SIN".to_string()),
+            }
+        );
     }
 
     #[test]
@@ -412,7 +464,8 @@ mod tests {
 
     #[test]
     fn describe_transport_error_prefers_timeout_message() {
-        let message = describe_transport_error("Download test", true, false, None, "request timed out");
+        let message =
+            describe_transport_error("Download test", true, false, None, "request timed out");
         assert_eq!(
             message,
             "Download test timed out. Check internet connectivity or try again in a moment."
@@ -427,7 +480,13 @@ mod tests {
             "Upload test could not reach the test server. Verify the network path and retry."
         );
 
-        let status = describe_transport_error("Latency probe", false, false, Some(503), "service unavailable");
+        let status = describe_transport_error(
+            "Latency probe",
+            false,
+            false,
+            Some(503),
+            "service unavailable",
+        );
         assert_eq!(
             status,
             "Latency probe returned HTTP 503. The test server may be unavailable."
@@ -438,19 +497,45 @@ mod tests {
     fn ensure_bytes_transferred_rejects_empty_payloads() {
         assert_eq!(
             ensure_bytes_transferred("Download test", 0),
-            Err("Download test returned no payload bytes. Check connectivity and try again.".to_string())
+            Err(
+                "Download test returned no payload bytes. Check connectivity and try again."
+                    .to_string()
+            )
         );
         assert_eq!(ensure_bytes_transferred("Download test", 128), Ok(()));
     }
 
     #[test]
-    fn resolve_speed_test_target_defaults_to_cloudflare_auto() {
+    fn resolve_speed_test_target_defaults_to_asia_preferred_cloudflare() {
         let target = resolve_speed_test_target();
         assert_eq!(target.provider, "Cloudflare");
-        assert_eq!(target.server_label, "Cloudflare Auto");
-        assert_eq!(target.download_api_url, "https://speed.cloudflare.com/__down");
+        assert_eq!(target.server_label, "Asia Preferred (Cloudflare edge auto)");
+        assert_eq!(
+            target.download_api_url,
+            "https://speed.cloudflare.com/__down"
+        );
         assert_eq!(target.upload_api_url, "https://speed.cloudflare.com/__up");
-        assert_eq!(target.trace_api_url, "https://speed.cloudflare.com/cdn-cgi/trace");
+        assert_eq!(
+            target.trace_api_url,
+            "https://speed.cloudflare.com/cdn-cgi/trace"
+        );
+    }
+
+    #[test]
+    fn resolve_speed_test_server_label_uses_resolved_edge_when_available() {
+        let label = resolve_speed_test_server_label(Some(&SpeedTestTraceMetadata {
+            ip: Some("203.0.113.7".to_string()),
+            colo: Some("SIN".to_string()),
+        }));
+
+        assert_eq!(label, "Asia Preferred (SIN edge)");
+    }
+
+    #[test]
+    fn resolve_speed_test_server_label_falls_back_when_trace_metadata_is_missing() {
+        let label = resolve_speed_test_server_label(None);
+
+        assert_eq!(label, "Asia Preferred (Cloudflare edge auto)");
     }
 
     #[test]

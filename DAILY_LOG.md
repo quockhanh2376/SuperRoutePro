@@ -5,6 +5,121 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-25 - NotebookLM Roadmap Cross-Check And Release Prep
+
+**Done**
+- Read the NotebookLM document titled `Lộ trình Tối ưu hóa và Tái cấu trúc Super Route Pro` as a second optimization reference before cutting the next outward-facing release.
+- Confirmed that the two highest-value release-safe roadmap items had already been applied earlier in the day: restoring theme from `localStorage` before first paint and moving `check_internet()` work onto `spawn_blocking`.
+- Applied the remaining roadmap quick win that was still clearly relevant for this branch: consolidated the duplicated Windows `CREATE_NO_WINDOW` constant into a shared `src-tauri/src/win32_consts.rs` module and updated the app/backend/service code paths to use it instead of redefining the same value in multiple files.
+- Re-ran `npm run build`, `npm run test:node`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `cargo test --manifest-path src-tauri/Cargo.toml` successfully after the constant consolidation. Rust verification again used fresh alternate target directories to avoid the known Windows file-lock flake on shared target folders.
+
+**Notes And Decisions**
+- The NotebookLM roadmap remains directionally useful for prioritization, but only the low-risk release-facing items were pulled into this cut; the larger structural work (`App.tsx` breakup, startup-persistence consolidation, backend deduplication beyond constants) remains a follow-up track rather than something to squeeze into the release candidate.
+- Consolidating `CREATE_NO_WINDOW` was intentionally kept mechanical so the change improves maintainability without altering runtime behavior.
+
+**Next Steps**
+- Bump the product version to `10.1.3`, produce a fresh NSIS installer from the current branch, and push the release tag once final verification completes.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-25 - Optimise.md Review And Safe Optimization Sweep
+
+**Done**
+- Read `Optimise.md` from NotebookLM and compared its recommendations against the current branch state instead of treating the document as blindly current truth.
+- Implemented the low-risk/high-value frontend optimizations that were still relevant:
+  - restored theme from `localStorage` during startup,
+  - parallelized startup persistence-status and repair-context awaits that were previously serialized,
+  - reused cached `routes` for the first diagnostics routing view open instead of immediately re-fetching,
+  - batched stable NIC identifier resolution when saving WAN persistence so the app no longer re-enumerates adapters once per route.
+- Implemented the low-risk/high-value backend optimizations that were still relevant:
+  - wrapped `check_internet()` in `spawn_blocking`,
+  - optimized startup route replay to enumerate adapters once and reuse lookup data for all persisted per-NIC routes,
+  - switched `RestartActiveAdapters` to `enumerate_adapters_basic()` because it only needs `friendly_name` and `oper_status_up`.
+- Re-ran `npm run build`, `npm run test:node`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `cargo test --manifest-path src-tauri/Cargo.toml` successfully after the optimization sweep. Rust verification again used a fresh alternate target directory to avoid the known Windows file-lock flake.
+
+**Notes And Decisions**
+- The biggest remaining items from `Optimise.md` are broader refactors, not quick wins: the `App.tsx` god-component split, consolidating the duplicate startup-persistence mechanisms into one source of truth, and removing the remaining legacy code paths once the new route persistence flow is fully validated.
+- The NotebookLM document was directionally useful, but some recommendations had to be re-checked against the current branch because several baseline items were already partially addressed by earlier sessions.
+
+**Next Steps**
+- Validate the new startup route persistence flow once after a real reboot/logon so the optimization sweep and the earlier WAN-routing fix are verified together.
+- If we want to keep following `Optimise.md`, the next major slice should be startup-persistence consolidation rather than another scatter of micro-optimizations.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-25 - Single-WAN Enforcement And Per-NIC Persisted Routes
+
+**Done**
+- Reviewed the WAN apply flow and confirmed the direct `Set WAN` action already removed competing default routes at runtime, but the startup persistence flow did not reliably preserve the same single-WAN behavior.
+- Confirmed the old persisted route model only stored custom routes against the selected WAN NIC and was also saving `On-link` connected routes, which meant NIC2/NIC3 route-specific entries were not represented correctly for startup replay.
+- Added `src/persistRouteModel.ts` plus focused Node tests so the UI now persists only real custom routes (skipping default/on-link entries) and attaches a stable NIC identifier to each persisted route.
+- Updated `src/App.tsx` to resolve stable NIC identifiers for every interface that owns a persistable route before writing `PersistConfig`, so startup replay can keep NIC2/NIC3 routes on their own interfaces instead of forcing them onto the WAN NIC.
+- Extended `src-tauri/src/route_persist.rs` so `CustomRoute` can optionally carry its own NIC identity while remaining backward-compatible with older `persist.json` files.
+- Updated `src-tauri/src/route_service_main.rs` so startup replay now clears competing default routes before applying WAN and resolves each persisted custom route against its own NIC when present.
+- Tightened the legacy `persist-wan.cmd` generator and the live `set_default_gateway_blocking()` path so both now repeat default-route cleanup instead of assuming one delete call is enough.
+- Re-ran `npm run build`, `npm run test:node`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `cargo test --manifest-path src-tauri/Cargo.toml` successfully after the WAN-routing fix. The Rust test suite again used a fresh alternate target directory to avoid the existing Windows file-lock flake.
+- Produced a fresh NSIS installer from the updated WAN-routing code at `D:\\srprel-0513f3a5\\release\\bundle\\nsis\\Super Route Pro_10.1.2_x64-setup.exe`.
+
+**Notes And Decisions**
+- The local machine's current `persist.json` showed the exact old failure mode: it only contained `On-link` routes for the selected WAN NIC and no per-NIC route ownership for the other interfaces.
+- The new `CustomRoute.nic` field is optional on disk, so existing configs still load; routes without that field continue to fall back to the main persisted NIC for compatibility.
+
+**Next Steps**
+- Re-apply WAN once from the UI on the target machine so a fresh `persist.json` is written with the new per-route NIC metadata.
+- Do one restart/logon smoke test and confirm only the chosen NIC keeps the default route while NIC2/NIC3 keep only their intended specific routes.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-25 - NIC Startup Performance Investigation And Fix
+
+**Done**
+- Traced the slow startup NIC load to backend adapter discovery rather than the `activeOnly` filter itself.
+- Measured the local command costs to isolate the hotspot: `netsh interface ipv4 show interfaces` around `~78ms`, `netsh interface ipv4 show addresses` around `~87ms`, `route print -4` around `~371ms`, and `getmac /fo csv /v /nh` around `~997ms`.
+- Added the combined startup snapshot command path (`get_network_snapshot`) and kept `src/App.tsx` loading through `getNetworkSnapshot()` so NICs plus routes are still fetched together for the main view.
+- Refined the startup/query backend path to use a new lightweight adapter enumeration mode that skips the expensive `getmac` enrichment for `get_network_interfaces`, `get_network_snapshot`, and `get_routing_table`, while preserving the full enriched enumeration for flows that actually need MAC addresses or richer adapter descriptions.
+- Tightened the snapshot path further by running lightweight adapter enumeration and `route print -4` concurrently inside `get_network_snapshot()` and `get_routing_table()` instead of serializing those two independent tasks.
+- Kept the fast path low-risk by still using the same `netsh` interface names and IPv4/gateway parsing, which were enough on this machine to preserve blacklist detection for VMware/OpenVPN/loopback-style adapters.
+- Re-ran `npm run build`, `npm run test:node`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `cargo test --manifest-path src-tauri/Cargo.toml` successfully after the startup optimization. The Rust suite again used a short alternate target directory (`D:\\srptgt_parallel`) to avoid the existing default-target file-lock flake on this machine.
+- Fixed `scripts/prepare-repair-sidecars.ps1` so release builds honor `CARGO_TARGET_DIR` instead of assuming `src-tauri/target`, which was blocking release packaging when using a fresh target directory to avoid Windows linker locks.
+- Produced a fresh NSIS installer successfully at `D:\\srprel-b53d8d11\\release\\bundle\\nsis\\Super Route Pro_10.1.2_x64-setup.exe`.
+
+**Notes And Decisions**
+- The old startup path had two separate issues: duplicate adapter work before the snapshot refactor, then the remaining `getmac` enrichment cost that still dominated adapter discovery.
+- Skipping `getmac` on the startup-facing commands trades richer adapter model descriptions for much faster first paint; the UI now leans on the `netsh` connection names (`Wi-Fi`, `Ethernet 2`, `VMware Network Adapter VMnet1`, etc.) during startup.
+- The snapshot path only becomes a real latency win once `route print -4` stops sitting behind adapter enumeration; keeping those tasks concurrent preserves the simpler one-call frontend flow without paying the old serial wait.
+- Development builds may still feel a little worse than production because React `StrictMode` in `src/main.tsx` can double-run mount effects locally.
+
+**Next Steps**
+- Run a manual cold-start check in the desktop app to confirm the NIC table now populates materially faster on the affected machine.
+- If richer adapter model names are still desired on first paint, consider an asynchronous post-load enrichment pass or a short-lived cache instead of putting `getmac` back on the critical startup path.
+- If this build is accepted as the next handoff, decide whether to keep using `10.1.2` for internal validation or bump the app version before the next outward-facing release.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-25 - Speed Test Asia-Preferred Edge Labeling
+
+**Done**
+- Reworked the native Speed Test preflight in `src-tauri/src/speed_test.rs` so it now reads Cloudflare trace metadata up front and reuses that response for both public-IP reporting and server-label resolution.
+- Replaced the vague `Cloudflare Auto` result label with an Asia-preferred label that surfaces the resolved Cloudflare edge when trace metadata is available, for example `Asia Preferred (SIN edge)`.
+- Kept the change backend-only so the existing modal/UI contract stays intact; `src/SpeedTestModal.tsx` continues to display the backend-provided `provider` and `server_label` without adding a new selector surface.
+- Added Rust unit coverage for trace metadata parsing and the new server-label resolution path in `src-tauri/src/speed_test.rs`.
+- Added the explicit fallback Rust test for `resolve_speed_test_server_label(None)` and a lightweight component render test for the extracted Speed Test modal dialog so the new `server_label` display is now covered on both the backend and modal-render paths.
+- Bootstrapped the local Windows verify machine with `rustup`/`cargo` so the native Tauri/Rust path could be validated locally instead of staying code-review only.
+- Ran `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml` successfully after the toolchain bootstrap; the new Speed Test tests and the broader existing Rust suite all passed.
+- Refreshed `src-tauri/Cargo.lock` so the branch now records the native dependency graph it actually builds with, including the Speed Test backend additions that were already declared in `Cargo.toml`.
+
+**Notes And Decisions**
+- Cloudflare's public speed test flow still auto-selects the serving edge; there is no supported manual city picker in the current implementation, so the honest short-term product move is to surface the resolved edge POP instead of pretending the branch has a hard-pinned Asia city target.
+- The fallback label remains `Asia Preferred (Cloudflare edge auto)` when trace metadata is unavailable, so the UI still communicates intent even if the POP code cannot be resolved during preflight.
+- The local blocker was environmental rather than repo-level: the machine originally lacked `cargo` on `PATH`, so the verify pass first had to restore a working Rust toolchain under `%USERPROFILE%\.cargo\bin` before the native checks could run.
+- The machine still shows an intermittent Windows file-lock problem when `cargo test` writes into the default `src-tauri/target` tree, so the refreshed Rust suite was revalidated successfully from a short alternate target directory (`D:\\srptgt`) to avoid stale debug-artifact locks without changing project behavior.
+
+**Next Steps**
+- Perform a manual Windows smoke pass to confirm the modal now shows the resolved edge label and that public-IP display still behaves correctly on real desktop runs.
+- Decide whether the branch should keep the now-synced `src-tauri/Cargo.lock` diff alongside the Speed Test work when it is pushed/reviewed, since the native dependency graph is no longer theoretical after the successful verify pass.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-24 - Speed Test Feature Branch Progress (Modal + Demo Mode + Runtime Hardening)
 
 **Done**

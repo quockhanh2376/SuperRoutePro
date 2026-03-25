@@ -7,13 +7,15 @@ pub mod repair_session;
 pub mod repair_targets;
 pub mod route_persist;
 mod speed_test;
+pub mod win32_consts;
 pub mod win32_net;
 
 use network::{
     add_route, check_internet, clear_cache_targets, delete_route, flush_routes, fping_scan,
     get_battery_report, get_battery_summary, get_bloatware_candidates, get_network_interfaces,
-    get_routing_table, get_wan_persist_on_startup_status, ping_host, remove_bloatware,
-    run_network_command, set_default_gateway, set_wan_persist_on_startup, test_tcp_port,
+    get_network_snapshot, get_routing_table, get_wan_persist_on_startup_status, ping_host,
+    remove_bloatware, run_network_command, set_default_gateway, set_wan_persist_on_startup,
+    test_tcp_port,
 };
 use repair_ipc::{
     complete_unlock_request, get_repair_service_health as read_repair_service_health,
@@ -29,6 +31,8 @@ use repair_protocol::{
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 use speed_test::run_speed_test;
 #[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::path::{Path, PathBuf};
@@ -36,8 +40,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{Manager, WebviewWindowBuilder};
 
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 // Windows 10 RTM build. This also covers all Windows 11 builds.
 const MIN_WINDOWS_BUILD: u32 = 10240;
@@ -115,6 +117,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_network_interfaces,
+            get_network_snapshot,
             get_routing_table,
             add_route,
             delete_route,
@@ -151,6 +154,7 @@ pub fn run() {
             persist_save_config,
             persist_load_config,
             persist_get_nic_stable_id,
+            persist_get_nic_stable_ids,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -331,6 +335,37 @@ fn persist_get_nic_stable_id(
         description: nic.description.clone(),
         mac_address: nic.mac_address.clone(),
     })
+}
+
+#[tauri::command]
+fn persist_get_nic_stable_ids(
+    interface_indexes: Vec<String>,
+) -> Result<Vec<route_persist::NicIdentifier>, String> {
+    let requested_indexes: Vec<u32> = interface_indexes
+        .iter()
+        .map(|interface_index| {
+            interface_index
+                .parse::<u32>()
+                .map_err(|_| format!("Invalid interface index: {interface_index}"))
+        })
+        .collect::<Result<_, _>>()?;
+
+    let adapters = win32_net::enumerate_adapters()?;
+
+    requested_indexes
+        .iter()
+        .map(|target_idx| {
+            let nic = adapters
+                .iter()
+                .find(|a| a.interface_index == *target_idx)
+                .ok_or_else(|| format!("No adapter found with InterfaceIndex {target_idx}"))?;
+
+            Ok(route_persist::NicIdentifier {
+                description: nic.description.clone(),
+                mac_address: nic.mac_address.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(target_os = "windows")]

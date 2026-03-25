@@ -5,14 +5,13 @@ use crate::repair_protocol::{
     RepairSessionStatus,
 };
 use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser};
+#[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::{Command, Stdio};
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const ALLOWED_BLOATWARE_PACKAGES: [&str; 29] = [
     "Clipchamp.Clipchamp",
@@ -498,7 +497,7 @@ pub fn run_machine_action_blocking(
         }
         RepairMachineAction::RestartActiveAdapters => {
             // Enumerate physical adapters that are up, then disable+enable each via netsh
-            match crate::win32_net::enumerate_adapters() {
+            match crate::win32_net::enumerate_adapters_basic() {
                 Ok(adapters) => {
                     let mut restarted = 0;
                     let mut errors = Vec::new();

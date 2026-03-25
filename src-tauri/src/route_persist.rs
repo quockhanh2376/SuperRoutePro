@@ -28,6 +28,8 @@ pub struct CustomRoute {
     pub gateway: String,
     #[serde(default)]
     pub metric: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nic: Option<NicIdentifier>,
 }
 
 /// Full persist configuration written by the UI and read by the service.
@@ -128,6 +130,10 @@ mod tests {
                 mask: "255.255.255.0".into(),
                 gateway: "192.168.1.1".into(),
                 metric: "10".into(),
+                nic: Some(NicIdentifier {
+                    description: "USB Ethernet".into(),
+                    mac_address: "11:22:33:44:55:66".into(),
+                }),
             }],
             updated_at: Some("2026-03-21T09:00:00Z".into()),
         }
@@ -142,6 +148,7 @@ mod tests {
         assert!(json.contains("A4:B1:C2:D3:E4:F5"));
         assert!(json.contains("192.168.1.1"));
         assert!(json.contains("10.0.0.0"));
+        assert!(json.contains("USB Ethernet"));
     }
 
     #[test]
