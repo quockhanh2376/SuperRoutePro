@@ -5,6 +5,27 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Frontend App.tsx Decomposition Slice 2
+
+**Done**
+- Split the large `App.tsx` modal blocks into focused frontend components:
+  - `src/components/BatteryModal.tsx`
+  - `src/components/IpScanModal.tsx`
+- Moved battery formatting helpers into `src/batteryUtils.ts` so the battery summary status text and modal rendering share the same logic.
+- Kept the existing `App.tsx` behavior intact while reducing its render responsibility and removing the bulky battery/IP scan JSX from the composition root.
+- Verified the frontend slice with `npm run test:node` and `npm run build`.
+
+**Notes And Decisions**
+- The extraction stayed on the frontend only, per scope, and did not touch Rust, package metadata, or test files.
+- IP scan rendering now owns its own row sorting and counters inside the modal component, while `App.tsx` keeps only the orchestration state and handlers.
+- NotebookLM still consumes this `DAILY_LOG.md` file as the source-of-truth for session sync.
+
+**Next Steps**
+- Continue decomposing `App.tsx` if more low-risk UI clusters remain.
+- Fold any remaining shared presentation helpers into small reusable frontend modules only when there is a clear duplicate use case.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Released v10.1.5 With Real Regional Speed Test Targets
 
 **Done**

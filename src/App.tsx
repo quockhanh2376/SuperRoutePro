@@ -28,7 +28,10 @@ import { getNicTableMessage } from "./nicTableModel";
 import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
 import { SpeedTestModal } from "./SpeedTestModal";
+import { BatteryModal } from "./components/BatteryModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
+import { IpScanModal } from "./components/IpScanModal";
+import { getBatteryWearLevel } from "./batteryUtils";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 
@@ -78,41 +81,6 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
 
 const IP_SCAN_BATCH_SIZE = 24;
 const DONATE_QR_IMAGE_PATH = "/donate-qr-vpbank.png";
-
-const formatBatteryPercent = (value: number | null | undefined, fractionDigits = 1): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "--";
-  }
-  return `${value.toFixed(fractionDigits)}%`;
-};
-
-const formatBatteryCapacity = (value: number | null | undefined): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "--";
-  }
-  return `${value.toLocaleString("en-US")} mWh`;
-};
-
-const formatBatteryMinutes = (value: number | null | undefined): string => {
-  if (value === null || value === undefined || value <= 0) {
-    return "--";
-  }
-  const hours = Math.floor(value / 60);
-  const minutes = value % 60;
-  if (hours <= 0) {
-    return `${minutes} min`;
-  }
-  return `${hours}h ${minutes}m`;
-};
-
-const getBatteryWearLevel = (wearPercent: number | null | undefined): string => {
-  if (wearPercent === null || wearPercent === undefined || Number.isNaN(wearPercent)) {
-    return "Unknown";
-  }
-  if (wearPercent <= 15) return "Good";
-  if (wearPercent <= 30) return "Moderate";
-  return "High wear";
-};
 
 type CacheCleanupOption = {
   id: string;
@@ -1745,21 +1713,6 @@ export default function App() {
     () => bloatwareItems.filter((item) => item.installed).length,
     [bloatwareItems]
   );
-  const ipScanReachableCount = useMemo(
-    () => ipScanResults.filter((item) => item.success).length,
-    [ipScanResults]
-  );
-  const ipScanDisplayRows = useMemo(
-    () =>
-      [...ipScanResults].sort((left, right) => {
-        if (left.success !== right.success) {
-          return left.success ? -1 : 1;
-        }
-        return left.target.localeCompare(right.target);
-      }),
-    [ipScanResults]
-  );
-  const ipScanScannedCount = ipScanResults.length;
   const selectedBloatwareCount = selectedBloatware.size;
   const selectedCacheCount = selectedCacheTargets.length;
   const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
@@ -2343,234 +2296,28 @@ export default function App() {
         </div>
       )}
 
-      {batteryModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
-          <div className="battery-modal">
-            <div className="battery-modal-header">
-              <div>
-                <h3 className="text-base font-bold text-slate-100">Battery Info</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Summary focused on wear level and estimated battery lifetime.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => void loadBatterySummary()}
-                  disabled={batteryLoading}
-                  className="capsule-btn compact-pill battery-refresh-btn"
-                >
-                  {batteryLoading ? "Loading..." : "Refresh"}
-                </button>
-                <button
-                  onClick={handleCloseBatteryModal}
-                  disabled={batteryLoading}
-                  className="battery-close-btn capsule-btn"
-                  title="Close"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div className="battery-modal-body">
-              {batteryLoading ? (
-                <div className="battery-placeholder">Loading battery summary...</div>
-              ) : batterySummaryError ? (
-                <div className="battery-placeholder battery-placeholder-error">
-                  Unable to load battery summary: {batterySummaryError}
-                </div>
-              ) : batterySummary ? (
-                <div className="battery-summary-shell">
-                  {!batterySummary.present ? (
-                    <div className="battery-placeholder">
-                      {batterySummary.note || "No battery detected on this machine."}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="battery-summary-primary-grid">
-                        <div className="battery-summary-card battery-summary-card-health">
-                          <div className="battery-summary-label">Health Remaining</div>
-                          <div className="battery-summary-value">
-                            {formatBatteryPercent(batterySummary.health_percent)}
-                          </div>
-                          <div className="battery-summary-hint">
-                            Full charge / design capacity
-                          </div>
-                        </div>
-                        <div className="battery-summary-card battery-summary-card-wear">
-                          <div className="battery-summary-label">Wear Level</div>
-                          <div className="battery-summary-value">
-                            {formatBatteryPercent(batterySummary.wear_percent)}
-                          </div>
-                          <div className="battery-summary-hint">
-                            {getBatteryWearLevel(batterySummary.wear_percent)}
-                          </div>
-                        </div>
-                      </div>
+      <BatteryModal
+        open={batteryModalOpen}
+        loading={batteryLoading}
+        summary={batterySummary}
+        error={batterySummaryError}
+        onRefresh={loadBatterySummary}
+        onClose={handleCloseBatteryModal}
+      />
 
-                      <div className="battery-summary-grid">
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Current Charge</span>
-                          <span className="battery-stat-value">{formatBatteryPercent(batterySummary.charge_percent, 0)}</span>
-                        </div>
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Remaining Runtime</span>
-                          <span className="battery-stat-value">{formatBatteryMinutes(batterySummary.estimated_runtime_minutes)}</span>
-                        </div>
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Runtime At Full (est.)</span>
-                          <span className="battery-stat-value">{formatBatteryMinutes(batterySummary.estimated_runtime_full_minutes)}</span>
-                        </div>
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Cycle Count</span>
-                          <span className="battery-stat-value">
-                            {batterySummary.cycle_count === null || batterySummary.cycle_count === undefined ? "--" : batterySummary.cycle_count}
-                          </span>
-                        </div>
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Design Capacity</span>
-                          <span className="battery-stat-value">{formatBatteryCapacity(batterySummary.design_capacity_mwh)}</span>
-                        </div>
-                        <div className="battery-stat">
-                          <span className="battery-stat-title">Full Charge Capacity</span>
-                          <span className="battery-stat-value">{formatBatteryCapacity(batterySummary.full_charge_capacity_mwh)}</span>
-                        </div>
-                      </div>
-
-                      <div className="battery-summary-status-row">
-                        <span className="battery-status-chip">{batterySummary.status}</span>
-                        <span className="battery-summary-note">
-                          {batterySummary.note}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="battery-placeholder">No battery summary available.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {ipScanModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
-          <div className="scan-ip-modal">
-            <div className="scan-ip-modal-header">
-              <div>
-                <h3 className="text-base font-bold text-slate-100">Scan IP</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Scan active hosts in the selected interface subnet.
-                </p>
-                {ipScanPlan && (
-                  <p className="scan-ip-subtitle">
-                    NIC {selectedNic?.index ?? "-"} | {selectedNic?.ip ?? "-"} | {ipScanPlan.subnetLabel} | {ipScanPlan.targets.length} targets
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={handleCloseIpScanModal}
-                disabled={ipScanRunning}
-                className="scan-ip-close-btn capsule-btn"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="scan-ip-toolbar">
-              <span>
-                {ipScanScannedCount} scanned | {ipScanReachableCount} reachable
-              </span>
-              {ipScanPlan?.truncated && (
-                <span className="scan-ip-truncated-note">
-                  Target list limited to {ipScanPlan.targets.length} hosts
-                </span>
-              )}
-            </div>
-
-            <div className="scan-ip-table-shell">
-              {ipScanDisplayRows.length === 0 ? (
-                <div className="scan-ip-empty">
-                  {ipScanRunning ? "Scanning hosts..." : "No scan results yet. Click Start Scan."}
-                </div>
-              ) : (
-                <table className="scan-ip-table">
-                  <thead>
-                    <tr>
-                      <th className="w-12">#</th>
-                      <th>Host</th>
-                      <th className="w-28">Status</th>
-                      <th className="w-24">Latency</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ipScanDisplayRows.map((host, index) => (
-                      <tr key={`${host.target}-${index}`}>
-                        <td className="font-mono">{index + 1}</td>
-                        <td className="font-mono">{host.target}</td>
-                        <td>
-                          <span className={`scan-ip-status-chip ${host.success ? "scan-ip-status-up" : "scan-ip-status-down"}`}>
-                            {host.success ? "Reachable" : "Timeout"}
-                          </span>
-                        </td>
-                        <td className="font-mono">{host.success ? `${host.latency_ms} ms` : "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="cache-progress-panel">
-              <div className="cache-progress-track">
-                <div
-                  className="cache-progress-fill"
-                  style={{ width: `${ipScanProgressPercent}%` }}
-                />
-                <span className="cache-progress-value">{ipScanProgressPercent}%</span>
-              </div>
-              <div className="cache-progress-text">
-                {ipScanRunning
-                  ? ipScanProgressText
-                  : ipScanProgressPercent > 0
-                    ? ipScanProgressText
-                    : ipScanPlan
-                      ? `Ready. ${ipScanPlan.targets.length} host target(s).`
-                      : "Ready."}
-              </div>
-            </div>
-
-            <div className="scan-ip-modal-footer">
-              <button
-                onClick={handleStartIpScan}
-                disabled={ipScanRunning || !ipScanPlan}
-                className="capsule-btn compact-pill cache-tool-btn"
-              >
-                {ipScanScannedCount > 0 ? "Rescan" : "Start Scan"}
-              </button>
-              <div className="flex items-center gap-2">
-                {ipScanRunning && (
-                  <button
-                    onClick={handleForceStopIpScan}
-                    disabled={ipScanStopPending}
-                    className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
-                  >
-                    {ipScanStopPending ? "Stopping..." : "Force Stop"}
-                  </button>
-                )}
-                <button
-                  onClick={handleCloseIpScanModal}
-                  disabled={ipScanRunning}
-                  className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <IpScanModal
+        open={ipScanModalOpen}
+        selectedNic={selectedNic}
+        plan={ipScanPlan}
+        running={ipScanRunning}
+        stopPending={ipScanStopPending}
+        results={ipScanResults}
+        progressPercent={ipScanProgressPercent}
+        progressText={ipScanProgressText}
+        onStart={handleStartIpScan}
+        onForceStop={handleForceStopIpScan}
+        onClose={handleCloseIpScanModal}
+      />
 
       {cacheModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
