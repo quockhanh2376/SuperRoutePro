@@ -1,6 +1,7 @@
 use crate::cache_cleanup::{
     cleanup_paths_for_profile_root, run_cleanup_for_profile_root, sanitize_cleanup_targets,
 };
+use crate::bloatware_catalog::canonical_bloatware_package;
 use crate::network;
 use crate::persist_startup;
 use crate::repair_protocol::{
@@ -10,60 +11,12 @@ use crate::repair_protocol::{
 use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser};
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::process::{Command, Stdio};
-
-const ALLOWED_BLOATWARE_PACKAGES: [&str; 29] = [
-    "Clipchamp.Clipchamp",
-    "Microsoft.BingNews",
-    "Microsoft.BingWeather",
-    "Microsoft.GetHelp",
-    "Microsoft.Getstarted",
-    "Microsoft.GamingApp",
-    "Microsoft.Microsoft3DViewer",
-    "Microsoft.MicrosoftOfficeHub",
-    "Microsoft.MicrosoftSolitaireCollection",
-    "Microsoft.MixedReality.Portal",
-    "Microsoft.OutlookForWindows",
-    "Microsoft.People",
-    "Microsoft.PowerAutomateDesktop",
-    "Microsoft.SkypeApp",
-    "Microsoft.Todos",
-    "Microsoft.WindowsAlarms",
-    "microsoft.windowscommunicationsapps",
-    "Microsoft.WindowsFeedbackHub",
-    "Microsoft.WindowsMaps",
-    "Microsoft.Xbox.TCUI",
-    "Microsoft.XboxGameOverlay",
-    "Microsoft.XboxGamingOverlay",
-    "Microsoft.XboxIdentityProvider",
-    "Microsoft.XboxSpeechToTextOverlay",
-    "Microsoft.YourPhone",
-    "Microsoft.ZuneMusic",
-    "Microsoft.ZuneVideo",
-    "MicrosoftTeams",
-    "MicrosoftCorporationII.MicrosoftFamily",
-];
-
-fn locked_result() -> RepairCommandResult {
-    RepairCommandResult {
-        success: false,
-        output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes.".to_string(),
-        requires_unlock: true,
-    }
-}
-
-fn from_network_result(result: network::CommandResult) -> RepairCommandResult {
-    RepairCommandResult {
-        success: result.success,
-        output: result.output,
-        requires_unlock: false,
-    }
-}
 
 fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
@@ -143,15 +96,10 @@ pub fn validate_appx_removal_request(request: &AppxRemovalRequest) -> Result<(),
         return Err("Missing or invalid target SID for Appx removal.".to_string());
     }
 
-    let allowed: HashMap<String, &str> = ALLOWED_BLOATWARE_PACKAGES
-        .iter()
-        .map(|package_name| (package_name.to_lowercase(), *package_name))
-        .collect();
-
     let valid_count = request
         .packages
         .iter()
-        .filter(|package| allowed.contains_key(&package.trim().to_lowercase()))
+        .filter(|package| canonical_bloatware_package(package).is_some())
         .count();
 
     if valid_count == 0 {
@@ -166,7 +114,7 @@ pub fn run_machine_action_blocking(
     action: RepairMachineAction,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     let result = match action {
@@ -183,9 +131,6 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::FlushRoutes => network::flush_routes_blocking()?,
         RepairMachineAction::SetDefaultGateway(request) => {
             network::set_default_gateway_blocking(request.gateway, request.interface_index)?
-        }
-        RepairMachineAction::SetWanPersistOnStartup(request) => {
-            network::set_wan_persist_on_startup_blocking(request.interface_index, request.enabled)?
         }
         RepairMachineAction::SavePersistConfig(request) => {
             persist_startup::save_enabled_config(&request.config)?;
@@ -204,27 +149,14 @@ pub fn run_machine_action_blocking(
                 output: "Persist startup config cleared.".to_string(),
             }
         }
-        RepairMachineAction::FlushDns => {
-            network::run_network_command_blocking("ipconfig /flushdns".to_string())?
-        }
+        RepairMachineAction::FlushDns => network::flush_dns_blocking()?,
         RepairMachineAction::RenewDhcpLease => network::renew_dhcp_lease_blocking()?,
-        RepairMachineAction::ClearArpCache => {
-            network::run_network_command_blocking("netsh interface ip delete arpcache".to_string())?
-        }
-        RepairMachineAction::ResetTcpIp => {
-            network::run_network_command_blocking("netsh int ip reset".to_string())?
-        }
-        RepairMachineAction::ResetWinsock => {
-            network::run_network_command_blocking("netsh winsock reset".to_string())?
-        }
-        RepairMachineAction::ResetFirewall => {
-            network::run_network_command_blocking("netsh advfirewall reset".to_string())?
-        }
-        RepairMachineAction::ResetWinHttpProxy => {
-            network::run_network_command_blocking("netsh winhttp reset proxy".to_string())?
-        }
+        RepairMachineAction::ClearArpCache => network::clear_arp_cache_blocking()?,
+        RepairMachineAction::ResetTcpIp => network::reset_tcp_ip_blocking()?,
+        RepairMachineAction::ResetWinsock => network::reset_winsock_blocking()?,
+        RepairMachineAction::ResetFirewall => network::reset_firewall_blocking()?,
+        RepairMachineAction::ResetWinHttpProxy => network::reset_winhttp_proxy_blocking()?,
         RepairMachineAction::RestartActiveAdapters => {
-            // Enumerate physical adapters that are up, then disable+enable each via netsh
             match crate::win32_net::enumerate_adapters_basic() {
                 Ok(adapters) => {
                     let mut restarted = 0;
@@ -234,16 +166,18 @@ pub fn run_machine_action_blocking(
                         .filter(|a| a.oper_status_up && !a.friendly_name.is_empty())
                     {
                         let name = &nic.friendly_name;
-                        let disable = network::run_network_command_blocking(format!(
-                            "netsh interface set interface \"{}\" disable",
-                            name
-                        ));
-                        let enable = network::run_network_command_blocking(format!(
-                            "netsh interface set interface \"{}\" enable",
-                            name
-                        ));
+                        let disable = network::set_adapter_enabled_blocking(name, false);
+                        let enable = disable
+                            .as_ref()
+                            .ok()
+                            .and_then(|result| result.success.then_some(()))
+                            .map(|_| network::set_adapter_enabled_blocking(name, true));
                         match (disable, enable) {
-                            (Ok(_), Ok(_)) => restarted += 1,
+                            (Ok(disable_result), Some(Ok(enable_result)))
+                                if disable_result.success && enable_result.success =>
+                            {
+                                restarted += 1
+                            }
                             _ => errors.push(format!("Failed to restart adapter: {}", name)),
                         }
                     }
@@ -271,7 +205,7 @@ pub fn run_machine_action_blocking(
         }
     };
 
-    Ok(from_network_result(result))
+    Ok(result.into())
 }
 
 pub async fn add_route(
@@ -283,11 +217,11 @@ pub async fn add_route(
     interface_index: Option<String>,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     let result = network::add_route(destination, mask, gateway, metric, interface_index).await?;
-    Ok(from_network_result(result))
+    Ok(result.into())
 }
 
 pub async fn delete_route(
@@ -296,22 +230,22 @@ pub async fn delete_route(
     mask: String,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     let result = network::delete_route(destination, mask).await?;
-    Ok(from_network_result(result))
+    Ok(result.into())
 }
 
 pub async fn flush_routes(
     session_status: &RepairSessionStatus,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     let result = network::flush_routes().await?;
-    Ok(from_network_result(result))
+    Ok(result.into())
 }
 
 pub async fn set_default_gateway(
@@ -320,24 +254,11 @@ pub async fn set_default_gateway(
     interface_index: String,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     let result = network::set_default_gateway(gateway, interface_index).await?;
-    Ok(from_network_result(result))
-}
-
-pub async fn set_wan_persist_on_startup(
-    session_status: &RepairSessionStatus,
-    interface_index: String,
-    enabled: bool,
-) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(locked_result());
-    }
-
-    let result = network::set_wan_persist_on_startup(interface_index, enabled).await?;
-    Ok(from_network_result(result))
+    Ok(result.into())
 }
 
 pub async fn run_machine_action(
@@ -355,7 +276,7 @@ pub fn clear_profile_caches_blocking(
     request: ProfileCleanupRequest,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     validate_profile_cleanup_request(&request)?;
@@ -421,23 +342,18 @@ pub fn remove_appx_for_target_blocking(
     request: AppxRemovalRequest,
 ) -> Result<RepairCommandResult, String> {
     if session_status.locked {
-        return Ok(locked_result());
+        return Ok(RepairCommandResult::locked());
     }
 
     validate_appx_removal_request(&request)?;
     let target_user = resolve_repair_target_by_sid(&request.target_sid)?;
 
-    let allowed: HashMap<String, &str> = ALLOWED_BLOATWARE_PACKAGES
-        .iter()
-        .map(|package_name| (package_name.to_lowercase(), *package_name))
-        .collect();
     let mut seen = HashSet::new();
     let selected: Vec<String> = request
         .packages
         .iter()
         .filter_map(|package| {
-            let canonical = allowed.get(&package.trim().to_lowercase())?;
-            let canonical_name = (*canonical).to_string();
+            let canonical_name = canonical_bloatware_package(package)?.to_string();
             if seen.insert(canonical_name.clone()) {
                 Some(canonical_name)
             } else {

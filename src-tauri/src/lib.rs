@@ -1,4 +1,5 @@
 mod battery;
+mod bloatware_catalog;
 pub mod cache_cleanup;
 mod network;
 mod network_snapshot;
@@ -21,8 +22,8 @@ use crate::win32_consts::CREATE_NO_WINDOW;
 use battery::{get_battery_report, get_battery_summary};
 use network::{
     add_route, check_internet, clear_cache_targets, delete_route, flush_routes,
-    get_bloatware_candidates, get_wan_persist_on_startup_status, remove_bloatware,
-    run_network_command, set_default_gateway, set_wan_persist_on_startup, test_tcp_port,
+    get_bloatware_candidates, remove_bloatware, run_network_command, set_default_gateway,
+    test_tcp_port,
 };
 use network_snapshot::{get_network_interfaces, get_network_snapshot, get_routing_table};
 use ping::{fping_scan, ping_host};
@@ -131,8 +132,6 @@ pub fn run() {
             delete_route,
             flush_routes,
             set_default_gateway,
-            set_wan_persist_on_startup,
-            get_wan_persist_on_startup_status,
             run_network_command,
             ping_host,
             test_tcp_port,
@@ -154,7 +153,6 @@ pub fn run() {
             repair_delete_route,
             repair_flush_routes,
             repair_set_default_gateway,
-            repair_set_wan_persist_on_startup,
             repair_save_persist_config,
             repair_clear_persist_config,
             repair_run_machine_action,
@@ -250,19 +248,6 @@ async fn repair_set_default_gateway(
         repair_protocol::SetDefaultGatewayRequest {
             gateway,
             interface_index,
-        },
-    ))
-}
-
-#[tauri::command]
-async fn repair_set_wan_persist_on_startup(
-    interface_index: String,
-    enabled: bool,
-) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::SetWanPersistOnStartup(
-        repair_protocol::SetWanPersistOnStartupRequest {
-            interface_index,
-            enabled,
         },
     ))
 }

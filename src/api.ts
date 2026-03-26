@@ -182,17 +182,6 @@ export async function setDefaultGateway(
   return invoke<CommandResult>("set_default_gateway", { gateway, interfaceIndex });
 }
 
-export async function setWanPersistOnStartup(
-  interfaceIndex: string,
-  enabled: boolean
-): Promise<CommandResult> {
-  return invoke<CommandResult>("set_wan_persist_on_startup", { interfaceIndex, enabled });
-}
-
-export async function getWanPersistOnStartupStatus(): Promise<boolean> {
-  return invoke<boolean>("get_wan_persist_on_startup_status");
-}
-
 export async function runNetworkCommand(command: string): Promise<CommandResult> {
   return invoke<CommandResult>("run_network_command", { command });
 }
@@ -335,16 +324,6 @@ export async function repairSetDefaultGateway(
   return invoke<RepairCommandResult>("repair_set_default_gateway", {
     gateway,
     interfaceIndex,
-  });
-}
-
-export async function repairSetWanPersistOnStartup(
-  interfaceIndex: string,
-  enabled: boolean,
-): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_set_wan_persist_on_startup", {
-    interfaceIndex,
-    enabled,
   });
 }
 

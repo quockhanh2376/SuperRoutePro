@@ -1,11 +1,11 @@
 use crate::cache_cleanup::{
     label_for_target, run_cleanup_for_current_user, sanitize_cleanup_targets,
 };
+use crate::bloatware_catalog::{canonical_bloatware_package, BLOATWARE_CANDIDATES};
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::collections::HashSet;
 use std::net::TcpStream;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Output, Stdio};
@@ -15,43 +15,6 @@ use std::time::{Duration, Instant};
 const DEFAULT_CMD_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_POWERSHELL_TIMEOUT_SECS: u64 = 45;
 const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
-const WAN_PERSIST_TASK_NAME: &str = "SuperRoutePro-PersistWAN";
-const WAN_PERSIST_DIR: &str = r"C:\ProgramData\SuperRoutePro";
-const WAN_PERSIST_SCRIPT_PATH: &str = r"C:\ProgramData\SuperRoutePro\persist-wan.cmd";
-const BLOATWARE_CANDIDATES: [(&str, &str); 29] = [
-    ("Clipchamp.Clipchamp", "Clipchamp"),
-    ("Microsoft.BingNews", "Microsoft News"),
-    ("Microsoft.BingWeather", "Microsoft Weather"),
-    ("Microsoft.GetHelp", "Get Help"),
-    ("Microsoft.Getstarted", "Get Started"),
-    ("Microsoft.GamingApp", "Xbox"),
-    ("Microsoft.Microsoft3DViewer", "3D Viewer"),
-    ("Microsoft.MicrosoftOfficeHub", "Microsoft 365 (Office Hub)"),
-    (
-        "Microsoft.MicrosoftSolitaireCollection",
-        "Microsoft Solitaire Collection",
-    ),
-    ("Microsoft.MixedReality.Portal", "Mixed Reality Portal"),
-    ("Microsoft.OutlookForWindows", "Outlook for Windows"),
-    ("Microsoft.People", "People"),
-    ("Microsoft.PowerAutomateDesktop", "Power Automate"),
-    ("Microsoft.SkypeApp", "Skype"),
-    ("Microsoft.Todos", "Microsoft To Do"),
-    ("Microsoft.WindowsAlarms", "Clock"),
-    ("microsoft.windowscommunicationsapps", "Mail and Calendar"),
-    ("Microsoft.WindowsFeedbackHub", "Feedback Hub"),
-    ("Microsoft.WindowsMaps", "Maps"),
-    ("Microsoft.Xbox.TCUI", "Xbox TCUI"),
-    ("Microsoft.XboxGameOverlay", "Xbox Game Bar Plugin"),
-    ("Microsoft.XboxGamingOverlay", "Xbox Game Bar"),
-    ("Microsoft.XboxIdentityProvider", "Xbox Identity Provider"),
-    ("Microsoft.XboxSpeechToTextOverlay", "Xbox Speech To Text"),
-    ("Microsoft.YourPhone", "Phone Link"),
-    ("Microsoft.ZuneMusic", "Media Player (Legacy Music)"),
-    ("Microsoft.ZuneVideo", "Movies & TV"),
-    ("MicrosoftTeams", "Microsoft Teams"),
-    ("MicrosoftCorporationII.MicrosoftFamily", "Microsoft Family"),
-];
 
 // ======================== DATA TYPES ========================
 
@@ -143,21 +106,6 @@ fn run_cmd_blocking(program: &str, args: &[&str], timeout: Duration) -> Result<S
     }
 }
 
-async fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
-    let program_owned = program.to_string();
-    let args_owned: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
-    tauri::async_runtime::spawn_blocking(move || {
-        let args_refs: Vec<&str> = args_owned.iter().map(String::as_str).collect();
-        run_cmd_blocking(
-            &program_owned,
-            &args_refs,
-            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-        )
-    })
-    .await
-    .map_err(|err| format!("Command task join error: {}", err))?
-}
-
 fn collect_process_output(output: &Output) -> String {
     [
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -233,56 +181,6 @@ async fn run_powershell(script: &str) -> Result<String, String> {
 
 fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
-}
-
-fn is_task_not_found_error(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    lower.contains("cannot find the file specified")
-        || lower.contains("cannot find the task")
-        || lower.contains("the system cannot find the file specified")
-}
-
-fn build_wan_persist_script(interface_index: u32) -> String {
-    // Native .cmd batch script using only route.exe (no PowerShell).
-    // 1. Parse 'route print -4' to find gateway for target interface index
-    // 2. Delete all 0.0.0.0 default routes
-    // 3. Add persistent route via target NIC gateway
-    format!(
-        r#"@echo off
-setlocal enabledelayedexpansion
-set "TARGET_IF={target_if}"
-set "GATEWAY="
-
-REM Parse route print to find gateway for our target interface
-for /f "tokens=1-5" %%a in ('route print -4 ^| findstr /r "^  *0\.0\.0\.0"') do (
-    if "%%e"=="!TARGET_IF!" (
-        set "GATEWAY=%%c"
-    )
-)
-
-if "!GATEWAY!"=="" (
-    echo No gateway found for interface index %TARGET_IF%. Skipping startup WAN apply.
-    exit /b 0
-)
-
-REM Delete all default routes then add persistent one for target NIC
-for /l %%i in (1,1,6) do route delete 0.0.0.0 >nul 2>&1
-route -p add 0.0.0.0 mask 0.0.0.0 !GATEWAY! metric 1 if %TARGET_IF% >nul 2>&1
-
-echo Startup WAN applied on interface %TARGET_IF% via gateway !GATEWAY!.
-"#,
-        target_if = interface_index
-    )
-}
-
-fn ensure_wan_persist_script(interface_index: u32) -> Result<(), String> {
-    fs::create_dir_all(WAN_PERSIST_DIR)
-        .map_err(|e| format!("Failed to create {}: {}", WAN_PERSIST_DIR, e))?;
-    fs::write(
-        WAN_PERSIST_SCRIPT_PATH,
-        build_wan_persist_script(interface_index),
-    )
-    .map_err(|e| format!("Failed to write {}: {}", WAN_PERSIST_SCRIPT_PATH, e))
 }
 
 fn cleanup_default_routes_blocking() -> String {
@@ -472,95 +370,108 @@ pub async fn set_default_gateway(
     .map_err(|err| format!("Default gateway task join error: {err}"))?
 }
 
-pub fn set_wan_persist_on_startup_blocking(
-    interface_index: String,
+fn run_typed_network_command(
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+    success_fallback: &str,
+    failure_fallback: &str,
+) -> Result<CommandResult, String> {
+    let output = run_process_blocking(program, args, timeout)?;
+    Ok(command_result_from_outputs(
+        &[&output],
+        output.status.success(),
+        success_fallback,
+        failure_fallback,
+    ))
+}
+
+pub fn flush_dns_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "ipconfig",
+        &["/flushdns"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "DNS cache flushed.",
+        "DNS flush failed.",
+    )
+}
+
+pub fn clear_arp_cache_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "netsh",
+        &["interface", "ip", "delete", "arpcache"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "ARP cache cleared.",
+        "ARP cache clear failed.",
+    )
+}
+
+pub fn reset_tcp_ip_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "netsh",
+        &["int", "ip", "reset"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "TCP/IP stack reset.",
+        "TCP/IP reset failed.",
+    )
+}
+
+pub fn reset_winsock_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "netsh",
+        &["winsock", "reset"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "Winsock reset completed.",
+        "Winsock reset failed.",
+    )
+}
+
+pub fn reset_firewall_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "netsh",
+        &["advfirewall", "reset"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "Firewall reset completed.",
+        "Firewall reset failed.",
+    )
+}
+
+pub fn reset_winhttp_proxy_blocking() -> Result<CommandResult, String> {
+    run_typed_network_command(
+        "netsh",
+        &["winhttp", "reset", "proxy"],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        "WinHTTP proxy reset completed.",
+        "WinHTTP proxy reset failed.",
+    )
+}
+
+pub fn set_adapter_enabled_blocking(
+    interface_name: &str,
     enabled: bool,
 ) -> Result<CommandResult, String> {
-    if enabled {
-        let target_interface_index = interface_index
-            .trim()
-            .parse::<u32>()
-            .map_err(|_| "Invalid interface index".to_string())?;
-
-        ensure_wan_persist_script(target_interface_index)?;
-
-        let task_command = format!(r#"cmd.exe /c "{}""#, WAN_PERSIST_SCRIPT_PATH);
-        let create_output = run_cmd_blocking(
-            "schtasks",
-            &[
-                "/Create",
-                "/TN",
-                WAN_PERSIST_TASK_NAME,
-                "/SC",
-                "ONSTART",
-                "/RL",
-                "HIGHEST",
-                "/RU",
-                "SYSTEM",
-                "/TR",
-                &task_command,
-                "/F",
-            ],
-            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-        )?;
-
-        return Ok(CommandResult {
-            success: true,
-            output: format!(
-                "Persist on startup enabled for interface {}.\n{}",
-                target_interface_index,
-                create_output.trim()
-            ),
-        });
-    }
-
-    let delete_output = match run_cmd_blocking(
-        "schtasks",
-        &["/Delete", "/TN", WAN_PERSIST_TASK_NAME, "/F"],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-    ) {
-        Ok(output) => output,
-        Err(err) => {
-            if is_task_not_found_error(&err) {
-                "Startup task was already removed.".to_string()
-            } else {
-                return Err(err);
-            }
-        }
+    let name_arg = format!(r#"name="{}""#, interface_name);
+    let admin_arg = if enabled {
+        "admin=enabled"
+    } else {
+        "admin=disabled"
     };
 
-    Ok(CommandResult {
-        success: true,
-        output: format!("Persist on startup disabled.\n{}", delete_output.trim()),
-    })
-}
-
-/// Enable/disable WAN persist task that reapplies selected interface as default gateway on startup.
-#[tauri::command]
-pub async fn set_wan_persist_on_startup(
-    interface_index: String,
-    enabled: bool,
-) -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        set_wan_persist_on_startup_blocking(interface_index, enabled)
-    })
-    .await
-    .map_err(|err| format!("Persist-on-startup task join error: {err}"))?
-}
-
-/// Returns whether WAN persist startup task currently exists.
-#[tauri::command]
-pub async fn get_wan_persist_on_startup_status() -> Result<bool, String> {
-    match run_cmd("schtasks", &["/Query", "/TN", WAN_PERSIST_TASK_NAME]).await {
-        Ok(_) => Ok(true),
-        Err(err) => {
-            if is_task_not_found_error(&err) {
-                Ok(false)
-            } else {
-                Err(err)
-            }
-        }
-    }
+    run_typed_network_command(
+        "netsh",
+        &["interface", "set", "interface", &name_arg, admin_arg],
+        Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
+        if enabled {
+            "Adapter enabled."
+        } else {
+            "Adapter disabled."
+        },
+        if enabled {
+            "Adapter enable failed."
+        } else {
+            "Adapter disable failed."
+        },
+    )
 }
 
 fn validate_network_command(command: &str) -> Result<(), String> {
@@ -786,11 +697,6 @@ pub async fn remove_bloatware(packages: Vec<String>) -> Result<CommandResult, St
         return Err("No packages selected".to_string());
     }
 
-    let allowed: HashMap<String, &str> = BLOATWARE_CANDIDATES
-        .iter()
-        .map(|(package_name, _)| (package_name.to_lowercase(), *package_name))
-        .collect();
-
     let mut selected = Vec::new();
     let mut seen = HashSet::new();
     for raw in packages {
@@ -807,8 +713,8 @@ pub async fn remove_bloatware(packages: Vec<String>) -> Result<CommandResult, St
             continue;
         }
 
-        if let Some(canonical) = allowed.get(&lower) {
-            let canonical_name = (*canonical).to_string();
+        if let Some(canonical) = canonical_bloatware_package(trimmed) {
+            let canonical_name = canonical.to_string();
             if seen.insert(canonical_name.clone()) {
                 selected.push(canonical_name);
             }
@@ -992,7 +898,11 @@ pub async fn clear_cache_targets(targets: Vec<String>) -> Result<CommandResult, 
 #[tauri::command]
 pub async fn check_internet() -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        match TcpStream::connect_timeout(&"8.8.8.8:53".parse().unwrap(), Duration::from_secs(3)) {
+        let probe_addr = "8.8.8.8:53"
+            .parse()
+            .map_err(|err| format!("Failed to parse internet probe address: {err}"))?;
+
+        match TcpStream::connect_timeout(&probe_addr, Duration::from_secs(3)) {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
         }

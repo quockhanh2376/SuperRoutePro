@@ -18,31 +18,28 @@ test("startup checkbox stays enabled when persisted config is still active", () 
   assert.equal(
     resolvePersistStartupEnabled({
       localPreference: false,
-      legacyTaskEnabled: false,
       persistedConfigEnabled: true,
     }),
     true,
   );
 });
 
-test("startup checkbox stays enabled when a legacy startup task is still active", () => {
-  assert.equal(
-    resolvePersistStartupEnabled({
-      localPreference: false,
-      legacyTaskEnabled: true,
-      persistedConfigEnabled: false,
-    }),
-    true,
-  );
-});
-
-test("startup checkbox falls back to false when no persisted state remains", () => {
+test("startup checkbox follows persisted config when it is explicitly disabled", () => {
   assert.equal(
     resolvePersistStartupEnabled({
       localPreference: true,
-      legacyTaskEnabled: false,
       persistedConfigEnabled: false,
     }),
     false,
+  );
+});
+
+test("startup checkbox falls back to the local preference when no persisted state remains", () => {
+  assert.equal(
+    resolvePersistStartupEnabled({
+      localPreference: true,
+      persistedConfigEnabled: null,
+    }),
+    true,
   );
 });

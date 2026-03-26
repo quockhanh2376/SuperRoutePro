@@ -5,6 +5,65 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 1 (Startup Unification + Repair Hardening + AU/UI/Test Pass)
+
+**Done**
+- Read through `NeedToDo.md` again and executed the first broad delivery slice across backend, Speed Test UI, AU target groundwork, and regression coverage.
+- Consolidated startup persistence onto the persisted-config path:
+  - the app no longer calls the legacy WAN-only startup task APIs
+  - `src-tauri/src/persist_startup.rs` now owns startup task registration plus cleanup of obsolete WAN-only artifacts
+  - `src/App.tsx`, `src/api.ts`, `src/persistStartupModel.ts`, `tests/persistStartupModel.test.ts`, and `tests/persistFlow.test.ts` were updated so the checkbox now resolves from persisted config state instead of the split legacy/new task model
+- Replaced generic repair shell-string usage with typed helpers in `src-tauri/src/network.rs` and wired them through `src-tauri/src/repair_actions.rs`:
+  - `FlushDns`
+  - `RenewDhcpLease`
+  - `ClearArpCache`
+  - `ResetTcpIp`
+  - `ResetWinsock`
+  - `ResetFirewall`
+  - `ResetWinHttpProxy`
+  - `RestartActiveAdapters` now routes through typed adapter enable/disable helpers instead of shell-building `netsh` commands
+- Deduplicated backend catalog / result glue:
+  - moved the Windows Appx allowlist into `src-tauri/src/bloatware_catalog.rs`
+  - both `network.rs` and `repair_actions.rs` now use the shared catalog
+  - `RepairCommandResult` in `src-tauri/src/repair_protocol.rs` now has shared constructors plus `From<network::CommandResult>` so the repair layer no longer hand-rolls the same conversion repeatedly
+- Clarified repair architecture in shipped code:
+  - removed the dead-end `SuperRouteRepairService` binary entry from `src-tauri/Cargo.toml`
+  - deleted `src-tauri/src/repair_service_main.rs`
+  - the runtime path is now explicitly broker-based (`SuperRouteRepairBroker`) plus the route replay sidecar (`SuperRouteService`)
+- Added Speed Test AU groundwork in backend:
+  - `src-tauri/src/speed_test_targets.rs` now exposes `Auto Australia` (`auto_au`) with preferred Cloudflare AU colos `SYD`, `MEL`, `BNE`, `PER`, `ADL`
+  - `src-tauri/src/speed_test.rs` no longer hardcodes Asia-only route-fit wording for Cloudflare auto-edge labels and messages
+- Integrated the frontend Speed Test redesign from the `frontend_phase2` subagent:
+  - `src/SpeedTestModalView.tsx` and `src/SpeedTestModal.css` now use live metric cards during active runs instead of a progress-bar-first presentation
+  - the target copy is neutralized so multi-region catalogs like `Auto Australia` fit without UI copy regressions
+- Integrated the backend regression coverage from the `integration_flow_tests` subagent:
+  - `src-tauri/tests/persist_config_roundtrip.rs`
+  - `src-tauri/tests/route_service_behavior.rs`
+  - `src-tauri/tests/repair_broker_flow.rs`
+  - `src-tauri/tests/speed_test_targets_contract.rs`
+  - plus small test-only seams in `src-tauri/src/route_service_main.rs` and `src-tauri/src/repair_broker_main.rs`
+- Tightened one smaller backend cleanup item from the list:
+  - `check_internet()` in `src-tauri/src/network.rs` no longer uses `unwrap()` on the probe socket address
+
+**Notes And Decisions**
+- This slice intentionally stopped short of the deeper `lib.rs` modular split because the runtime correctness / architectural cleanup items above were higher value and easier to verify without widening blast radius too far in one pass.
+- `Auto Australia` is implemented as a Cloudflare preferred-region profile only. True city-pinned AU targets remain pending until compatible LibreSpeed-style AU backends are confirmed live.
+- The route replay service (`SuperRouteService`) stays in place because it is the actual shipped startup replay worker; only the unused repair service skeleton was removed.
+- A later rerun of `cargo test` hit an environmental `os error 32` lock on the `SuperRouteRepairBroker` test binary, but the full suite had already completed successfully once earlier in this same session before that lock reappeared.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- Continue the remaining backend maintainability work from `NeedToDo.md`, especially the deeper `lib.rs` split and any remaining command-helper centralization.
+- Decide whether to rename `RepairService*` protocol types/messages toward `RepairHost*` in a later cleanup pass so naming fully matches the now-explicit broker architecture.
+- If product still wants true AU city targets beyond `Auto Australia`, source and validate real AU backends before hardcoding any city-pinned endpoints.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - Released v10.1.6 With Repair Command Hardening
 
 **Done**

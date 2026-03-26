@@ -2,7 +2,6 @@ export type PersistStartupWriteMode = "save" | "clear";
 
 type ResolvePersistStartupEnabledArgs = {
   localPreference: boolean | null;
-  legacyTaskEnabled: boolean | null;
   persistedConfigEnabled: boolean | null;
 };
 
@@ -12,14 +11,13 @@ export function getPersistStartupWriteMode(enabled: boolean): PersistStartupWrit
 
 export function resolvePersistStartupEnabled({
   localPreference,
-  legacyTaskEnabled,
   persistedConfigEnabled,
 }: ResolvePersistStartupEnabledArgs): boolean {
-  if (persistedConfigEnabled === true || legacyTaskEnabled === true) {
+  if (persistedConfigEnabled === true) {
     return true;
   }
 
-  if (persistedConfigEnabled === false || legacyTaskEnabled === false) {
+  if (persistedConfigEnabled === false) {
     return false;
   }
 

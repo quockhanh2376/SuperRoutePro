@@ -33,7 +33,7 @@ struct LibreSpeedIpLookupResponse {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SpeedTestRouteFit {
-    PreferredAsia,
+    PreferredRegion,
     GlobalFallback,
     Pending,
 }
@@ -143,13 +143,14 @@ fn build_preflight_message(
             target,
             context.and_then(|context| context.trace.as_ref()),
         ) {
-            SpeedTestRouteFit::PreferredAsia => {
+            SpeedTestRouteFit::PreferredRegion => {
                 let colo = context
                     .and_then(|context| context.trace.as_ref())
                     .and_then(|trace| trace.colo.as_deref())
-                    .unwrap_or("preferred Asia edge");
+                    .unwrap_or("preferred regional edge");
+                let region_label = preferred_region_label(target);
                 format!(
-                    "Preparing native speed test via {provider_label}. Preferred Asia edge resolved at {colo}."
+                    "Preparing native speed test via {provider_label}. Preferred {region_label} edge resolved at {colo}."
                 )
             }
             SpeedTestRouteFit::GlobalFallback => {
@@ -157,8 +158,9 @@ fn build_preflight_message(
                     .and_then(|context| context.trace.as_ref())
                     .and_then(|trace| trace.colo.as_deref())
                     .unwrap_or("Cloudflare edge");
+                let region_label = preferred_region_label(target);
                 format!(
-                    "Preparing native speed test via {provider_label}. Using a global fallback edge at {colo}."
+                    "Preparing native speed test via {provider_label}. Using a global fallback edge at {colo}, outside the preferred {region_label} region."
                 )
             }
             SpeedTestRouteFit::Pending => {
@@ -569,10 +571,14 @@ fn resolve_speed_test_route_fit(
     }
 
     match trace.and_then(|trace| trace.colo.as_deref()) {
-        Some(colo) if is_preferred_colo(target, colo) => SpeedTestRouteFit::PreferredAsia,
+        Some(colo) if is_preferred_colo(target, colo) => SpeedTestRouteFit::PreferredRegion,
         Some(_) => SpeedTestRouteFit::GlobalFallback,
         None => SpeedTestRouteFit::Pending,
     }
+}
+
+fn preferred_region_label(target: SpeedTestTarget) -> &'static str {
+    target.preferred_region_label.unwrap_or("preferred")
 }
 
 fn is_preferred_colo(target: SpeedTestTarget, colo: &str) -> bool {
@@ -595,9 +601,14 @@ fn resolve_speed_test_server_label(
         resolve_speed_test_route_fit(target, trace),
         trace.and_then(|trace| trace.colo.as_deref()),
     ) {
-        (SpeedTestRouteFit::PreferredAsia, Some(colo)) => format!("Asia Preferred ({colo} edge)"),
+        (SpeedTestRouteFit::PreferredRegion, Some(colo)) => {
+            format!("{} Preferred ({colo} edge)", preferred_region_label(target))
+        }
         (SpeedTestRouteFit::GlobalFallback, Some(colo)) => {
-            format!("Global Fallback ({colo} edge, outside Asia preference)")
+            format!(
+                "Global Fallback ({colo} edge, outside {} preference)",
+                preferred_region_label(target)
+            )
         }
         _ => target.default_server_label.to_string(),
     }
@@ -766,11 +777,15 @@ mod tests {
         let provider = resolve_speed_test_provider_label(
             resolve_speed_test_target(None).expect("default target should resolve"),
         );
+        let auto_au_provider = resolve_speed_test_provider_label(
+            resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve"),
+        );
         let eu_provider = resolve_speed_test_provider_label(
             resolve_speed_test_target(Some("eu")).expect("eu target should resolve"),
         );
 
         assert_eq!(provider, "Cloudflare (Asia auto-edge)");
+        assert_eq!(auto_au_provider, "Cloudflare (Australia auto-edge)");
         assert_eq!(eu_provider, "LibreSpeed (regional fixed backend)");
     }
 
@@ -786,7 +801,7 @@ mod tests {
                     colo: Some("SIN".to_string()),
                 })
             ),
-            SpeedTestRouteFit::PreferredAsia
+            SpeedTestRouteFit::PreferredRegion
         );
 
         assert_eq!(
@@ -814,6 +829,11 @@ mod tests {
         assert!(is_preferred_colo(target, "SGN"));
         assert!(is_preferred_colo(target, "NRT"));
         assert!(!is_preferred_colo(target, "LAX"));
+
+        let auto_au = resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
+        assert!(is_preferred_colo(auto_au, "SYD"));
+        assert!(is_preferred_colo(auto_au, "MEL"));
+        assert!(!is_preferred_colo(auto_au, "NRT"));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 // Prevents console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(test, allow(dead_code))]
 
 //! SuperRouteService — Run-once startup service that re-applies WAN and custom
 //! routes using stable NIC identifiers (description / MAC) to survive
@@ -345,4 +346,28 @@ fn show_balloon_tip(title: &str, message: &str) {
 #[cfg(not(target_os = "windows"))]
 fn show_balloon_tip(_title: &str, message: &str) {
     eprintln!("[SuperRouteService] NOTIFICATION: {message}");
+}
+
+#[cfg(test)]
+pub(crate) fn test_build_nic_index_lookup(
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> HashMap<String, String> {
+    build_nic_index_lookup(adapters)
+}
+
+#[cfg(test)]
+pub(crate) fn test_resolve_nic_interface_index_from_adapters(
+    nic: &NicIdentifier,
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> Result<String, String> {
+    resolve_nic_interface_index_from_adapters(nic, adapters)
+}
+
+#[cfg(test)]
+pub(crate) fn test_resolve_custom_route_interface_index(
+    route: &CustomRoute,
+    default_interface_index: &str,
+    nic_index_lookup: &HashMap<String, String>,
+) -> Result<String, String> {
+    resolve_custom_route_interface_index(route, default_interface_index, nic_index_lookup)
 }

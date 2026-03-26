@@ -8,11 +8,11 @@ import {
 import {
   getNetworkSnapshot, getRoutingTable,
   runNetworkCommand, pingHost, testTcpPort,
-  fpingScan, getWanPersistOnStartupStatus, checkInternet,
+  fpingScan, checkInternet,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
-  repairSetWanPersistOnStartup, repairSavePersistConfig, repairClearPersistConfig,
+  repairSavePersistConfig, repairClearPersistConfig,
   runRepairMachineAction, persistLoadConfig, persistGetNicStableIds,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
@@ -222,7 +222,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
           { name: "DEL", detail: "Delete route based on Destination + Subnet Mask." },
           { name: "WAN", detail: "Set selected NIC as default internet route (0.0.0.0/0) and clean competing defaults." },
           { name: "FLUSH", detail: "Flush all routes (dangerous). Use when you need full route reset." },
-          { name: "Persist on startup", detail: "When enabled, WAN action also creates startup task to re-apply selected WAN after reboot." },
+          { name: "Persist on startup", detail: "When enabled, WAN action saves one unified startup replay config for the selected WAN and custom routes after reboot." },
         ],
       },
       {
@@ -281,7 +281,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
           { name: "DEL", detail: "Xóa route theo Destination + Subnet Mask." },
           { name: "WAN", detail: "Đặt NIC đã chọn làm đường ra Internet mặc định (default route 0.0.0.0/0), đồng thời dọn default route cạnh tranh." },
           { name: "FLUSH", detail: "Xóa toàn bộ route hiện có (nguy hiểm), dùng khi cần reset routing từ đầu." },
-          { name: "Persist on startup", detail: "Nếu bật, mỗi lần bấm WAN app sẽ tạo task startup để tự áp WAN đã chọn sau khi khởi động lại máy." },
+          { name: "Persist on startup", detail: "Nếu bật, mỗi lần bấm WAN app sẽ lưu một cấu hình startup thống nhất để tự áp WAN và các route custom sau khi khởi động lại máy." },
         ],
       },
       {
@@ -455,23 +455,24 @@ export default function App() {
 
     const loadPersistStatus = async () => {
       try {
-        const [legacyTaskResult, persistedConfigResult] = await Promise.allSettled([
-          getWanPersistOnStartupStatus(),
-          persistLoadConfig(),
-        ]);
-        const legacyTaskEnabled =
-          legacyTaskResult.status === "fulfilled" ? legacyTaskResult.value : null;
+        const persistedConfigResult = await persistLoadConfig();
         const persistedConfigEnabled =
-          persistedConfigResult.status === "fulfilled"
-            ? (persistedConfigResult.value ? persistedConfigResult.value.enabled : null)
-            : null;
+          persistedConfigResult ? persistedConfigResult.enabled : null;
 
         if (active) {
           setPersistWanOnStartup(
             resolvePersistStartupEnabled({
               localPreference,
-              legacyTaskEnabled,
               persistedConfigEnabled,
+            }),
+          );
+        }
+      } catch {
+        if (active) {
+          setPersistWanOnStartup(
+            resolvePersistStartupEnabled({
+              localPreference,
+              persistedConfigEnabled: null,
             }),
           );
         }
@@ -874,22 +875,6 @@ export default function App() {
         failureMessage: "Set Default Gateway - Failed",
       });
       if (!gatewayApplied) {
-        return;
-      }
-
-      const persistResult = await repairSetWanPersistOnStartup(
-        selectedNic.index,
-        persistWanOnStartup
-      );
-      const persistTaskApplied = await handleRepairCommandResult("Persist WAN On Startup", persistResult, {
-        appendOutput: true,
-        refresh: true,
-        successMessage: persistWanOnStartup
-          ? "Startup persistence task updated."
-          : "Startup persistence task removed.",
-        failureMessage: "Persist WAN On Startup - Failed",
-      });
-      if (!persistTaskApplied) {
         return;
       }
 
@@ -2011,7 +1996,7 @@ export default function App() {
                 <span>Persist on startup</span>
               </label>
               <span className="wan-persist-hint">
-                Auto create/remove startup task when you click WAN
+                Save or clear one unified startup replay config when you click WAN
               </span>
             </div>
           </div>

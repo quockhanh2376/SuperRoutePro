@@ -143,26 +143,23 @@ test("startup preference resolves persisted state before local checkbox state", 
   assert.equal(
     resolvePersistStartupEnabled({
       localPreference: false,
-      legacyTaskEnabled: false,
       persistedConfigEnabled: true,
     }),
     true,
   );
   assert.equal(
     resolvePersistStartupEnabled({
-      localPreference: false,
-      legacyTaskEnabled: true,
+      localPreference: true,
       persistedConfigEnabled: false,
     }),
-    true,
+    false,
   );
   assert.equal(
     resolvePersistStartupEnabled({
       localPreference: true,
-      legacyTaskEnabled: false,
-      persistedConfigEnabled: false,
+      persistedConfigEnabled: null,
     }),
-    false,
+    true,
   );
   assert.equal(getPersistStartupWriteMode(true), "save");
   assert.equal(getPersistStartupWriteMode(false), "clear");
