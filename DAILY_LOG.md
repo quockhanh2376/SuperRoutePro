@@ -5,6 +5,26 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Released v10.1.4 With NIC Name Enrichment And Speed Test Catalog Foundation
+
+**Done**
+- Bumped the app from `10.1.3` to `10.1.4` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Cut a fresh release build that includes both the NIC display-name recovery and the new Speed Test target catalog foundation.
+- Produced the Windows NSIS installer successfully at `E:\\srprel-1014\\release\\bundle\\nsis\\Super Route Pro_10.1.4_x64-setup.exe`.
+- Updated `CHANGELOG.md` so the `v10.1.4` release line explicitly documents the shipped NIC and Speed Test changes plus the verification route used for this build.
+
+**Notes And Decisions**
+- The NIC fix stays on the low-risk path: startup still uses the fast snapshot flow, while richer adapter names are restored immediately after load through the stable-ID enrichment pass.
+- The Speed Test release scope remains intentionally narrow: `Auto Asia` is the only real catalog entry in `v10.1.4`, and the UI keeps the selector disabled until more than one real target exists.
+- Rust/release verification had to move to `E:\\` target directories because `D:\\` ran out of space during local build work; the repo also had an untracked `.cargo-target-speedtest-catalog` temp directory removed to recover local disk space before the final release run.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` is the release-side source update for notebook refresh/re-sync.
+
+**Next Steps**
+- Push the release commit and tag so `v10.1.4` is available on the remote branch/release flow.
+- If product wants Speed Test to move closer to `speedtest.net`, the next slice should add real region/server targets to the catalog instead of only expanding the selector UI.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Speed Test Target Catalog Foundation And NIC Name Enrichment Ready For v10.1.4
 
 **Done**

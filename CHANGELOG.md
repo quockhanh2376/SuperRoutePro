@@ -1,5 +1,17 @@
 # Changelog
 
+## v10.1.4 (2026-03-26)
+
+### Highlights
+- Restored richer NIC device naming in the main table without undoing the startup optimization: the app still paints from the fast network snapshot first, then asynchronously enriches adapter descriptions by interface index.
+- Added the first Speed Test target-catalog foundation across backend and frontend, including `list_speed_test_targets`, target-aware result metadata, and a `Target Profile` section in the modal.
+- Kept the shipped behavior honest by exposing one real catalog profile, `Auto Asia`, on top of the existing Cloudflare Asia auto-edge flow instead of faking country-pinned endpoints that do not exist yet.
+
+### Verification
+- Re-ran frontend/model verification for the release line with `npm run test:node` and `npm run build`.
+- Re-ran Rust verification for the Speed Test slice with `cargo check` and `cargo test --manifest-path src-tauri/Cargo.toml speed_test` using fresh `E:\\` target directories because the working `D:\\` drive had hit a space ceiling.
+- Built a fresh Windows NSIS installer successfully at `E:\\srprel-1014\\release\\bundle\\nsis\\Super Route Pro_10.1.4_x64-setup.exe`.
+
 ## v10.1.3 (2026-03-25)
 
 ### Highlights
