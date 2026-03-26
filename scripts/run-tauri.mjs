@@ -22,15 +22,96 @@ export function normalizeWindowsWorkingDirectory(inputPath) {
   return inputPath;
 }
 
+function getPathKey(env) {
+  return Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'Path';
+}
+
+function normalizePathEntry(entry, platform) {
+  if (platform === 'win32') {
+    return normalizeWindowsWorkingDirectory(entry).replace(/[\\/]+$/, '').toLowerCase();
+  }
+
+  return entry.replace(/\/+$/, '');
+}
+
+export function findLocalCargoBin(env = process.env, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const pathExists = options.pathExists ?? existsSync;
+
+  if (platform !== 'win32') {
+    return null;
+  }
+
+  const candidates = [];
+  const userProfile = env.USERPROFILE ? normalizeWindowsWorkingDirectory(env.USERPROFILE) : '';
+  const home = env.HOME ? normalizeWindowsWorkingDirectory(env.HOME) : '';
+  const homeDrive = env.HOMEDRIVE ?? '';
+  const homePath = env.HOMEPATH ?? '';
+
+  if (userProfile) {
+    candidates.push(path.join(userProfile, '.cargo', 'bin'));
+  }
+  if (home && home !== userProfile) {
+    candidates.push(path.join(home, '.cargo', 'bin'));
+  }
+  if (homeDrive && homePath) {
+    const combinedHome = normalizeWindowsWorkingDirectory(`${homeDrive}${homePath}`);
+    if (combinedHome && combinedHome !== userProfile && combinedHome !== home) {
+      candidates.push(path.join(combinedHome, '.cargo', 'bin'));
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (pathExists(path.join(candidate, 'cargo.exe'))) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+export function buildTauriEnvironment(env = process.env, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const pathExists = options.pathExists ?? existsSync;
+  const nextEnv = { ...env };
+
+  const cargoBin = findLocalCargoBin(nextEnv, { platform, pathExists });
+  if (!cargoBin) {
+    return nextEnv;
+  }
+
+  const pathKey = getPathKey(nextEnv);
+  const pathDelimiter = platform === 'win32' ? ';' : ':';
+  const existingPath = nextEnv[pathKey] ?? '';
+  const pathEntries = existingPath
+    .split(pathDelimiter)
+    .filter(Boolean);
+  const normalizedCargoBin = normalizePathEntry(cargoBin, platform);
+  const hasCargoBin = pathEntries.some(
+    (entry) => normalizePathEntry(entry, platform) === normalizedCargoBin,
+  );
+
+  if (!hasCargoBin) {
+    nextEnv[pathKey] = existingPath ? `${cargoBin}${pathDelimiter}${existingPath}` : cargoBin;
+  }
+
+  return nextEnv;
+}
+
 export function buildTauriInvocation(args, options = {}) {
   const cwd = normalizeWindowsWorkingDirectory(options.cwd ?? process.cwd());
   const normalizedPackageRoot = normalizeWindowsWorkingDirectory(options.packageRoot ?? packageRoot);
   const cliScript = path.join(normalizedPackageRoot, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
+  const env = buildTauriEnvironment(options.env ?? process.env, {
+    platform: options.platform,
+    pathExists: options.pathExists,
+  });
 
   return {
     cliScript,
     command: process.execPath,
     cwd,
+    env,
     args: [cliScript, ...args],
   };
 }
@@ -44,7 +125,7 @@ export async function runTauri(args, options = {}) {
 
   const child = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
-    env: process.env,
+    env: invocation.env,
     stdio: 'inherit',
     windowsHide: false,
   });

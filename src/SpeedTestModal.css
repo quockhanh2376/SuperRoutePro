@@ -433,6 +433,30 @@
   background: rgba(255, 255, 255, 0.96);
 }
 
+.theme-light .speed-test-launch-metric {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.theme-light .speed-test-launch-metric-download {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: linear-gradient(180deg, rgba(219, 234, 254, 0.98), rgba(191, 219, 254, 0.9));
+}
+
+.theme-light .speed-test-launch-metric-upload {
+  border-color: rgba(13, 148, 136, 0.24);
+  background: linear-gradient(180deg, rgba(204, 251, 241, 0.98), rgba(153, 246, 228, 0.88));
+}
+
+.theme-light .speed-test-launch-metric-ping {
+  border-color: rgba(217, 119, 6, 0.24);
+  background: linear-gradient(180deg, rgba(254, 243, 199, 0.98), rgba(253, 230, 138, 0.9));
+}
+
+.theme-light .speed-test-launch-metric-jitter {
+  border-color: rgba(225, 29, 72, 0.2);
+  background: linear-gradient(180deg, rgba(255, 228, 230, 0.98), rgba(254, 205, 211, 0.9));
+}
+
 .theme-light .speed-test-demo-banner {
   border-color: rgba(13, 148, 136, 0.24);
   background: rgba(204, 251, 241, 0.92);
@@ -456,7 +480,7 @@
 .theme-light .speed-test-summary-label,
 .theme-light .speed-test-meta-label,
 .theme-light .speed-test-target-label {
-  color: #64748b;
+  color: #334155;
 }
 
 .theme-light .speed-test-live-speed strong,

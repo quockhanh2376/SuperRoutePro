@@ -5,6 +5,171 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Tauri Dev Runner Cargo PATH Fallback
+
+**Done**
+- Fixed `npm run tauri -- dev` / `npm run tauri -- info` on Windows shells that do not have Rust in `PATH`.
+- Updated `scripts/run-tauri.mjs` so the Tauri launcher now detects `C:\Users\<user>\.cargo\bin\cargo.exe` and prepends that folder to the spawned Tauri process environment automatically.
+- Added coverage in `tests/run-tauri.test.mjs` for:
+  - local cargo-bin resolution from the user profile
+  - PATH prepending without mutating the original env
+  - the existing normalized cwd / local CLI invocation contract
+- Verified the fix with:
+  - `npm run test:node`
+  - `npm run tauri -- info`
+
+**Notes And Decisions**
+- The root problem was not Tauri itself; the Node wrapper launched correctly, but the spawned Tauri CLI inherited a shell environment where `cargo` was missing from `PATH`, so `cargo metadata` failed immediately.
+- This fix is scoped to the Tauri runner path, so standard PowerShell sessions still behave normally outside the repo.
+
+**Next Steps**
+- If we want the same resilience for other Rust npm scripts later, we can wrap `check:rust` / `test:rust` behind the same PATH-bootstrap strategy.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - NIC Card Name Stabilization
+
+**Done**
+- Fixed the NIC table regression where device names could bounce between generic friendly aliases like `Ethernet 2` / `Ethernet 3` and the richer adapter names such as `Broadcom NetXtreme Gigabit Ethernet` or `Realtek PCIe GbE Family Controller`.
+- Frontend snapshot handling in `src/App.tsx` now stabilizes incoming NIC rows against the previously enriched list instead of blindly replacing the table with a fresh generic snapshot.
+- Added description-preference helpers in `src/nicDescriptionModel.ts` so the app prefers richer adapter descriptions over generic aliases and keeps the selected NIC aligned with the stabilized NIC list.
+- Backend snapshot reads in `src-tauri/src/network_snapshot.rs` now prefer the fresh enriched adapter cache from `src-tauri/src/win32_net.rs` when available, so refreshes stop regressing to friendly aliases after the first stable-ID enrichment pass.
+- Added Node coverage in `tests/nicDescriptionModel.test.ts` for the new rules that reject generic replacements once a richer NIC description is known.
+
+**Notes And Decisions**
+- The root cause was not just the async enrich step itself; the bigger problem was that each fresh snapshot replaced the current NIC list with `enumerate_adapters_basic()` output before the later enrich pass restored the richer descriptions.
+- The fix keeps startup responsiveness while eliminating the repeated flip-flop on refresh and reload within the running session.
+
+**Next Steps**
+- If we still want to remove the very first-session friendly-name flash completely on cold launch, the next step would be a dedicated backend snapshot API that returns stable descriptions in one call without a second frontend enrich phase.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - Optimisation Program Slice (Baseline + Backend Split + UI/Test Follow-Up)
+
+**Done**
+- Captured a fresh local baseline for the current Windows machine before continuing the optimization work:
+  - `route print -4` ~= `421.96 ms`
+  - `netsh interface ipv4 show interfaces` ~= `93.28 ms`
+  - `netsh interface ipv4 show addresses` ~= `105.17 ms`
+  - `getmac /fo csv /v /nh` ~= `985.11 ms`
+- Logged the current React shell pressure points and followed through on two more frontend decomposition slices already pushed on `feature/speed-test-modal-v1`:
+  - `ed115d6` `refactor: split app chrome and log hooks`
+  - `88b1975` `refactor: split app modal UI`
+- Reduced the frontend root further:
+  - `src/App.tsx` now sits at `2601` lines instead of staying near the old `~3k` line hot path.
+  - Large battery and IP-scan modal JSX moved out into `src/components/BatteryModal.tsx` and `src/components/IpScanModal.tsx`.
+- Continued the Rust modularization program:
+  - added `src-tauri/src/process_exec.rs` for shared hidden-process execution and timeout helpers
+  - added `src-tauri/src/ping.rs` and switched ping/fping commands to the extracted module
+  - added `src-tauri/src/battery.rs` and moved battery-report / battery-summary commands out of `network.rs`
+  - added `src-tauri/src/cache_cleanup.rs` and switched repair/profile cleanup logic onto the shared cleanup path
+  - added `src-tauri/src/network_snapshot.rs` and moved NIC snapshot / route-table read logic out of `network.rs`
+- Reduced the backend hotspot materially:
+  - `src-tauri/src/network.rs` is now `915` lines
+  - snapshot/routing read responsibilities now live in `src-tauri/src/network_snapshot.rs` (`331` lines)
+- Optimized the NIC enrich path in `src-tauri/src/win32_net.rs`:
+  - cached the recent basic adapter snapshot
+  - reused cached `netsh` enumeration and layered `getmac` metadata only when stable-description enrichment is requested
+  - added tests covering `getmac` metadata parsing and cache-based adapter enrichment
+- Added a new persist flow contract test slice:
+  - `386a589` `test: add persist flow contract coverage`
+  - new `tests/persistFlow.test.ts` covers NIC enrichment -> persist config shaping and startup-state resolution
+- Fixed the native ICMP path in the new ping module so the Windows handle is closed once via `IcmpCloseHandle`, not double-closed.
+- Verified the integrated tree with:
+  - `C:\Users\ADMVN\.cargo\bin\cargo.exe check --manifest-path src-tauri/Cargo.toml`
+  - `npm run test:node`
+  - `npm run build`
+
+**Notes And Decisions**
+- The `getmac` pass remains the expensive part of NIC enrichment on this machine, so the optimization keeps startup on `enumerate_adapters_basic()` and reuses cached basic adapter data for later stable-ID enrichment instead of re-running the full `netsh + netsh + getmac` chain.
+- The ping/IP-scan redesign is now split into a dedicated backend module, but the frontend orchestration flow still has room for a deeper hook split if we want to keep shrinking `App.tsx`.
+- `network.rs` is no longer the single home for snapshot read, battery, ping/fping, and cleanup helpers; route mutation, diagnostics, and bloatware remain there for now.
+- NotebookLM could not be updated directly from this session because local NotebookLM MCP health is currently `authenticated=false` and the library is empty. `DAILY_LOG.md` remains the source-of-truth file for the next notebook sync.
+
+**Next Steps**
+- Continue the `network.rs` split by extracting route mutation / diagnostics / bloatware catalog if we want the file to stop acting as the remaining Rust façade.
+- Consider a deeper frontend hook split for ping/IP-scan orchestration after the modal/UI extraction settles.
+- When NotebookLM auth/library is restored locally, sync this `DAILY_LOG.md` entry into the notebook source set.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - Frontend App.tsx Decomposition Slice 2
+
+**Done**
+- Split the large `App.tsx` modal blocks into focused frontend components:
+  - `src/components/BatteryModal.tsx`
+  - `src/components/IpScanModal.tsx`
+- Moved battery formatting helpers into `src/batteryUtils.ts` so the battery summary status text and modal rendering share the same logic.
+- Kept the existing `App.tsx` behavior intact while reducing its render responsibility and removing the bulky battery/IP scan JSX from the composition root.
+- Verified the frontend slice with `npm run test:node` and `npm run build`.
+
+**Notes And Decisions**
+- The extraction stayed on the frontend only, per scope, and did not touch Rust, package metadata, or test files.
+- IP scan rendering now owns its own row sorting and counters inside the modal component, while `App.tsx` keeps only the orchestration state and handlers.
+- NotebookLM still consumes this `DAILY_LOG.md` file as the source-of-truth for session sync.
+
+**Next Steps**
+- Continue decomposing `App.tsx` if more low-risk UI clusters remain.
+- Fold any remaining shared presentation helpers into small reusable frontend modules only when there is a clear duplicate use case.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - Released v10.1.5 With Real Regional Speed Test Targets
+
+**Done**
+- Bumped the app from `10.1.4` to `10.1.5` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Ran the full release gate on the `10.1.5` tree with `npm run check`.
+- Built a fresh Windows NSIS installer successfully at `E:\\srprel-1015\\release\\bundle\\nsis\\Super Route Pro_10.1.5_x64-setup.exe`.
+- Updated `CHANGELOG.md` so the `v10.1.5` release line records the shipped regional Speed Test catalog, target-aware backend engine, and verification path used for the release build.
+
+**Notes And Decisions**
+- `v10.1.5` is the first release where the Speed Test selector is backed by real non-Cloudflare regional endpoints instead of only the `Auto Asia` catalog foundation.
+- The release still keeps the scope intentionally curated: only the regional backends that were live-probed successfully from the current environment made it into the shipped catalog.
+- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` update remains the source file for notebook refresh/re-sync.
+
+**Next Steps**
+- Monitor the `v10.1.5` tag workflow and verify the GitHub release assets publish cleanly.
+- If product wants to move even closer to `speedtest.net`, the next slice should add manual server selection inside each region rather than expanding the fixed regional catalog blindly.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - Real Regional Speed Test Backends Added And Smoke Checked
+
+**Done**
+- Extracted the Speed Test target catalog into `src-tauri/src/speed_test_targets.rs` and split the backend model into:
+  - `CloudflareAutoEdge` for `Auto Asia`
+  - `LibreSpeedRegional` for the fixed regional targets
+- Added three real regional targets to the catalog:
+  - `JP/KR` -> `Tokyo, Japan (A573)`
+  - `US West` -> `Los Angeles, United States (Clouvider)`
+  - `EU` -> `London, England (Clouvider)`
+- Updated the native Speed Test engine so each backend kind now uses the correct request semantics:
+  - Cloudflare stays on `__down?bytes=...`, `__up?bytes=...`, and Cloudflare trace parsing
+  - regional LibreSpeed targets use `empty.php`, `garbage.php?ckSize=...`, raw-body uploads, and JSON `getIP.php`
+- Added target-aware payload sizing so long-haul regional tests do not inherit the old `24 MB` Cloudflare default.
+- Updated the modal selector/copy to surface the real regional catalog and stop implying the feature was only a future foundation.
+- Verified the slice with:
+  - `npm run test:node`
+  - `npm run build`
+  - `cargo check --manifest-path src-tauri/Cargo.toml --target-dir E:\\srp-speedtest-v1015-check`
+  - `cargo test --manifest-path src-tauri/Cargo.toml speed_test --target-dir E:\\srp-speedtest-v1015`
+
+**Notes And Decisions**
+- London replaced the earlier Prague-style EU candidate because the London backend responded more reliably from the current Southeast Asia route during live probes.
+- `JP/KR` is intentionally labeled as a regional bucket backed by Tokyo today; no Korea-pinned backend was promoted into the catalog because the current probe set did not validate one cleanly enough.
+- Native desktop smoke used a current local binary built from the branch and confirmed:
+  - the Speed Test card is visible in desktop runtime,
+  - the modal opens with the new regional selector/copy,
+  - a live regional run completed and flowed back into the runtime card/status message.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` remains the source update for notebook refresh/re-sync.
+
+**Next Steps**
+- Ship the regional-target slice as `v10.1.5`.
+- If we need deeper per-run transparency, expose the regional `provider/server` metadata more prominently in the modal/card after the initial regional release settles.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Released v10.1.4 With NIC Name Enrichment And Speed Test Catalog Foundation
 
 **Done**
