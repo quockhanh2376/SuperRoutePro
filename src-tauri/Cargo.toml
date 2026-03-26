@@ -1,6 +1,6 @@
 [package]
 name = "super-route-pro"
-version = "10.1.2"
+version = "10.1.4"
 default-run = "SuperRoute"
 description = "Super Route Pro - Network Routing Manager"
 authors = ["Zonzon"]
@@ -34,6 +34,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+chrono = { version = "0.4", features = ["clock"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "rustls-tls", "stream"] }
 windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Registry",

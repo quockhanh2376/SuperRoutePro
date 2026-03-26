@@ -3,6 +3,8 @@
 //!
 //! Uses netsh (always available on Windows) instead of wmic (deprecated/removed in Windows 11).
 
+#[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::process::Command;
@@ -20,9 +22,6 @@ pub struct NativeNic {
     pub gateways: Vec<String>,
     pub oper_status_up: bool,
 }
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn is_valid_ipv4_address(value: &str) -> bool {
     let trimmed = value.trim();
@@ -50,8 +49,7 @@ fn run_hidden(cmd: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Enumerate network adapters using netsh (works on all Windows 10/11).
-pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
+fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeNic>, String> {
     #[cfg(target_os = "windows")]
     {
         // Step 1: Get interface list with Idx, Name, State
@@ -143,27 +141,31 @@ pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
             }
         }
 
-        // Step 3: Get MAC addresses from "getmac /fo csv /v /nh"
-        if let Ok(mac_text) = run_hidden("getmac", &["/fo", "csv", "/v", "/nh"]) {
-            for line in mac_text.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
+        if include_getmac_metadata {
+            // Step 3: Get MAC addresses and richer adapter descriptions from "getmac /fo csv /v /nh"
+            if let Ok(mac_text) = run_hidden("getmac", &["/fo", "csv", "/v", "/nh"]) {
+                for line in mac_text.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
 
-                // CSV: "Connection Name","Network Adapter","Physical Address","Transport Name"
-                let fields: Vec<String> = parse_csv_line(trimmed);
-                if fields.len() >= 3 {
-                    let conn_name = &fields[0];
-                    let adapter_desc = &fields[1];
-                    let mac = &fields[2];
+                    // CSV: "Connection Name","Network Adapter","Physical Address","Transport Name"
+                    let fields: Vec<String> = parse_csv_line(trimmed);
+                    if fields.len() >= 3 {
+                        let conn_name = &fields[0];
+                        let adapter_desc = &fields[1];
+                        let mac = &fields[2];
 
-                    // Match by connection name (friendly_name)
-                    if let Some(nic) = adapters.iter_mut().find(|a| a.friendly_name == *conn_name) {
-                        nic.mac_address = mac.clone();
-                        // Use the adapter description from getmac as the real description
-                        if !adapter_desc.is_empty() && *adapter_desc != "N/A" {
-                            nic.description = adapter_desc.clone();
+                        // Match by connection name (friendly_name)
+                        if let Some(nic) =
+                            adapters.iter_mut().find(|a| a.friendly_name == *conn_name)
+                        {
+                            nic.mac_address = mac.clone();
+                            // Use the adapter description from getmac as the real description
+                            if !adapter_desc.is_empty() && *adapter_desc != "N/A" {
+                                nic.description = adapter_desc.clone();
+                            }
                         }
                     }
                 }
@@ -177,6 +179,17 @@ pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
     {
         Err("NIC enumeration only supported on Windows".to_string())
     }
+}
+
+/// Enumerate network adapters using netsh only.
+/// Faster than the full variant because it skips the expensive `getmac` enrichment pass.
+pub fn enumerate_adapters_basic() -> Result<Vec<NativeNic>, String> {
+    enumerate_adapters_inner(false)
+}
+
+/// Enumerate network adapters using netsh plus getmac enrichment (works on all Windows 10/11).
+pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
+    enumerate_adapters_inner(true)
 }
 
 /// Simple CSV line parser handling quoted fields.

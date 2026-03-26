@@ -17,6 +17,11 @@ export interface RouteEntry {
   interface_index: string;
 }
 
+export interface NetworkSnapshot {
+  interfaces: NetworkInterface[];
+  routes: RouteEntry[];
+}
+
 export interface PingResult {
   success: boolean;
   latency_ms: number;
@@ -38,6 +43,33 @@ export interface FpingScanResult {
   avg_ms: number;
   max_ms: number;
   hosts: FpingHostResult[];
+}
+
+export interface SpeedTestProgress {
+  stage: string;
+  percent: number;
+  current_speed_mbps: number;
+  message: string;
+}
+
+export interface SpeedTestTargetOption {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+}
+
+export interface SpeedTestResult {
+  target_id: string;
+  target_label: string;
+  provider: string;
+  server_label: string;
+  download_mbps: number;
+  upload_mbps: number;
+  ping_ms: number;
+  jitter_ms: number;
+  ip: string;
+  timestamp: string;
 }
 
 export interface CommandResult {
@@ -111,6 +143,10 @@ export async function getNetworkInterfaces(activeOnly: boolean): Promise<Network
   return invoke<NetworkInterface[]>("get_network_interfaces", { activeOnly });
 }
 
+export async function getNetworkSnapshot(activeOnly: boolean): Promise<NetworkSnapshot> {
+  return invoke<NetworkSnapshot>("get_network_snapshot", { activeOnly });
+}
+
 export async function getRoutingTable(): Promise<RouteEntry[]> {
   return invoke<RouteEntry[]>("get_routing_table");
 }
@@ -176,6 +212,20 @@ export async function fpingScan(
   return invoke<FpingScanResult>("fping_scan", {
     targets,
     timeoutMs: timeoutMs || null,
+  });
+}
+
+export async function listSpeedTestTargets(): Promise<SpeedTestTargetOption[]> {
+  return invoke<SpeedTestTargetOption[]>("list_speed_test_targets");
+}
+
+export async function runSpeedTest(
+  downloadMb?: number,
+  targetId?: string,
+): Promise<SpeedTestResult> {
+  return invoke<SpeedTestResult>("run_speed_test", {
+    downloadMb: downloadMb || null,
+    targetId: targetId || null,
   });
 }
 
@@ -331,6 +381,7 @@ export interface CustomRoute {
   mask: string;
   gateway: string;
   metric: string;
+  nic?: NicIdentifier;
 }
 
 export interface PersistConfig {
@@ -356,4 +407,10 @@ export async function persistGetNicStableId(
   interfaceIndex: string,
 ): Promise<NicIdentifier> {
   return invoke<NicIdentifier>("persist_get_nic_stable_id", { interfaceIndex });
+}
+
+export async function persistGetNicStableIds(
+  interfaceIndexes: string[],
+): Promise<NicIdentifier[]> {
+  return invoke<NicIdentifier[]>("persist_get_nic_stable_ids", { interfaceIndexes });
 }

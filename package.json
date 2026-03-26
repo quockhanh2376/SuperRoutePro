@@ -1,7 +1,7 @@
 {
   "name": "super-route-pro",
   "private": true,
-  "version": "10.1.2",
+  "version": "10.1.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "prepare:repair-sidecars": "powershell -ExecutionPolicy Bypass -File scripts/prepare-repair-sidecars.ps1",
     "check:frontend": "npm run build",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "test:node": "node --test tests/run-tauri.test.mjs && node --test --experimental-strip-types tests/repairModeModel.test.ts && node --test --experimental-strip-types tests/nicTableModel.test.ts && node --test --experimental-strip-types tests/persistStartupModel.test.ts",
+    "test:node": "node --test tests/run-tauri.test.mjs && node --test --experimental-strip-types tests/repairModeModel.test.ts && node --test --experimental-strip-types tests/nicTableModel.test.ts && node --test --experimental-strip-types tests/nicDescriptionModel.test.ts && node --test --experimental-strip-types tests/persistStartupModel.test.ts && node --test --experimental-strip-types tests/persistRouteModel.test.ts && node --test --experimental-strip-types tests/speedTestDemo.test.ts && node --test --experimental-strip-types tests/speedTestError.test.ts && tsx --test tests/SpeedTestModal.test.tsx",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "npm run check:frontend && npm run check:rust && npm run test:node && npm run test:rust",
     "version:bump": "powershell -ExecutionPolicy Bypass -File scripts/bump-version.ps1",
@@ -39,6 +39,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

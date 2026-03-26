@@ -1,3 +1,5 @@
+#[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
@@ -8,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 const DEFAULT_CMD_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_POWERSHELL_TIMEOUT_SECS: u64 = 45;
 const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
@@ -67,6 +68,12 @@ pub struct RouteEntry {
     pub gateway: String,
     pub metric: String,
     pub interface_index: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NetworkSnapshot {
+    pub interfaces: Vec<NetworkInterface>,
+    pub routes: Vec<RouteEntry>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -276,7 +283,7 @@ if "!GATEWAY!"=="" (
 )
 
 REM Delete all default routes then add persistent one for target NIC
-route delete 0.0.0.0 >nul 2>&1
+for /l %%i in (1,1,6) do route delete 0.0.0.0 >nul 2>&1
 route -p add 0.0.0.0 mask 0.0.0.0 !GATEWAY! metric 1 if %TARGET_IF% >nul 2>&1
 
 echo Startup WAN applied on interface %TARGET_IF% via gateway !GATEWAY!.
@@ -293,6 +300,42 @@ fn ensure_wan_persist_script(interface_index: u32) -> Result<(), String> {
         build_wan_persist_script(interface_index),
     )
     .map_err(|e| format!("Failed to write {}: {}", WAN_PERSIST_SCRIPT_PATH, e))
+}
+
+fn cleanup_default_routes_blocking() -> String {
+    let mut outputs: Vec<String> = Vec::new();
+
+    for _ in 0..6 {
+        match run_cmd_blocking(
+            "route",
+            &["delete", "0.0.0.0"],
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        ) {
+            Ok(output) => {
+                let trimmed = output.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                outputs.push(trimmed.to_string());
+            }
+            Err(err) => {
+                if outputs.is_empty() {
+                    return "No stale routes to remove.".to_string();
+                }
+                let trimmed = err.trim();
+                if !trimmed.is_empty() {
+                    outputs.push(trimmed.to_string());
+                }
+                break;
+            }
+        }
+    }
+
+    if outputs.is_empty() {
+        "No stale routes to remove.".to_string()
+    } else {
+        outputs.join("\n")
+    }
 }
 
 /// Native cache cleanup for a target. Returns (label, success, detail).
@@ -712,17 +755,51 @@ fn build_network_interfaces(
 /// Get list of active network interfaces (NICs)
 #[tauri::command]
 pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
-    let adapters = tauri::async_runtime::spawn_blocking(|| crate::win32_net::enumerate_adapters())
+    let adapters = tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic)
         .await
         .map_err(|e| format!("Task join error: {e}"))??;
     Ok(build_network_interfaces(&adapters, active_only))
 }
 
+fn read_ipv4_route_table_blocking() -> Result<String, String> {
+    run_cmd_blocking(
+        "route",
+        &["print", "-4"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )
+}
+
+#[tauri::command]
+pub async fn get_network_snapshot(active_only: bool) -> Result<NetworkSnapshot, String> {
+    let adapters_task =
+        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic);
+    let route_task = tauri::async_runtime::spawn_blocking(read_ipv4_route_table_blocking);
+
+    let adapters = adapters_task
+        .await
+        .map_err(|err| format!("Network adapter task join error: {err}"))??;
+    let route_output = route_task
+        .await
+        .map_err(|err| format!("Route snapshot task join error: {err}"))??;
+    let interface_index_lookup = build_interface_index_lookup(&adapters);
+
+    Ok(NetworkSnapshot {
+        interfaces: build_network_interfaces(&adapters, active_only),
+        routes: parse_ipv4_route_print(&route_output, &interface_index_lookup),
+    })
+}
+
 /// Get IPv4 routing table
 #[tauri::command]
 pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
-    let output = run_cmd("route", &["print", "-4"]).await?;
-    let adapters = tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters)
+    let route_task = tauri::async_runtime::spawn_blocking(read_ipv4_route_table_blocking);
+    let adapters_task =
+        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic);
+
+    let output = route_task
+        .await
+        .map_err(|err| format!("Route print task join error: {err}"))??;
+    let adapters = adapters_task
         .await
         .map_err(|err| format!("Route adapter lookup task join error: {err}"))?
         .unwrap_or_default();
@@ -846,18 +923,7 @@ pub fn set_default_gateway_blocking(
     let interface_index = target_interface_index.to_string();
 
     // Clean up stale default routes using native `route delete`
-    let cleanup_output = run_cmd_blocking(
-        "route",
-        &["delete", "0.0.0.0"],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-    )
-    .unwrap_or_else(|_| "No stale routes to remove.".to_string());
-
-    let _ = run_cmd_blocking(
-        "route",
-        &["delete", "0.0.0.0"],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-    );
+    let cleanup_output = cleanup_default_routes_blocking();
 
     let result = run_cmd_blocking(
         "route",
@@ -1530,7 +1596,6 @@ mod battery_ioctl {
         pub critical_bias: u32,
         pub cycle_count: u32,
     }
-
 }
 
 /// Query battery details using SetupDi + DeviceIoControl.
@@ -1964,18 +2029,21 @@ pub async fn fping_scan(
 /// Check internet connectivity
 #[tauri::command]
 pub async fn check_internet() -> Result<bool, String> {
-    match TcpStream::connect_timeout(&"8.8.8.8:53".parse().unwrap(), Duration::from_secs(3)) {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
-    }
+    tauri::async_runtime::spawn_blocking(|| {
+        match TcpStream::connect_timeout(&"8.8.8.8:53".parse().unwrap(), Duration::from_secs(3)) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    })
+    .await
+    .map_err(|err| format!("Internet check task join error: {err}"))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         build_interface_index_lookup, build_network_interfaces, is_blacklisted_nic,
-        parse_ipv4_route_print,
-        validate_network_command,
+        parse_ipv4_route_print, validate_network_command,
     };
     use crate::win32_net::NativeNic;
 

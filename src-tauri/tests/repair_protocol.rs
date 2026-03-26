@@ -142,6 +142,7 @@ fn persist_config_actions_serialize_expected_requests() {
                 mask: "255.255.255.0".to_string(),
                 gateway: "192.168.1.1".to_string(),
                 metric: "10".to_string(),
+                nic: None,
             }],
             updated_at: Some("2026-03-22T00:00:00Z".to_string()),
         },
