@@ -5,6 +5,28 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Tauri Dev Runner Cargo PATH Fallback
+
+**Done**
+- Fixed `npm run tauri -- dev` / `npm run tauri -- info` on Windows shells that do not have Rust in `PATH`.
+- Updated `scripts/run-tauri.mjs` so the Tauri launcher now detects `C:\Users\<user>\.cargo\bin\cargo.exe` and prepends that folder to the spawned Tauri process environment automatically.
+- Added coverage in `tests/run-tauri.test.mjs` for:
+  - local cargo-bin resolution from the user profile
+  - PATH prepending without mutating the original env
+  - the existing normalized cwd / local CLI invocation contract
+- Verified the fix with:
+  - `npm run test:node`
+  - `npm run tauri -- info`
+
+**Notes And Decisions**
+- The root problem was not Tauri itself; the Node wrapper launched correctly, but the spawned Tauri CLI inherited a shell environment where `cargo` was missing from `PATH`, so `cargo metadata` failed immediately.
+- This fix is scoped to the Tauri runner path, so standard PowerShell sessions still behave normally outside the repo.
+
+**Next Steps**
+- If we want the same resilience for other Rust npm scripts later, we can wrap `check:rust` / `test:rust` behind the same PATH-bootstrap strategy.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - NIC Card Name Stabilization
 
 **Done**
