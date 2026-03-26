@@ -25,8 +25,26 @@ const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
   {
     id: "auto_asia",
     label: "Auto Asia",
-    description: "Cloudflare auto-selects the nearest preferred Asia edge. Country pinning will sit on top of this target catalog once real region targets are available.",
+    description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
     provider: "Cloudflare (Asia auto-edge)",
+  },
+  {
+    id: "jp_kr",
+    label: "JP/KR",
+    description: "Fixed Northeast Asia backend pinned to Tokyo, Japan. Use this to compare against Auto Asia without Cloudflare auto-edge routing.",
+    provider: "LibreSpeed (regional fixed backend)",
+  },
+  {
+    id: "us_west",
+    label: "US West",
+    description: "Fixed trans-Pacific backend pinned to Los Angeles, United States. Use this to compare long-haul performance against a stable US West endpoint.",
+    provider: "LibreSpeed (regional fixed backend)",
+  },
+  {
+    id: "eu",
+    label: "EU",
+    description: "Fixed Europe backend pinned to London, England. Payload sizes stay smaller here so long-haul runs from Southeast Asia remain stable.",
+    provider: "LibreSpeed (regional fixed backend)",
   },
 ];
 
@@ -156,7 +174,7 @@ export function SpeedTestModal({
 
     try {
       const response = tauriRuntime
-        ? await runSpeedTest(24, selectedTargetId)
+        ? await runSpeedTest(undefined, selectedTargetId)
         : await runMockSpeedTest(setProgress);
 
       setResult(response);

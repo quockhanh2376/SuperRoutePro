@@ -97,13 +97,13 @@ export function SpeedTestModalDialog({
             <div>
               <div className="speed-test-target-title">Test Target</div>
               <div className="speed-test-target-subtitle">
-                Multi-target catalog foundation. Country selection will unlock only when the backend has real region-pinned targets.
+                Fixed regional backends are available now. Auto Asia keeps the route-aware Cloudflare path, while regional targets use smaller payloads where needed for long-haul stability.
               </div>
             </div>
             <div className="speed-test-target-chip">{activeTarget?.label ?? "Auto"}</div>
           </div>
           <label className="speed-test-target-control">
-            <span className="speed-test-target-label">Target Profile</span>
+            <span className="speed-test-target-label">Region Target</span>
             <select
               className="speed-test-target-select"
               disabled={isTesting || targetOptions.length <= 1}
