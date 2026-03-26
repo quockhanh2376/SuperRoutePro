@@ -19,7 +19,9 @@ const EMIT_INTERVAL: Duration = Duration::from_millis(180);
 #[derive(Clone, Copy, Debug)]
 struct SpeedTestTarget {
     provider: &'static str,
-    server_label: &'static str,
+    policy_label: &'static str,
+    default_server_label: &'static str,
+    preferred_asia_colos: &'static [&'static str],
     download_api_url: &'static str,
     upload_api_url: &'static str,
     trace_api_url: &'static str,
@@ -31,9 +33,25 @@ struct SpeedTestTraceMetadata {
     colo: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpeedTestRouteFit {
+    PreferredAsia,
+    GlobalFallback,
+    Pending,
+}
+
+const PREFERRED_ASIA_COLOS: [&str; 38] = [
+    "SIN", "KUL", "BKK", "CGK", "DPS", "SUB", "SGN", "HAN", "PNH", "RGN", "VTE", "MNL",
+    "HKG", "TPE", "KHH", "MFM", "NRT", "HND", "KIX", "ICN", "GMP", "PUS", "KTM", "DAC",
+    "CCU", "DEL", "BOM", "AMD", "BLR", "MAA", "HYD", "COK", "CJB", "CMB", "DXB", "DOH",
+    "MCT", "BAH",
+];
+
 const DEFAULT_SPEED_TEST_TARGET: SpeedTestTarget = SpeedTestTarget {
     provider: "Cloudflare",
-    server_label: "Asia Preferred (Cloudflare edge auto)",
+    policy_label: "Asia auto-edge",
+    default_server_label: "Cloudflare auto edge",
+    preferred_asia_colos: &PREFERRED_ASIA_COLOS,
     download_api_url: "https://speed.cloudflare.com/__down",
     upload_api_url: "https://speed.cloudflare.com/__up",
     trace_api_url: "https://speed.cloudflare.com/cdn-cgi/trace",
@@ -73,7 +91,8 @@ pub async fn run_speed_test(
     let trace_metadata = fetch_trace_metadata(&client, target.trace_api_url)
         .await
         .ok();
-    let server_label = resolve_speed_test_server_label(trace_metadata.as_ref());
+    let provider_label = resolve_speed_test_provider_label(target);
+    let server_label = resolve_speed_test_server_label(target, trace_metadata.as_ref());
     let ip = trace_metadata
         .as_ref()
         .and_then(|trace| trace.ip.as_deref())
@@ -85,7 +104,7 @@ pub async fn run_speed_test(
         "preflight",
         4.0,
         0.0,
-        format!("Preparing native speed test via {}.", target.provider),
+        build_preflight_message(target, &provider_label, trace_metadata.as_ref()),
     )?;
 
     let latency_points = measure_latency(&client, target).await?;
@@ -115,7 +134,7 @@ pub async fn run_speed_test(
     )?;
 
     Ok(SpeedTestResult {
-        provider: target.provider.to_string(),
+        provider: provider_label,
         server_label,
         download_mbps,
         upload_mbps,
@@ -128,6 +147,34 @@ pub async fn run_speed_test(
 
 fn resolve_speed_test_target() -> SpeedTestTarget {
     DEFAULT_SPEED_TEST_TARGET
+}
+
+fn resolve_speed_test_provider_label(target: SpeedTestTarget) -> String {
+    format!("{} ({})", target.provider, target.policy_label)
+}
+
+fn build_preflight_message(
+    target: SpeedTestTarget,
+    provider_label: &str,
+    trace: Option<&SpeedTestTraceMetadata>,
+) -> String {
+    match resolve_speed_test_route_fit(target, trace) {
+        SpeedTestRouteFit::PreferredAsia => {
+            let colo = trace
+                .and_then(|trace| trace.colo.as_deref())
+                .unwrap_or("preferred Asia edge");
+            format!("Preparing native speed test via {provider_label}. Preferred Asia edge resolved at {colo}.")
+        }
+        SpeedTestRouteFit::GlobalFallback => {
+            let colo = trace
+                .and_then(|trace| trace.colo.as_deref())
+                .unwrap_or("Cloudflare edge");
+            format!("Preparing native speed test via {provider_label}. Using a global fallback edge at {colo}.")
+        }
+        SpeedTestRouteFit::Pending => {
+            format!("Preparing native speed test via {provider_label}. Cloudflare edge will resolve automatically.")
+        }
+    }
 }
 
 fn build_client() -> Result<Client, String> {
@@ -411,7 +458,7 @@ fn parse_trace_metadata(trace: &str) -> SpeedTestTraceMetadata {
 
         match key {
             "ip" => metadata.ip = Some(value.trim().to_string()),
-            "colo" => metadata.colo = Some(value.trim().to_string()),
+            "colo" => metadata.colo = Some(value.trim().to_ascii_uppercase()),
             _ => {}
         }
     }
@@ -419,10 +466,37 @@ fn parse_trace_metadata(trace: &str) -> SpeedTestTraceMetadata {
     metadata
 }
 
-fn resolve_speed_test_server_label(trace: Option<&SpeedTestTraceMetadata>) -> String {
+fn resolve_speed_test_route_fit(
+    target: SpeedTestTarget,
+    trace: Option<&SpeedTestTraceMetadata>,
+) -> SpeedTestRouteFit {
     match trace.and_then(|trace| trace.colo.as_deref()) {
-        Some(colo) => format!("Asia Preferred ({colo} edge)"),
-        None => DEFAULT_SPEED_TEST_TARGET.server_label.to_string(),
+        Some(colo) if is_preferred_asia_colo(target, colo) => SpeedTestRouteFit::PreferredAsia,
+        Some(_) => SpeedTestRouteFit::GlobalFallback,
+        None => SpeedTestRouteFit::Pending,
+    }
+}
+
+fn is_preferred_asia_colo(target: SpeedTestTarget, colo: &str) -> bool {
+    target
+        .preferred_asia_colos
+        .iter()
+        .any(|candidate| *candidate == colo)
+}
+
+fn resolve_speed_test_server_label(
+    target: SpeedTestTarget,
+    trace: Option<&SpeedTestTraceMetadata>,
+) -> String {
+    match (
+        resolve_speed_test_route_fit(target, trace),
+        trace.and_then(|trace| trace.colo.as_deref()),
+    ) {
+        (SpeedTestRouteFit::PreferredAsia, Some(colo)) => format!("Asia Preferred ({colo} edge)"),
+        (SpeedTestRouteFit::GlobalFallback, Some(colo)) => {
+            format!("Global Fallback ({colo} edge, outside Asia preference)")
+        }
+        _ => target.default_server_label.to_string(),
     }
 }
 
@@ -430,8 +504,10 @@ fn resolve_speed_test_server_label(trace: Option<&SpeedTestTraceMetadata>) -> St
 mod tests {
     use super::{
         calculate_jitter, describe_latency_probe_failure, describe_transport_error,
-        ensure_bytes_transferred, parse_trace_metadata, resolve_speed_test_server_label,
-        resolve_speed_test_target, sanitize_download_mb, SpeedTestTraceMetadata,
+        ensure_bytes_transferred, is_preferred_asia_colo, parse_trace_metadata,
+        resolve_speed_test_provider_label, resolve_speed_test_route_fit,
+        resolve_speed_test_server_label, resolve_speed_test_target, sanitize_download_mb,
+        SpeedTestRouteFit, SpeedTestTraceMetadata,
     };
 
     #[test]
@@ -506,10 +582,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_speed_test_target_defaults_to_asia_preferred_cloudflare() {
+    fn resolve_speed_test_target_defaults_to_cloudflare_asia_policy() {
         let target = resolve_speed_test_target();
         assert_eq!(target.provider, "Cloudflare");
-        assert_eq!(target.server_label, "Asia Preferred (Cloudflare edge auto)");
+        assert_eq!(target.policy_label, "Asia auto-edge");
+        assert_eq!(target.default_server_label, "Cloudflare auto edge");
         assert_eq!(
             target.download_api_url,
             "https://speed.cloudflare.com/__down"
@@ -523,7 +600,7 @@ mod tests {
 
     #[test]
     fn resolve_speed_test_server_label_uses_resolved_edge_when_available() {
-        let label = resolve_speed_test_server_label(Some(&SpeedTestTraceMetadata {
+        let label = resolve_speed_test_server_label(resolve_speed_test_target(), Some(&SpeedTestTraceMetadata {
             ip: Some("203.0.113.7".to_string()),
             colo: Some("SIN".to_string()),
         }));
@@ -533,9 +610,65 @@ mod tests {
 
     #[test]
     fn resolve_speed_test_server_label_falls_back_when_trace_metadata_is_missing() {
-        let label = resolve_speed_test_server_label(None);
+        let label = resolve_speed_test_server_label(resolve_speed_test_target(), None);
 
-        assert_eq!(label, "Asia Preferred (Cloudflare edge auto)");
+        assert_eq!(label, "Cloudflare auto edge");
+    }
+
+    #[test]
+    fn resolve_speed_test_server_label_marks_non_asia_edges_as_global_fallback() {
+        let label = resolve_speed_test_server_label(resolve_speed_test_target(), Some(&SpeedTestTraceMetadata {
+            ip: Some("203.0.113.7".to_string()),
+            colo: Some("LAX".to_string()),
+        }));
+
+        assert_eq!(label, "Global Fallback (LAX edge, outside Asia preference)");
+    }
+
+    #[test]
+    fn resolve_speed_test_provider_label_surfaces_policy_name() {
+        let provider = resolve_speed_test_provider_label(resolve_speed_test_target());
+
+        assert_eq!(provider, "Cloudflare (Asia auto-edge)");
+    }
+
+    #[test]
+    fn resolve_speed_test_route_fit_distinguishes_preferred_fallback_and_pending() {
+        let target = resolve_speed_test_target();
+
+        assert_eq!(
+            resolve_speed_test_route_fit(
+                target,
+                Some(&SpeedTestTraceMetadata {
+                    ip: Some("203.0.113.7".to_string()),
+                    colo: Some("SIN".to_string()),
+                })
+            ),
+            SpeedTestRouteFit::PreferredAsia
+        );
+
+        assert_eq!(
+            resolve_speed_test_route_fit(
+                target,
+                Some(&SpeedTestTraceMetadata {
+                    ip: Some("203.0.113.7".to_string()),
+                    colo: Some("LAX".to_string()),
+                })
+            ),
+            SpeedTestRouteFit::GlobalFallback
+        );
+
+        assert_eq!(resolve_speed_test_route_fit(target, None), SpeedTestRouteFit::Pending);
+    }
+
+    #[test]
+    fn is_preferred_asia_colo_accepts_common_edge_codes() {
+        let target = resolve_speed_test_target();
+
+        assert!(is_preferred_asia_colo(target, "SIN"));
+        assert!(is_preferred_asia_colo(target, "SGN"));
+        assert!(is_preferred_asia_colo(target, "NRT"));
+        assert!(!is_preferred_asia_colo(target, "LAX"));
     }
 
     #[test]

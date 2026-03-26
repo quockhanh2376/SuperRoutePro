@@ -14,7 +14,7 @@ const progress: SpeedTestProgress = {
 };
 
 const result: SpeedTestResult = {
-  provider: "Cloudflare",
+  provider: "Cloudflare (Asia auto-edge)",
   server_label: "Asia Preferred (SIN edge)",
   download_mbps: 226.8,
   upload_mbps: 81.3,
@@ -24,7 +24,7 @@ const result: SpeedTestResult = {
   timestamp: "2026-03-25T07:45:00.000Z",
 };
 
-test("SpeedTestModalDialog renders the resolved server label in the modal metadata", () => {
+test("SpeedTestModalDialog renders the resolved edge and provider policy in the modal metadata", () => {
   const html = renderToStaticMarkup(
     <SpeedTestModalDialog
       error=""
@@ -39,5 +39,5 @@ test("SpeedTestModalDialog renders the resolved server label in the modal metada
 
   assert.match(html, /Server/);
   assert.match(html, /Asia Preferred \(SIN edge\)/);
-  assert.match(html, /Cloudflare/);
+  assert.match(html, /Cloudflare \(Asia auto-edge\)/);
 });

@@ -5,6 +5,30 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Speed Test Policy Finalized As Cloudflare Asia Auto-Edge
+
+**Done**
+- Re-audited the Speed Test feature across backend, frontend, tests, and branch history to confirm the only major open product decision was the final target policy rather than missing plumbing.
+- Finalized the backend target policy in `src-tauri/src/speed_test.rs` as an explicit Cloudflare auto-edge strategy for Asia-oriented usage instead of continuing to imply a hard-pinned Asia server.
+- Split the metadata more honestly without changing the UI contract:
+  - `provider` now surfaces the policy as `Cloudflare (Asia auto-edge)`,
+  - `server_label` now distinguishes preferred Asia edges (`Asia Preferred (SIN edge)`), non-Asia fallback edges (`Global Fallback (LAX edge, outside Asia preference)`), or `Cloudflare auto edge` when trace metadata is unavailable.
+- Kept the existing Cloudflare download/upload/trace endpoints and measurement flow intact so the change stays backend-only and low-risk for the modal/UI.
+- Updated the focused tests to match the finalized policy wording, including the Rust speed-test unit coverage and the modal render assertion for provider/server metadata.
+- Re-ran `npm run test:node` and `cargo test --manifest-path src-tauri/Cargo.toml speed_test` successfully after the policy change.
+
+**Notes And Decisions**
+- This change intentionally does **not** pretend to pin a specific Asia city or POP because the current provider path still uses Cloudflare's auto-routed public speed-test endpoints.
+- The product decision is now explicit: with the current backend, the supported behavior is `Asia auto-edge`, not `manual Asia server selection`.
+- If we later need a truly hard-pinned Asia test server, that will likely require a different provider strategy or a more opinionated multi-target backend rather than another label-only tweak.
+- NotebookLM cannot be written directly from the current toolset, so updating `DAILY_LOG.md` remains the source-of-truth path for the notebook to ingest on refresh/re-sync.
+
+**Next Steps**
+- Do one native desktop smoke test and confirm the modal now reads `Cloudflare (Asia auto-edge)` plus the resolved policy-aware edge label in the metadata block.
+- If the product later demands a true region-pinned test, treat that as a separate feature slice instead of extending the current Cloudflare auto-edge policy piecemeal.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Optimization Roadmap Status Summary For NotebookLM
 
 **Done**
