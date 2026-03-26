@@ -5,6 +5,61 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Released v10.1.5 With Real Regional Speed Test Targets
+
+**Done**
+- Bumped the app from `10.1.4` to `10.1.5` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Ran the full release gate on the `10.1.5` tree with `npm run check`.
+- Built a fresh Windows NSIS installer successfully at `E:\\srprel-1015\\release\\bundle\\nsis\\Super Route Pro_10.1.5_x64-setup.exe`.
+- Updated `CHANGELOG.md` so the `v10.1.5` release line records the shipped regional Speed Test catalog, target-aware backend engine, and verification path used for the release build.
+
+**Notes And Decisions**
+- `v10.1.5` is the first release where the Speed Test selector is backed by real non-Cloudflare regional endpoints instead of only the `Auto Asia` catalog foundation.
+- The release still keeps the scope intentionally curated: only the regional backends that were live-probed successfully from the current environment made it into the shipped catalog.
+- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` update remains the source file for notebook refresh/re-sync.
+
+**Next Steps**
+- Monitor the `v10.1.5` tag workflow and verify the GitHub release assets publish cleanly.
+- If product wants to move even closer to `speedtest.net`, the next slice should add manual server selection inside each region rather than expanding the fixed regional catalog blindly.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - Real Regional Speed Test Backends Added And Smoke Checked
+
+**Done**
+- Extracted the Speed Test target catalog into `src-tauri/src/speed_test_targets.rs` and split the backend model into:
+  - `CloudflareAutoEdge` for `Auto Asia`
+  - `LibreSpeedRegional` for the fixed regional targets
+- Added three real regional targets to the catalog:
+  - `JP/KR` -> `Tokyo, Japan (A573)`
+  - `US West` -> `Los Angeles, United States (Clouvider)`
+  - `EU` -> `London, England (Clouvider)`
+- Updated the native Speed Test engine so each backend kind now uses the correct request semantics:
+  - Cloudflare stays on `__down?bytes=...`, `__up?bytes=...`, and Cloudflare trace parsing
+  - regional LibreSpeed targets use `empty.php`, `garbage.php?ckSize=...`, raw-body uploads, and JSON `getIP.php`
+- Added target-aware payload sizing so long-haul regional tests do not inherit the old `24 MB` Cloudflare default.
+- Updated the modal selector/copy to surface the real regional catalog and stop implying the feature was only a future foundation.
+- Verified the slice with:
+  - `npm run test:node`
+  - `npm run build`
+  - `cargo check --manifest-path src-tauri/Cargo.toml --target-dir E:\\srp-speedtest-v1015-check`
+  - `cargo test --manifest-path src-tauri/Cargo.toml speed_test --target-dir E:\\srp-speedtest-v1015`
+
+**Notes And Decisions**
+- London replaced the earlier Prague-style EU candidate because the London backend responded more reliably from the current Southeast Asia route during live probes.
+- `JP/KR` is intentionally labeled as a regional bucket backed by Tokyo today; no Korea-pinned backend was promoted into the catalog because the current probe set did not validate one cleanly enough.
+- Native desktop smoke used a current local binary built from the branch and confirmed:
+  - the Speed Test card is visible in desktop runtime,
+  - the modal opens with the new regional selector/copy,
+  - a live regional run completed and flowed back into the runtime card/status message.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` remains the source update for notebook refresh/re-sync.
+
+**Next Steps**
+- Ship the regional-target slice as `v10.1.5`.
+- If we need deeper per-run transparency, expose the regional `provider/server` metadata more prominently in the modal/card after the initial regional release settles.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Released v10.1.4 With NIC Name Enrichment And Speed Test Catalog Foundation
 
 **Done**
