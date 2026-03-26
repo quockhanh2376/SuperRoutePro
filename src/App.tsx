@@ -1879,7 +1879,9 @@ export default function App() {
 
       {profileSensitiveActionHint && (
         <div className="px-5 pt-2 shrink-0">
-          <p className="text-[0.72rem] text-amber-300">{profileSensitiveActionHint}</p>
+          <p className="profile-sensitive-action-hint text-[0.72rem] text-amber-300">
+            {profileSensitiveActionHint}
+          </p>
         </div>
       )}
 

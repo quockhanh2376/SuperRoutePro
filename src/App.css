@@ -249,6 +249,12 @@ html[data-zoom] {
   color: #334155;
 }
 
+.theme-light .profile-sensitive-action-hint {
+  color: #b45309;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 251, 235, 0.7);
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(680px, 1.58fr) minmax(300px, 0.86fr);
