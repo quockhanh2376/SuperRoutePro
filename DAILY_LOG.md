@@ -5,6 +5,35 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Released v10.1.6 With Repair Command Hardening
+
+**Done**
+- Confirmed the remote fix branch is up to date: `origin/fix-nic-active-filter` now points at `e9174b9`, which contains the post-review DHCP renew semantics patch.
+- Cherry-picked the DHCP semantics hardening into the active release branch as `3354f33` so `feature/speed-test-modal-v1` includes the same repair-command fixes before cutting the next release.
+- Fixed `src-tauri/src/network.rs` so DHCP renew now:
+  - derives success from the actual child process exit status
+  - stops before `/renew` when `/release` fails, matching the earlier `&&` behavior
+  - preserves the existing 90-second end-to-end timeout budget instead of silently shrinking the operation to 30 seconds per step
+  - keeps user-facing timeout text aligned with the original combined command flow
+- Bumped the app from `10.1.5` to `10.1.6` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Updated `CHANGELOG.md` so the `v10.1.6` release line records the repair-command hardening, runtime polish already on the branch, and the exact local artifact path used for this release build.
+- Re-ran the full release gate successfully with `npm run check`.
+- Built fresh local release artifacts successfully at `D:\SuperRoutePro\release-artifacts\v10.1.6`:
+  - `Super Route Pro_10.1.6_x64-setup.exe`
+  - `SuperRoute.exe`
+  - `SHA256SUMS.txt`
+
+**Notes And Decisions**
+- `feature/speed-test-modal-v1` had already carried the earlier validator fix (`f35db38`) but not the follow-up semantics patch from the dedicated fix branch, so the release line needed one more cherry-pick before the version bump.
+- The full project gate is now green on the `10.1.6` tree, including frontend build, Node tests, Rust tests, repair/session protocol tests, and installer packaging checks.
+- The release artifacts are intentionally kept out of git; the repo only tracks the version/doc updates, while the built installer and portable binary live under `release-artifacts\v10.1.6`.
+
+**Next Steps**
+- Push the `10.1.6` release commit on `feature/speed-test-modal-v1` so the remote branch matches the local artifact build.
+- If this should become the outward-facing release, create and push the `v10.1.6` tag after final human smoke acceptance.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Tauri Dev Runner Cargo PATH Fallback
 
 **Done**

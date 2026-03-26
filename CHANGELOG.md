@@ -1,5 +1,17 @@
 # Changelog
 
+## v10.1.6 (2026-03-27)
+
+### Highlights
+- Hardened the repair/network command path so quoted adapter names like `Ethernet (Corp)` still pass validation while shell chaining and other dangerous metacharacters remain blocked.
+- Restored honest DHCP renew behavior: the app now preserves the old `ipconfig /release && ipconfig /renew` semantics, short-circuits `/renew` when `/release` fails, reports success from the real child exit codes, and keeps the existing 90-second end-to-end timeout budget.
+- Rolled the latest desktop polish into the release line, including stable NIC card naming on refresh, clearer light-mode metric/hint contrast, and Tauri dev-runner PATH bootstrapping for shells where Rust is not already on `PATH`.
+
+### Verification
+- Re-ran the full release gate on `10.1.6` with `npm run check`.
+- Rebuilt the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.6\\Super Route Pro_10.1.6_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.6`.
+
 ## v10.1.5 (2026-03-26)
 
 ### Highlights
