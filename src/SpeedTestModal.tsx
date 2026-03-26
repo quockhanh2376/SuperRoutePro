@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Activity } from "lucide-react";
 import {
+  listSpeedTestTargets,
   runSpeedTest,
   type SpeedTestProgress,
   type SpeedTestResult,
+  type SpeedTestTargetOption,
 } from "./api";
 import { formatSpeedTestError } from "./speedTestError";
 import { isTauriRuntime, runMockSpeedTest } from "./speedTestDemo";
@@ -18,6 +20,27 @@ const DEFAULT_PROGRESS: SpeedTestProgress = {
   current_speed_mbps: 0,
   message: "Ready to measure download, upload, ping, and jitter.",
 };
+
+const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
+  {
+    id: "auto_asia",
+    label: "Auto Asia",
+    description: "Cloudflare auto-selects the nearest preferred Asia edge. Country pinning will sit on top of this target catalog once real region targets are available.",
+    provider: "Cloudflare (Asia auto-edge)",
+  },
+];
+
+const BROWSER_DEMO_TARGETS: SpeedTestTargetOption[] = [
+  {
+    id: "browser_preview",
+    label: "Browser Preview",
+    description: "Browser-safe preview flow for the speed test modal. Native desktop runtime will replace this with real target catalog entries.",
+    provider: "Browser Demo",
+  },
+];
+
+const getInitialTargetOptions = (tauriRuntime: boolean): SpeedTestTargetOption[] =>
+  tauriRuntime ? TAURI_FALLBACK_TARGETS : BROWSER_DEMO_TARGETS;
 
 const formatMetric = (value: number | null | undefined, suffix: string) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -37,6 +60,8 @@ export function SpeedTestModal({
   const [progress, setProgress] = useState<SpeedTestProgress>(DEFAULT_PROGRESS);
   const [result, setResult] = useState<SpeedTestResult | null>(null);
   const [error, setError] = useState("");
+  const [targetOptions, setTargetOptions] = useState<SpeedTestTargetOption[]>(() => getInitialTargetOptions(tauriRuntime));
+  const [selectedTargetId, setSelectedTargetId] = useState(() => getInitialTargetOptions(tauriRuntime)[0]?.id ?? "");
 
   useEffect(() => {
     if (!tauriRuntime) return;
@@ -61,6 +86,33 @@ export function SpeedTestModal({
     };
   }, [tauriRuntime]);
 
+  useEffect(() => {
+    const fallbackTargets = getInitialTargetOptions(tauriRuntime);
+    setTargetOptions(fallbackTargets);
+    setSelectedTargetId((current) => current || (fallbackTargets[0]?.id ?? ""));
+
+    if (!tauriRuntime) return;
+
+    let active = true;
+    void listSpeedTestTargets()
+      .then((targets) => {
+        if (!active || targets.length === 0) {
+          return;
+        }
+        setTargetOptions(targets);
+        setSelectedTargetId((current) =>
+          targets.some((target) => target.id === current) ? current : targets[0].id,
+        );
+      })
+      .catch((loadErr) => {
+        console.warn("Failed to load speed test targets:", loadErr);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tauriRuntime]);
+
   const handleOpen = useCallback(() => {
     setOpen(true);
   }, []);
@@ -70,7 +122,21 @@ export function SpeedTestModal({
     setOpen(false);
   }, [isTesting]);
 
+  const handleTargetChange = useCallback((targetId: string) => {
+    setSelectedTargetId(targetId);
+    setResult(null);
+    setError("");
+    setProgress(DEFAULT_PROGRESS);
+  }, []);
+
+  const selectedTarget =
+    targetOptions.find((target) => target.id === selectedTargetId)
+    ?? targetOptions[0]
+    ?? null;
+
   const handleStart = useCallback(async () => {
+    const targetLabel = selectedTarget?.label ?? (tauriRuntime ? "Auto Asia" : "Browser Preview");
+
     setIsTesting(true);
     setError("");
     setResult(null);
@@ -79,14 +145,18 @@ export function SpeedTestModal({
       percent: 3,
       current_speed_mbps: 0,
       message: tauriRuntime
-        ? "Starting native speed test..."
-        : "Starting browser preview flow...",
+        ? `Starting native speed test for ${targetLabel}...`
+        : `Starting browser preview flow for ${targetLabel}...`,
     });
-    onStatusChange?.(tauriRuntime ? "Speed test started..." : "Speed test demo started...");
+    onStatusChange?.(
+      tauriRuntime
+        ? `Speed test started: ${targetLabel}`
+        : `Speed test demo started: ${targetLabel}`,
+    );
 
     try {
       const response = tauriRuntime
-        ? await runSpeedTest(24)
+        ? await runSpeedTest(24, selectedTargetId)
         : await runMockSpeedTest(setProgress);
 
       setResult(response);
@@ -116,7 +186,7 @@ export function SpeedTestModal({
     } finally {
       setIsTesting(false);
     }
-  }, [onStatusChange, tauriRuntime]);
+  }, [onStatusChange, selectedTarget, selectedTargetId, tauriRuntime]);
 
   return (
     <>
@@ -181,9 +251,12 @@ export function SpeedTestModal({
             isTesting={isTesting}
             onClose={handleClose}
             onStart={() => void handleStart()}
+            onTargetChange={handleTargetChange}
             progress={progress}
             result={result}
+            selectedTargetId={selectedTargetId}
             tauriRuntime={tauriRuntime}
+            targetOptions={targetOptions}
           />
         </div>
       )}

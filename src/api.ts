@@ -52,7 +52,16 @@ export interface SpeedTestProgress {
   message: string;
 }
 
+export interface SpeedTestTargetOption {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+}
+
 export interface SpeedTestResult {
+  target_id: string;
+  target_label: string;
   provider: string;
   server_label: string;
   download_mbps: number;
@@ -206,9 +215,17 @@ export async function fpingScan(
   });
 }
 
-export async function runSpeedTest(downloadMb?: number): Promise<SpeedTestResult> {
+export async function listSpeedTestTargets(): Promise<SpeedTestTargetOption[]> {
+  return invoke<SpeedTestTargetOption[]>("list_speed_test_targets");
+}
+
+export async function runSpeedTest(
+  downloadMb?: number,
+  targetId?: string,
+): Promise<SpeedTestResult> {
   return invoke<SpeedTestResult>("run_speed_test", {
     downloadMb: downloadMb || null,
+    targetId: targetId || null,
   });
 }
 

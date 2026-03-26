@@ -1,6 +1,6 @@
 import { RefreshCw, X } from "lucide-react";
 
-import type { SpeedTestProgress, SpeedTestResult } from "./api";
+import type { SpeedTestProgress, SpeedTestResult, SpeedTestTargetOption } from "./api";
 
 const formatMetric = (value: number | null | undefined, suffix: string) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -29,22 +29,35 @@ const getStageLabel = (stage: string) => {
 export type SpeedTestModalDialogProps = {
   error: string;
   isTesting: boolean;
+  selectedTargetId: string;
   progress: SpeedTestProgress;
   result: SpeedTestResult | null;
   tauriRuntime: boolean;
   onClose: () => void;
   onStart: () => void;
+  onTargetChange: (targetId: string) => void;
+  targetOptions: SpeedTestTargetOption[];
 };
 
 export function SpeedTestModalDialog({
   error,
   isTesting,
+  selectedTargetId,
   progress,
   result,
   tauriRuntime,
   onClose,
   onStart,
+  onTargetChange,
+  targetOptions,
 }: SpeedTestModalDialogProps) {
+  const activeTarget =
+    targetOptions.find((target) => target.id === selectedTargetId)
+    ?? targetOptions[0]
+    ?? null;
+  const targetLabel = result?.target_label ?? activeTarget?.label ?? "Auto";
+  const providerLabel = result?.provider ?? activeTarget?.provider ?? "Auto";
+
   return (
     <div
       className="speed-test-modal"
@@ -78,6 +91,36 @@ export function SpeedTestModalDialog({
             Browser demo mode is active. Progress and throughput are mocked here so the UI can be reviewed before the native Tauri runtime is available.
           </div>
         )}
+
+        <div className="speed-test-target-shell">
+          <div className="speed-test-target-title-row">
+            <div>
+              <div className="speed-test-target-title">Test Target</div>
+              <div className="speed-test-target-subtitle">
+                Multi-target catalog foundation. Country selection will unlock only when the backend has real region-pinned targets.
+              </div>
+            </div>
+            <div className="speed-test-target-chip">{activeTarget?.label ?? "Auto"}</div>
+          </div>
+          <label className="speed-test-target-control">
+            <span className="speed-test-target-label">Target Profile</span>
+            <select
+              className="speed-test-target-select"
+              disabled={isTesting || targetOptions.length <= 1}
+              onChange={(event) => onTargetChange(event.target.value)}
+              value={selectedTargetId}
+            >
+              {targetOptions.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="speed-test-target-description">
+            {activeTarget?.description ?? "Target catalog is loading."}
+          </div>
+        </div>
 
         <div className="speed-test-progress-shell">
           <div className="speed-test-progress-topline">
@@ -125,12 +168,16 @@ export function SpeedTestModalDialog({
 
         <div className="speed-test-meta-grid">
           <div className="speed-test-meta-row">
+            <span className="speed-test-meta-label">Target</span>
+            <span className="speed-test-meta-value">{targetLabel}</span>
+          </div>
+          <div className="speed-test-meta-row">
             <span className="speed-test-meta-label">Provider</span>
-            <span className="speed-test-meta-value">{result?.provider ?? "Auto"}</span>
+            <span className="speed-test-meta-value">{providerLabel}</span>
           </div>
           <div className="speed-test-meta-row">
             <span className="speed-test-meta-label">Server</span>
-            <span className="speed-test-meta-value">{result?.server_label ?? "Auto"}</span>
+            <span className="speed-test-meta-value">{result?.server_label ?? "Awaiting run"}</span>
           </div>
           <div className="speed-test-meta-row">
             <span className="speed-test-meta-label">Public IP</span>

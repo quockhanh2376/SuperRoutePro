@@ -47,6 +47,8 @@ export function isTauriRuntime(): boolean {
 
 export function buildMockSpeedTestResult(now = new Date()): SpeedTestResult {
   return {
+    target_id: "browser_preview",
+    target_label: "Browser Preview",
     provider: "Browser Demo",
     server_label: "Local Preview",
     download_mbps: 226.8,

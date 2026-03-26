@@ -14,6 +14,8 @@ const progress: SpeedTestProgress = {
 };
 
 const result: SpeedTestResult = {
+  target_id: "auto_asia",
+  target_label: "Auto Asia",
   provider: "Cloudflare (Asia auto-edge)",
   server_label: "Asia Preferred (SIN edge)",
   download_mbps: 226.8,
@@ -31,12 +33,24 @@ test("SpeedTestModalDialog renders the resolved edge and provider policy in the 
       isTesting={false}
       onClose={() => {}}
       onStart={() => {}}
+      onTargetChange={() => {}}
       progress={progress}
       result={result}
+      selectedTargetId="auto_asia"
       tauriRuntime
+      targetOptions={[
+        {
+          id: "auto_asia",
+          label: "Auto Asia",
+          description: "Cloudflare auto-selects the nearest preferred Asia edge.",
+          provider: "Cloudflare (Asia auto-edge)",
+        },
+      ]}
     />,
   );
 
+  assert.match(html, /Target/);
+  assert.match(html, /Auto Asia/);
   assert.match(html, /Server/);
   assert.match(html, /Asia Preferred \(SIN edge\)/);
   assert.match(html, /Cloudflare \(Asia auto-edge\)/);

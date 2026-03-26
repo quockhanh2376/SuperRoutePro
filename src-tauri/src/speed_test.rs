@@ -15,9 +15,12 @@ const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 3;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
+const DEFAULT_SPEED_TEST_TARGET_ID: &str = "auto_asia";
 
 #[derive(Clone, Copy, Debug)]
 struct SpeedTestTarget {
+    id: &'static str,
+    target_label: &'static str,
     provider: &'static str,
     policy_label: &'static str,
     default_server_label: &'static str,
@@ -48,6 +51,8 @@ const PREFERRED_ASIA_COLOS: [&str; 38] = [
 ];
 
 const DEFAULT_SPEED_TEST_TARGET: SpeedTestTarget = SpeedTestTarget {
+    id: DEFAULT_SPEED_TEST_TARGET_ID,
+    target_label: "Auto Asia",
     provider: "Cloudflare",
     policy_label: "Asia auto-edge",
     default_server_label: "Cloudflare auto edge",
@@ -69,6 +74,8 @@ pub struct SpeedTestProgress {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SpeedTestResult {
+    pub target_id: String,
+    pub target_label: String,
     pub provider: String,
     pub server_label: String,
     pub download_mbps: f64,
@@ -79,12 +86,27 @@ pub struct SpeedTestResult {
     pub timestamp: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SpeedTestCatalogEntry {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub provider: String,
+}
+
+#[tauri::command]
+pub fn list_speed_test_targets() -> Vec<SpeedTestCatalogEntry> {
+    vec![build_speed_test_catalog_entry(DEFAULT_SPEED_TEST_TARGET)]
+}
+
 #[tauri::command]
 pub async fn run_speed_test(
     app: AppHandle,
     download_mb: Option<u32>,
+    target_id: Option<String>,
 ) -> Result<SpeedTestResult, String> {
-    let target = resolve_speed_test_target();
+    let target = resolve_speed_test_target(target_id.as_deref())?;
     let download_bytes = sanitize_download_mb(download_mb) as usize * 1024 * 1024;
     let upload_bytes = DEFAULT_UPLOAD_BYTES.min((download_bytes / 2).max(2 * 1024 * 1024));
     let client = build_client()?;
@@ -134,6 +156,8 @@ pub async fn run_speed_test(
     )?;
 
     Ok(SpeedTestResult {
+        target_id: target.id.to_string(),
+        target_label: target.target_label.to_string(),
         provider: provider_label,
         server_label,
         download_mbps,
@@ -145,8 +169,20 @@ pub async fn run_speed_test(
     })
 }
 
-fn resolve_speed_test_target() -> SpeedTestTarget {
-    DEFAULT_SPEED_TEST_TARGET
+fn build_speed_test_catalog_entry(target: SpeedTestTarget) -> SpeedTestCatalogEntry {
+    SpeedTestCatalogEntry {
+        id: target.id.to_string(),
+        label: target.target_label.to_string(),
+        description: "Cloudflare auto-selects the nearest preferred Asia edge. Country pinning will layer on top of this catalog when real region targets are available.".to_string(),
+        provider: resolve_speed_test_provider_label(target),
+    }
+}
+
+fn resolve_speed_test_target(target_id: Option<&str>) -> Result<SpeedTestTarget, String> {
+    match target_id.unwrap_or(DEFAULT_SPEED_TEST_TARGET_ID) {
+        DEFAULT_SPEED_TEST_TARGET_ID => Ok(DEFAULT_SPEED_TEST_TARGET),
+        unknown => Err(format!("Unknown speed test target: {unknown}")),
+    }
 }
 
 fn resolve_speed_test_provider_label(target: SpeedTestTarget) -> String {
@@ -504,8 +540,8 @@ fn resolve_speed_test_server_label(
 mod tests {
     use super::{
         calculate_jitter, describe_latency_probe_failure, describe_transport_error,
-        ensure_bytes_transferred, is_preferred_asia_colo, parse_trace_metadata,
-        resolve_speed_test_provider_label, resolve_speed_test_route_fit,
+        ensure_bytes_transferred, is_preferred_asia_colo, list_speed_test_targets,
+        parse_trace_metadata, resolve_speed_test_provider_label, resolve_speed_test_route_fit,
         resolve_speed_test_server_label, resolve_speed_test_target, sanitize_download_mb,
         SpeedTestRouteFit, SpeedTestTraceMetadata,
     };
@@ -583,7 +619,9 @@ mod tests {
 
     #[test]
     fn resolve_speed_test_target_defaults_to_cloudflare_asia_policy() {
-        let target = resolve_speed_test_target();
+        let target = resolve_speed_test_target(None).expect("default target should resolve");
+        assert_eq!(target.id, "auto_asia");
+        assert_eq!(target.target_label, "Auto Asia");
         assert_eq!(target.provider, "Cloudflare");
         assert_eq!(target.policy_label, "Asia auto-edge");
         assert_eq!(target.default_server_label, "Cloudflare auto edge");
@@ -600,41 +638,52 @@ mod tests {
 
     #[test]
     fn resolve_speed_test_server_label_uses_resolved_edge_when_available() {
-        let label = resolve_speed_test_server_label(resolve_speed_test_target(), Some(&SpeedTestTraceMetadata {
-            ip: Some("203.0.113.7".to_string()),
-            colo: Some("SIN".to_string()),
-        }));
+        let label = resolve_speed_test_server_label(
+            resolve_speed_test_target(None).expect("default target should resolve"),
+            Some(&SpeedTestTraceMetadata {
+                ip: Some("203.0.113.7".to_string()),
+                colo: Some("SIN".to_string()),
+            }),
+        );
 
         assert_eq!(label, "Asia Preferred (SIN edge)");
     }
 
     #[test]
     fn resolve_speed_test_server_label_falls_back_when_trace_metadata_is_missing() {
-        let label = resolve_speed_test_server_label(resolve_speed_test_target(), None);
+        let label = resolve_speed_test_server_label(
+            resolve_speed_test_target(None).expect("default target should resolve"),
+            None,
+        );
 
         assert_eq!(label, "Cloudflare auto edge");
     }
 
     #[test]
     fn resolve_speed_test_server_label_marks_non_asia_edges_as_global_fallback() {
-        let label = resolve_speed_test_server_label(resolve_speed_test_target(), Some(&SpeedTestTraceMetadata {
-            ip: Some("203.0.113.7".to_string()),
-            colo: Some("LAX".to_string()),
-        }));
+        let label = resolve_speed_test_server_label(
+            resolve_speed_test_target(None).expect("default target should resolve"),
+            Some(&SpeedTestTraceMetadata {
+                ip: Some("203.0.113.7".to_string()),
+                colo: Some("LAX".to_string()),
+            }),
+        );
 
         assert_eq!(label, "Global Fallback (LAX edge, outside Asia preference)");
     }
 
     #[test]
     fn resolve_speed_test_provider_label_surfaces_policy_name() {
-        let provider = resolve_speed_test_provider_label(resolve_speed_test_target());
+        let provider = resolve_speed_test_provider_label(
+            resolve_speed_test_target(None).expect("default target should resolve"),
+        );
 
         assert_eq!(provider, "Cloudflare (Asia auto-edge)");
     }
 
     #[test]
     fn resolve_speed_test_route_fit_distinguishes_preferred_fallback_and_pending() {
-        let target = resolve_speed_test_target();
+        let target = resolve_speed_test_target(None).expect("default target should resolve");
 
         assert_eq!(
             resolve_speed_test_route_fit(
@@ -663,7 +712,7 @@ mod tests {
 
     #[test]
     fn is_preferred_asia_colo_accepts_common_edge_codes() {
-        let target = resolve_speed_test_target();
+        let target = resolve_speed_test_target(None).expect("default target should resolve");
 
         assert!(is_preferred_asia_colo(target, "SIN"));
         assert!(is_preferred_asia_colo(target, "SGN"));
@@ -678,5 +727,22 @@ mod tests {
             message,
             "Latency check collected only 1 stable sample(s). At least 3 successful probes are required. Latency probe timed out."
         );
+    }
+
+    #[test]
+    fn list_speed_test_targets_exposes_the_auto_asia_catalog_entry() {
+        let targets = list_speed_test_targets();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "auto_asia");
+        assert_eq!(targets[0].label, "Auto Asia");
+        assert_eq!(targets[0].provider, "Cloudflare (Asia auto-edge)");
+        assert!(targets[0].description.contains("Country pinning"));
+    }
+
+    #[test]
+    fn resolve_speed_test_target_rejects_unknown_target_ids() {
+        let error = resolve_speed_test_target(Some("us_west")).expect_err("target should be rejected");
+        assert_eq!(error, "Unknown speed test target: us_west");
     }
 }
