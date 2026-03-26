@@ -1,5 +1,17 @@
 # Changelog
 
+## v10.1.5 (2026-03-26)
+
+### Highlights
+- Added real Speed Test regional targets on top of the existing `Auto Asia` baseline: `JP/KR` now uses a fixed Tokyo backend, `US West` uses a fixed Los Angeles backend, and `EU` uses a fixed London backend.
+- Split the backend measurement engine by provider semantics so Cloudflare auto-edge and regional LibreSpeed targets use the correct latency, download, upload, and public-IP lookup flows instead of sharing one fake target model.
+- Tuned payload sizing per region to keep long-haul runs stable, then updated the modal copy and selector to reflect the real regional catalog now available in the desktop app.
+
+### Verification
+- Re-ran the full release gate on `10.1.5` with `npm run check`.
+- Rebuilt the Windows NSIS installer successfully at `E:\\srprel-1015\\release\\bundle\\nsis\\Super Route Pro_10.1.5_x64-setup.exe`.
+- Live-probed the Tokyo, Los Angeles, and London regional endpoints before shipping and completed a native desktop smoke pass that showed the new regional selector in the modal and a completed live regional run in runtime.
+
 ## v10.1.4 (2026-03-26)
 
 ### Highlights
