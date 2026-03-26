@@ -1,39 +1,34 @@
+use crate::speed_test_targets::{resolve_speed_test_target, SpeedTestBackendKind, SpeedTestTarget};
 use chrono::Utc;
 use futures_util::StreamExt;
 use reqwest::Client;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const SPEED_TEST_PROGRESS_EVENT: &str = "speed-test://progress";
-const DEFAULT_DOWNLOAD_MB: u32 = 24;
-const MIN_DOWNLOAD_MB: u32 = 8;
-const MAX_DOWNLOAD_MB: u32 = 32;
-const DEFAULT_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
 const LATENCY_SAMPLES: usize = 6;
 const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 3;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
-const DEFAULT_SPEED_TEST_TARGET_ID: &str = "auto_asia";
-
-#[derive(Clone, Copy, Debug)]
-struct SpeedTestTarget {
-    id: &'static str,
-    target_label: &'static str,
-    provider: &'static str,
-    policy_label: &'static str,
-    default_server_label: &'static str,
-    preferred_asia_colos: &'static [&'static str],
-    download_api_url: &'static str,
-    upload_api_url: &'static str,
-    trace_api_url: &'static str,
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct SpeedTestTraceMetadata {
     ip: Option<String>,
     colo: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SpeedTestTargetContext {
+    public_ip: Option<String>,
+    trace: Option<SpeedTestTraceMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LibreSpeedIpLookupResponse {
+    #[serde(rename = "processedString")]
+    processed_string: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,25 +37,6 @@ enum SpeedTestRouteFit {
     GlobalFallback,
     Pending,
 }
-
-const PREFERRED_ASIA_COLOS: [&str; 38] = [
-    "SIN", "KUL", "BKK", "CGK", "DPS", "SUB", "SGN", "HAN", "PNH", "RGN", "VTE", "MNL",
-    "HKG", "TPE", "KHH", "MFM", "NRT", "HND", "KIX", "ICN", "GMP", "PUS", "KTM", "DAC",
-    "CCU", "DEL", "BOM", "AMD", "BLR", "MAA", "HYD", "COK", "CJB", "CMB", "DXB", "DOH",
-    "MCT", "BAH",
-];
-
-const DEFAULT_SPEED_TEST_TARGET: SpeedTestTarget = SpeedTestTarget {
-    id: DEFAULT_SPEED_TEST_TARGET_ID,
-    target_label: "Auto Asia",
-    provider: "Cloudflare",
-    policy_label: "Asia auto-edge",
-    default_server_label: "Cloudflare auto edge",
-    preferred_asia_colos: &PREFERRED_ASIA_COLOS,
-    download_api_url: "https://speed.cloudflare.com/__down",
-    upload_api_url: "https://speed.cloudflare.com/__up",
-    trace_api_url: "https://speed.cloudflare.com/cdn-cgi/trace",
-};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -86,20 +62,6 @@ pub struct SpeedTestResult {
     pub timestamp: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SpeedTestCatalogEntry {
-    pub id: String,
-    pub label: String,
-    pub description: String,
-    pub provider: String,
-}
-
-#[tauri::command]
-pub fn list_speed_test_targets() -> Vec<SpeedTestCatalogEntry> {
-    vec![build_speed_test_catalog_entry(DEFAULT_SPEED_TEST_TARGET)]
-}
-
 #[tauri::command]
 pub async fn run_speed_test(
     app: AppHandle,
@@ -107,17 +69,15 @@ pub async fn run_speed_test(
     target_id: Option<String>,
 ) -> Result<SpeedTestResult, String> {
     let target = resolve_speed_test_target(target_id.as_deref())?;
-    let download_bytes = sanitize_download_mb(download_mb) as usize * 1024 * 1024;
-    let upload_bytes = DEFAULT_UPLOAD_BYTES.min((download_bytes / 2).max(2 * 1024 * 1024));
+    let download_bytes = sanitize_download_mb(download_mb, target) as usize * 1024 * 1024;
+    let upload_bytes = resolve_upload_bytes(target, download_bytes);
     let client = build_client()?;
-    let trace_metadata = fetch_trace_metadata(&client, target.trace_api_url)
-        .await
-        .ok();
+    let target_context = fetch_target_context(&client, target).await.ok();
     let provider_label = resolve_speed_test_provider_label(target);
-    let server_label = resolve_speed_test_server_label(target, trace_metadata.as_ref());
-    let ip = trace_metadata
+    let server_label = resolve_speed_test_server_label(target, target_context.as_ref());
+    let ip = target_context
         .as_ref()
-        .and_then(|trace| trace.ip.as_deref())
+        .and_then(|context| context.public_ip.as_deref())
         .unwrap_or("Unavailable")
         .to_string();
 
@@ -126,7 +86,7 @@ pub async fn run_speed_test(
         "preflight",
         4.0,
         0.0,
-        build_preflight_message(target, &provider_label, trace_metadata.as_ref()),
+        build_preflight_message(target, &provider_label, target_context.as_ref()),
     )?;
 
     let latency_points = measure_latency(&client, target).await?;
@@ -169,46 +129,49 @@ pub async fn run_speed_test(
     })
 }
 
-fn build_speed_test_catalog_entry(target: SpeedTestTarget) -> SpeedTestCatalogEntry {
-    SpeedTestCatalogEntry {
-        id: target.id.to_string(),
-        label: target.target_label.to_string(),
-        description: "Cloudflare auto-selects the nearest preferred Asia edge. Country pinning will layer on top of this catalog when real region targets are available.".to_string(),
-        provider: resolve_speed_test_provider_label(target),
-    }
-}
-
-fn resolve_speed_test_target(target_id: Option<&str>) -> Result<SpeedTestTarget, String> {
-    match target_id.unwrap_or(DEFAULT_SPEED_TEST_TARGET_ID) {
-        DEFAULT_SPEED_TEST_TARGET_ID => Ok(DEFAULT_SPEED_TEST_TARGET),
-        unknown => Err(format!("Unknown speed test target: {unknown}")),
-    }
-}
-
 fn resolve_speed_test_provider_label(target: SpeedTestTarget) -> String {
-    format!("{} ({})", target.provider, target.policy_label)
+    target.provider_label.to_string()
 }
 
 fn build_preflight_message(
     target: SpeedTestTarget,
     provider_label: &str,
-    trace: Option<&SpeedTestTraceMetadata>,
+    context: Option<&SpeedTestTargetContext>,
 ) -> String {
-    match resolve_speed_test_route_fit(target, trace) {
-        SpeedTestRouteFit::PreferredAsia => {
-            let colo = trace
-                .and_then(|trace| trace.colo.as_deref())
-                .unwrap_or("preferred Asia edge");
-            format!("Preparing native speed test via {provider_label}. Preferred Asia edge resolved at {colo}.")
-        }
-        SpeedTestRouteFit::GlobalFallback => {
-            let colo = trace
-                .and_then(|trace| trace.colo.as_deref())
-                .unwrap_or("Cloudflare edge");
-            format!("Preparing native speed test via {provider_label}. Using a global fallback edge at {colo}.")
-        }
-        SpeedTestRouteFit::Pending => {
-            format!("Preparing native speed test via {provider_label}. Cloudflare edge will resolve automatically.")
+    match target.backend_kind {
+        SpeedTestBackendKind::CloudflareAutoEdge => match resolve_speed_test_route_fit(
+            target,
+            context.and_then(|context| context.trace.as_ref()),
+        ) {
+            SpeedTestRouteFit::PreferredAsia => {
+                let colo = context
+                    .and_then(|context| context.trace.as_ref())
+                    .and_then(|trace| trace.colo.as_deref())
+                    .unwrap_or("preferred Asia edge");
+                format!(
+                    "Preparing native speed test via {provider_label}. Preferred Asia edge resolved at {colo}."
+                )
+            }
+            SpeedTestRouteFit::GlobalFallback => {
+                let colo = context
+                    .and_then(|context| context.trace.as_ref())
+                    .and_then(|trace| trace.colo.as_deref())
+                    .unwrap_or("Cloudflare edge");
+                format!(
+                    "Preparing native speed test via {provider_label}. Using a global fallback edge at {colo}."
+                )
+            }
+            SpeedTestRouteFit::Pending => {
+                format!(
+                    "Preparing native speed test via {provider_label}. Cloudflare edge will resolve automatically."
+                )
+            }
+        },
+        SpeedTestBackendKind::LibreSpeedRegional => {
+            format!(
+                "Preparing native speed test via {provider_label}. Fixed regional backend: {}.",
+                target.default_server_label
+            )
         }
     }
 }
@@ -227,7 +190,7 @@ async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec
     let mut last_error: Option<String> = None;
 
     for sample in 0..LATENCY_SAMPLES {
-        let url = format!("{}?bytes=0&sample={sample}", target.download_api_url);
+        let url = build_latency_request_url(target, sample);
         let started = Instant::now();
         let response = client
             .get(&url)
@@ -272,7 +235,7 @@ async fn measure_download(
         ),
     )?;
 
-    let url = format!("{}?bytes={download_bytes}", target.download_api_url);
+    let url = build_download_request_url(target, download_bytes);
     let response = client
         .get(&url)
         .send()
@@ -334,9 +297,7 @@ async fn measure_upload(
 
     let payload = vec![0u8; upload_bytes];
     let started = Instant::now();
-    client
-        .post(format!("{}?bytes={upload_bytes}", target.upload_api_url))
-        .body(payload)
+    build_upload_request(client, target, payload)
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Upload test", &error))?
@@ -357,6 +318,66 @@ async fn measure_upload(
     Ok(upload_mbps)
 }
 
+fn build_latency_request_url(target: SpeedTestTarget, sample: usize) -> String {
+    match target.backend_kind {
+        SpeedTestBackendKind::CloudflareAutoEdge => {
+            format!("{}?bytes=0&sample={sample}", target.download_url)
+        }
+        SpeedTestBackendKind::LibreSpeedRegional => format!("{}?r={sample}", target.latency_url),
+    }
+}
+
+fn build_download_request_url(target: SpeedTestTarget, download_bytes: usize) -> String {
+    match target.backend_kind {
+        SpeedTestBackendKind::CloudflareAutoEdge => {
+            format!("{}?bytes={download_bytes}", target.download_url)
+        }
+        SpeedTestBackendKind::LibreSpeedRegional => {
+            format!(
+                "{}?ckSize={}",
+                target.download_url,
+                bytes_to_mebibytes(download_bytes)
+            )
+        }
+    }
+}
+
+fn build_upload_request(
+    client: &Client,
+    target: SpeedTestTarget,
+    payload: Vec<u8>,
+) -> reqwest::RequestBuilder {
+    let payload_len = payload.len();
+    match target.backend_kind {
+        SpeedTestBackendKind::CloudflareAutoEdge => client
+            .post(format!("{}?bytes={payload_len}", target.upload_url))
+            .body(payload),
+        SpeedTestBackendKind::LibreSpeedRegional => client.post(target.upload_url).body(payload),
+    }
+}
+
+async fn fetch_target_context(
+    client: &Client,
+    target: SpeedTestTarget,
+) -> Result<SpeedTestTargetContext, String> {
+    match target.backend_kind {
+        SpeedTestBackendKind::CloudflareAutoEdge => {
+            let trace = fetch_trace_metadata(client, target.ip_lookup_url).await?;
+            Ok(SpeedTestTargetContext {
+                public_ip: trace.ip.clone(),
+                trace: Some(trace),
+            })
+        }
+        SpeedTestBackendKind::LibreSpeedRegional => {
+            let public_ip = fetch_librespeed_public_ip(client, target.ip_lookup_url).await?;
+            Ok(SpeedTestTargetContext {
+                public_ip: Some(public_ip),
+                trace: None,
+            })
+        }
+    }
+}
+
 async fn fetch_trace_metadata(
     client: &Client,
     trace_api_url: &str,
@@ -373,6 +394,25 @@ async fn fetch_trace_metadata(
         .map_err(|error| format!("Public IP lookup response could not be read: {error}"))?;
 
     Ok(parse_trace_metadata(&trace))
+}
+
+async fn fetch_librespeed_public_ip(
+    client: &Client,
+    ip_lookup_url: &str,
+) -> Result<String, String> {
+    let body = client
+        .get(ip_lookup_url)
+        .send()
+        .await
+        .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
+        .error_for_status()
+        .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
+        .text()
+        .await
+        .map_err(|error| format!("Public IP lookup response could not be read: {error}"))?;
+
+    parse_librespeed_public_ip(&body)
+        .ok_or_else(|| "Public IP lookup returned an unrecognized LibreSpeed response.".to_string())
 }
 
 fn emit_progress(
@@ -394,10 +434,16 @@ fn emit_progress(
     .map_err(|error| format!("Could not emit speed test progress: {error}"))
 }
 
-fn sanitize_download_mb(value: Option<u32>) -> u32 {
+fn sanitize_download_mb(value: Option<u32>, target: SpeedTestTarget) -> u32 {
     value
-        .unwrap_or(DEFAULT_DOWNLOAD_MB)
-        .clamp(MIN_DOWNLOAD_MB, MAX_DOWNLOAD_MB)
+        .unwrap_or(target.default_download_mb)
+        .clamp(target.min_download_mb, target.max_download_mb)
+}
+
+fn resolve_upload_bytes(target: SpeedTestTarget, download_bytes: usize) -> usize {
+    (download_bytes / 2)
+        .max(target.min_upload_bytes)
+        .min(target.max_upload_bytes)
 }
 
 fn describe_reqwest_error(stage: &str, error: &reqwest::Error) -> String {
@@ -464,6 +510,10 @@ fn bytes_to_mbps(total_bytes: usize, elapsed_seconds: f64) -> f64 {
     (total_bytes as f64 * 8.0) / elapsed_seconds / 1_000_000.0
 }
 
+fn bytes_to_mebibytes(total_bytes: usize) -> usize {
+    (total_bytes / 1024 / 1024).max(1)
+}
+
 fn average(points: &[f64]) -> f64 {
     if points.is_empty() {
         return 0.0;
@@ -502,28 +552,45 @@ fn parse_trace_metadata(trace: &str) -> SpeedTestTraceMetadata {
     metadata
 }
 
+fn parse_librespeed_public_ip(body: &str) -> Option<String> {
+    serde_json::from_str::<LibreSpeedIpLookupResponse>(body)
+        .ok()
+        .and_then(|response| response.processed_string)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn resolve_speed_test_route_fit(
     target: SpeedTestTarget,
     trace: Option<&SpeedTestTraceMetadata>,
 ) -> SpeedTestRouteFit {
+    if target.backend_kind != SpeedTestBackendKind::CloudflareAutoEdge {
+        return SpeedTestRouteFit::Pending;
+    }
+
     match trace.and_then(|trace| trace.colo.as_deref()) {
-        Some(colo) if is_preferred_asia_colo(target, colo) => SpeedTestRouteFit::PreferredAsia,
+        Some(colo) if is_preferred_colo(target, colo) => SpeedTestRouteFit::PreferredAsia,
         Some(_) => SpeedTestRouteFit::GlobalFallback,
         None => SpeedTestRouteFit::Pending,
     }
 }
 
-fn is_preferred_asia_colo(target: SpeedTestTarget, colo: &str) -> bool {
+fn is_preferred_colo(target: SpeedTestTarget, colo: &str) -> bool {
     target
-        .preferred_asia_colos
+        .preferred_colos
         .iter()
         .any(|candidate| *candidate == colo)
 }
 
 fn resolve_speed_test_server_label(
     target: SpeedTestTarget,
-    trace: Option<&SpeedTestTraceMetadata>,
+    context: Option<&SpeedTestTargetContext>,
 ) -> String {
+    if target.backend_kind != SpeedTestBackendKind::CloudflareAutoEdge {
+        return target.default_server_label.to_string();
+    }
+
+    let trace = context.and_then(|context| context.trace.as_ref());
     match (
         resolve_speed_test_route_fit(target, trace),
         trace.and_then(|trace| trace.colo.as_deref()),
@@ -538,20 +605,30 @@ fn resolve_speed_test_server_label(
 
 #[cfg(test)]
 mod tests {
+    use crate::speed_test_targets::resolve_speed_test_target;
+
     use super::{
-        calculate_jitter, describe_latency_probe_failure, describe_transport_error,
-        ensure_bytes_transferred, is_preferred_asia_colo, list_speed_test_targets,
-        parse_trace_metadata, resolve_speed_test_provider_label, resolve_speed_test_route_fit,
-        resolve_speed_test_server_label, resolve_speed_test_target, sanitize_download_mb,
-        SpeedTestRouteFit, SpeedTestTraceMetadata,
+        build_download_request_url, build_latency_request_url, calculate_jitter,
+        describe_latency_probe_failure, describe_transport_error, ensure_bytes_transferred,
+        is_preferred_colo, parse_librespeed_public_ip, parse_trace_metadata,
+        resolve_speed_test_provider_label, resolve_speed_test_route_fit,
+        resolve_speed_test_server_label, resolve_upload_bytes, sanitize_download_mb,
+        SpeedTestRouteFit, SpeedTestTargetContext, SpeedTestTraceMetadata,
     };
 
     #[test]
-    fn sanitize_download_mb_clamps_supported_range() {
-        assert_eq!(sanitize_download_mb(None), 24);
-        assert_eq!(sanitize_download_mb(Some(2)), 8);
-        assert_eq!(sanitize_download_mb(Some(48)), 32);
-        assert_eq!(sanitize_download_mb(Some(16)), 16);
+    fn sanitize_download_mb_respects_target_profiles() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let jp_kr = resolve_speed_test_target(Some("jp_kr")).expect("jp_kr target should resolve");
+        let eu = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+
+        assert_eq!(sanitize_download_mb(None, auto_asia), 24);
+        assert_eq!(sanitize_download_mb(Some(2), auto_asia), 8);
+        assert_eq!(sanitize_download_mb(Some(48), auto_asia), 32);
+        assert_eq!(sanitize_download_mb(None, jp_kr), 4);
+        assert_eq!(sanitize_download_mb(Some(32), jp_kr), 8);
+        assert_eq!(sanitize_download_mb(None, eu), 1);
+        assert_eq!(sanitize_download_mb(Some(8), eu), 2);
     }
 
     #[test]
@@ -564,6 +641,18 @@ mod tests {
                 ip: Some("203.0.113.7".to_string()),
                 colo: Some("SIN".to_string()),
             }
+        );
+    }
+
+    #[test]
+    fn parse_librespeed_public_ip_reads_json_lookup_format() {
+        assert_eq!(
+            parse_librespeed_public_ip(r#"{"processedString":"203.0.113.7","rawIspInfo":""}"#),
+            Some("203.0.113.7".to_string())
+        );
+        assert_eq!(
+            parse_librespeed_public_ip(r#"{"processedString":"","rawIspInfo":""}"#),
+            None
         );
     }
 
@@ -618,31 +707,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_speed_test_target_defaults_to_cloudflare_asia_policy() {
-        let target = resolve_speed_test_target(None).expect("default target should resolve");
-        assert_eq!(target.id, "auto_asia");
-        assert_eq!(target.target_label, "Auto Asia");
-        assert_eq!(target.provider, "Cloudflare");
-        assert_eq!(target.policy_label, "Asia auto-edge");
-        assert_eq!(target.default_server_label, "Cloudflare auto edge");
-        assert_eq!(
-            target.download_api_url,
-            "https://speed.cloudflare.com/__down"
-        );
-        assert_eq!(target.upload_api_url, "https://speed.cloudflare.com/__up");
-        assert_eq!(
-            target.trace_api_url,
-            "https://speed.cloudflare.com/cdn-cgi/trace"
-        );
-    }
-
-    #[test]
     fn resolve_speed_test_server_label_uses_resolved_edge_when_available() {
         let label = resolve_speed_test_server_label(
             resolve_speed_test_target(None).expect("default target should resolve"),
-            Some(&SpeedTestTraceMetadata {
-                ip: Some("203.0.113.7".to_string()),
-                colo: Some("SIN".to_string()),
+            Some(&SpeedTestTargetContext {
+                public_ip: Some("203.0.113.7".to_string()),
+                trace: Some(SpeedTestTraceMetadata {
+                    ip: Some("203.0.113.7".to_string()),
+                    colo: Some("SIN".to_string()),
+                }),
             }),
         );
 
@@ -663,9 +736,12 @@ mod tests {
     fn resolve_speed_test_server_label_marks_non_asia_edges_as_global_fallback() {
         let label = resolve_speed_test_server_label(
             resolve_speed_test_target(None).expect("default target should resolve"),
-            Some(&SpeedTestTraceMetadata {
-                ip: Some("203.0.113.7".to_string()),
-                colo: Some("LAX".to_string()),
+            Some(&SpeedTestTargetContext {
+                public_ip: Some("203.0.113.7".to_string()),
+                trace: Some(SpeedTestTraceMetadata {
+                    ip: Some("203.0.113.7".to_string()),
+                    colo: Some("LAX".to_string()),
+                }),
             }),
         );
 
@@ -673,12 +749,29 @@ mod tests {
     }
 
     #[test]
-    fn resolve_speed_test_provider_label_surfaces_policy_name() {
+    fn resolve_speed_test_server_label_keeps_fixed_regional_backend_names() {
+        let label = resolve_speed_test_server_label(
+            resolve_speed_test_target(Some("jp_kr")).expect("jp_kr target should resolve"),
+            Some(&SpeedTestTargetContext {
+                public_ip: Some("203.0.113.7".to_string()),
+                trace: None,
+            }),
+        );
+
+        assert_eq!(label, "Tokyo, Japan (A573)");
+    }
+
+    #[test]
+    fn resolve_speed_test_provider_label_surfaces_backend_policy() {
         let provider = resolve_speed_test_provider_label(
             resolve_speed_test_target(None).expect("default target should resolve"),
         );
+        let eu_provider = resolve_speed_test_provider_label(
+            resolve_speed_test_target(Some("eu")).expect("eu target should resolve"),
+        );
 
         assert_eq!(provider, "Cloudflare (Asia auto-edge)");
+        assert_eq!(eu_provider, "LibreSpeed (regional fixed backend)");
     }
 
     #[test]
@@ -707,17 +800,20 @@ mod tests {
             SpeedTestRouteFit::GlobalFallback
         );
 
-        assert_eq!(resolve_speed_test_route_fit(target, None), SpeedTestRouteFit::Pending);
+        assert_eq!(
+            resolve_speed_test_route_fit(target, None),
+            SpeedTestRouteFit::Pending
+        );
     }
 
     #[test]
-    fn is_preferred_asia_colo_accepts_common_edge_codes() {
+    fn is_preferred_colo_accepts_common_edge_codes() {
         let target = resolve_speed_test_target(None).expect("default target should resolve");
 
-        assert!(is_preferred_asia_colo(target, "SIN"));
-        assert!(is_preferred_asia_colo(target, "SGN"));
-        assert!(is_preferred_asia_colo(target, "NRT"));
-        assert!(!is_preferred_asia_colo(target, "LAX"));
+        assert!(is_preferred_colo(target, "SIN"));
+        assert!(is_preferred_colo(target, "SGN"));
+        assert!(is_preferred_colo(target, "NRT"));
+        assert!(!is_preferred_colo(target, "LAX"));
     }
 
     #[test]
@@ -730,19 +826,38 @@ mod tests {
     }
 
     #[test]
-    fn list_speed_test_targets_exposes_the_auto_asia_catalog_entry() {
-        let targets = list_speed_test_targets();
+    fn request_builders_use_backend_specific_semantics() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let jp_kr = resolve_speed_test_target(Some("jp_kr")).expect("jp_kr target should resolve");
 
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].id, "auto_asia");
-        assert_eq!(targets[0].label, "Auto Asia");
-        assert_eq!(targets[0].provider, "Cloudflare (Asia auto-edge)");
-        assert!(targets[0].description.contains("Country pinning"));
+        assert_eq!(
+            build_latency_request_url(auto_asia, 3),
+            "https://speed.cloudflare.com/__down?bytes=0&sample=3"
+        );
+        assert_eq!(
+            build_download_request_url(auto_asia, 8 * 1024 * 1024),
+            "https://speed.cloudflare.com/__down?bytes=8388608"
+        );
+        assert_eq!(
+            build_latency_request_url(jp_kr, 3),
+            "https://librespeed.a573.net/backend/empty.php?r=3"
+        );
+        assert_eq!(
+            build_download_request_url(jp_kr, 4 * 1024 * 1024),
+            "https://librespeed.a573.net/backend/garbage.php?ckSize=4"
+        );
     }
 
     #[test]
-    fn resolve_speed_test_target_rejects_unknown_target_ids() {
-        let error = resolve_speed_test_target(Some("us_west")).expect_err("target should be rejected");
-        assert_eq!(error, "Unknown speed test target: us_west");
+    fn resolve_upload_bytes_respects_per_target_caps() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let eu = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+
+        assert_eq!(
+            resolve_upload_bytes(auto_asia, 32 * 1024 * 1024),
+            8 * 1024 * 1024
+        );
+        assert_eq!(resolve_upload_bytes(eu, 2 * 1024 * 1024), 512 * 1024);
+        assert_eq!(resolve_upload_bytes(eu, 512 * 1024), 256 * 1024);
     }
 }

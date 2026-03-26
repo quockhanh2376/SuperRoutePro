@@ -7,9 +7,12 @@ pub mod repair_session;
 pub mod repair_targets;
 pub mod route_persist;
 mod speed_test;
+mod speed_test_targets;
 pub mod win32_consts;
 pub mod win32_net;
 
+#[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
 use network::{
     add_route, check_internet, clear_cache_targets, delete_route, flush_routes, fping_scan,
     get_battery_report, get_battery_summary, get_bloatware_candidates, get_network_interfaces,
@@ -29,9 +32,8 @@ use repair_protocol::{
     RepairMachineAction, RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
-use speed_test::{list_speed_test_targets, run_speed_test};
-#[cfg(target_os = "windows")]
-use crate::win32_consts::CREATE_NO_WINDOW;
+use speed_test::run_speed_test;
+use speed_test_targets::list_speed_test_targets;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
