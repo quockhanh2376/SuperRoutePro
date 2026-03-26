@@ -11,9 +11,9 @@ use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, R
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::process::{Command, Stdio};
 
@@ -123,7 +123,11 @@ pub fn build_profile_cleanup_plan_for_target(
         if let Some(paths) =
             cleanup_paths_for_profile_root(Path::new(&target_user.profile_path), &target)
         {
-            plan.extend(paths.into_iter().map(|path| path.to_string_lossy().to_string()));
+            plan.extend(
+                paths
+                    .into_iter()
+                    .map(|path| path.to_string_lossy().to_string()),
+            );
         }
     }
 
@@ -203,9 +207,7 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::FlushDns => {
             network::run_network_command_blocking("ipconfig /flushdns".to_string())?
         }
-        RepairMachineAction::RenewDhcpLease => network::run_network_command_blocking(
-            "ipconfig /release && ipconfig /renew".to_string(),
-        )?,
+        RepairMachineAction::RenewDhcpLease => network::renew_dhcp_lease_blocking()?,
         RepairMachineAction::ClearArpCache => {
             network::run_network_command_blocking("netsh interface ip delete arpcache".to_string())?
         }
