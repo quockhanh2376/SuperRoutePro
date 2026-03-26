@@ -5,6 +5,29 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Speed Test Target Catalog Foundation And NIC Name Enrichment Ready For v10.1.4
+
+**Done**
+- Confirmed the NIC display-name regression is fixed in the current tree without reopening the slow startup path: the app still loads through `get_network_snapshot()` first, then enriches the visible NIC descriptions asynchronously through `persistGetNicStableIds(interfaceIndexes)` matched by interface index.
+- Added the first Speed Test target-catalog slice across backend and frontend:
+  - backend now exposes `list_speed_test_targets()` and accepts `target_id` in `run_speed_test(...)`,
+  - result metadata now includes `target_id` and `target_label`,
+  - the modal now shows a `Target Profile` selector and target metadata block.
+- Kept the initial catalog intentionally honest and low-risk: it currently exposes a single real target profile, `Auto Asia`, instead of pretending country-pinned endpoints already exist.
+- Re-ran `npm run test:node`, `npm run build`, `cargo check`, and `cargo test --manifest-path src-tauri/Cargo.toml speed_test` successfully for this slice. Rust verification used fresh target directories on `E:\\` because `D:\\` was full and an old local `.cargo-target-speedtest-catalog` directory had to be removed first.
+
+**Notes And Decisions**
+- `persistGetNicStableIds(interfaceIndexes)` is sufficient for the NIC enrichment pass because it resolves the requested interface indexes against the full enriched adapter enumeration and returns the richer adapter `description` plus MAC-backed stable ID data.
+- The Speed Test UI is now structurally ready for multi-target growth, but product behavior is still single-target in this build. That keeps the release truthful while reducing the amount of rework when real region-pinned targets are added later.
+- The target selector is disabled when only one catalog entry exists, so this slice does not imply user-selectable countries before the backend supports them.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` remains the source update for notebook refresh/re-sync.
+
+**Next Steps**
+- Commit the Speed Test target-catalog foundation as its own slice before touching version files.
+- Bump the app to `v10.1.4`, build a fresh release artifact, then push the branch and tag so the release remains easy to audit and roll back.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Speed Test Native Desktop Smoke Test After Asia Auto-Edge Policy
 
 **Done**
