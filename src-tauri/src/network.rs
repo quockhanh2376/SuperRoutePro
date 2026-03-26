@@ -1,6 +1,8 @@
+use crate::cache_cleanup::{
+    label_for_target, run_cleanup_for_current_user, sanitize_cleanup_targets,
+};
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
-use crate::cache_cleanup::{label_for_target, run_cleanup_for_current_user, sanitize_cleanup_targets};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -518,12 +520,7 @@ fn validate_network_command(command: &str) -> Result<(), String> {
 
     let trimmed = command.trim();
     let cmd_lower = trimmed.to_ascii_lowercase();
-    let has_shell_metacharacters = trimmed.chars().any(|ch| {
-        matches!(
-            ch,
-            '&' | '|' | '>' | '<' | '^' | '%' | '(' | ')' | '\r' | '\n'
-        )
-    });
+    let has_shell_metacharacters = contains_disallowed_shell_metacharacters(trimmed);
 
     if trimmed.is_empty() || has_shell_metacharacters {
         return Err("Command not allowed".to_string());
@@ -537,6 +534,21 @@ fn validate_network_command(command: &str) -> Result<(), String> {
     } else {
         Err("Command not allowed".to_string())
     }
+}
+
+fn contains_disallowed_shell_metacharacters(command: &str) -> bool {
+    let mut in_double_quotes = false;
+
+    for ch in command.chars() {
+        match ch {
+            '"' => in_double_quotes = !in_double_quotes,
+            '&' | '|' | '>' | '<' | '^' | '%' | '\r' | '\n' => return true,
+            '(' | ')' if !in_double_quotes => return true,
+            _ => {}
+        }
+    }
+
+    in_double_quotes
 }
 
 pub fn run_network_command_blocking(command: String) -> Result<CommandResult, String> {
@@ -555,6 +567,34 @@ pub fn run_network_command_blocking(command: String) -> Result<CommandResult, St
     Ok(CommandResult {
         success: output.status.success(),
         output: if stdout.is_empty() { stderr } else { stdout },
+    })
+}
+
+pub fn renew_dhcp_lease_blocking() -> Result<CommandResult, String> {
+    let release_output = run_cmd_blocking(
+        "ipconfig",
+        &["/release"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
+    let renew_output = run_cmd_blocking(
+        "ipconfig",
+        &["/renew"],
+        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    )?;
+
+    let combined_output = [release_output.trim(), renew_output.trim()]
+        .into_iter()
+        .filter(|output| !output.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(CommandResult {
+        success: true,
+        output: if combined_output.is_empty() {
+            "DHCP lease renewed.".to_string()
+        } else {
+            combined_output
+        },
     })
 }
 
@@ -861,7 +901,10 @@ pub async fn clear_cache_targets(targets: Vec<String>) -> Result<CommandResult, 
 
         output_lines.insert(
             0,
-            format!("Requested cleanup for {} cache target(s).", selected_targets.len()),
+            format!(
+                "Requested cleanup for {} cache target(s).",
+                selected_targets.len()
+            ),
         );
         output_lines.insert(
             1,
@@ -899,7 +942,7 @@ pub async fn check_internet() -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_network_command;
+    use super::{contains_disallowed_shell_metacharacters, validate_network_command};
 
     #[test]
     fn validate_network_command_allows_expected_diagnostic_commands() {
@@ -911,5 +954,27 @@ mod tests {
     fn validate_network_command_rejects_shell_chaining_after_allowed_prefix() {
         assert!(validate_network_command("tracert -d 8.8.8.8 && whoami").is_err());
         assert!(validate_network_command("nslookup example.com | more").is_err());
+    }
+
+    #[test]
+    fn validate_network_command_allows_quoted_parentheses_for_adapter_names() {
+        assert!(validate_network_command(
+            r#"netsh interface set interface "Ethernet (Corp)" disable"#
+        )
+        .is_ok());
+        assert!(!contains_disallowed_shell_metacharacters(
+            r#"netsh interface set interface "Ethernet (Corp)" disable"#
+        ));
+    }
+
+    #[test]
+    fn validate_network_command_rejects_unquoted_parentheses_and_unbalanced_quotes() {
+        assert!(
+            validate_network_command("netsh interface set interface Ethernet (Corp) disable")
+                .is_err()
+        );
+        assert!(
+            validate_network_command(r#"netsh interface set interface "Ethernet disable"#).is_err()
+        );
     }
 }
