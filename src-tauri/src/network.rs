@@ -158,6 +158,67 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, String> {
     .map_err(|err| format!("Command task join error: {}", err))?
 }
 
+fn collect_process_output(output: &Output) -> String {
+    [
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    ]
+    .into_iter()
+    .filter(|entry| !entry.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn command_result_from_outputs(
+    outputs: &[&Output],
+    success: bool,
+    success_fallback: &str,
+    failure_fallback: &str,
+) -> CommandResult {
+    let combined_output = outputs
+        .iter()
+        .map(|output| collect_process_output(output))
+        .filter(|output| !output.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    CommandResult {
+        success,
+        output: if combined_output.is_empty() {
+            if success {
+                success_fallback.to_string()
+            } else {
+                failure_fallback.to_string()
+            }
+        } else {
+            combined_output
+        },
+    }
+}
+
+fn remaining_dhcp_timeout(started: Instant, total_timeout: Duration) -> Result<Duration, String> {
+    total_timeout
+        .checked_sub(started.elapsed())
+        .filter(|timeout| !timeout.is_zero())
+        .ok_or_else(|| {
+            format!(
+                "Command timed out after {}s: ipconfig /release && ipconfig /renew",
+                total_timeout.as_secs()
+            )
+        })
+}
+
+fn normalize_dhcp_timeout_error(err: String, total_timeout: Duration) -> String {
+    if err.starts_with("Command timed out after") {
+        format!(
+            "Command timed out after {}s: ipconfig /release && ipconfig /renew",
+            total_timeout.as_secs()
+        )
+    } else {
+        err
+    }
+}
+
 async fn run_powershell(script: &str) -> Result<String, String> {
     let script_owned = script.to_string();
     tauri::async_runtime::spawn_blocking(move || {
@@ -571,31 +632,31 @@ pub fn run_network_command_blocking(command: String) -> Result<CommandResult, St
 }
 
 pub fn renew_dhcp_lease_blocking() -> Result<CommandResult, String> {
-    let release_output = run_cmd_blocking(
-        "ipconfig",
-        &["/release"],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-    )?;
-    let renew_output = run_cmd_blocking(
-        "ipconfig",
-        &["/renew"],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-    )?;
+    let total_timeout = Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS);
+    let started = Instant::now();
 
-    let combined_output = [release_output.trim(), renew_output.trim()]
-        .into_iter()
-        .filter(|output| !output.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let release_output = run_process_blocking("ipconfig", &["/release"], total_timeout)
+        .map_err(|err| normalize_dhcp_timeout_error(err, total_timeout))?;
 
-    Ok(CommandResult {
-        success: true,
-        output: if combined_output.is_empty() {
-            "DHCP lease renewed.".to_string()
-        } else {
-            combined_output
-        },
-    })
+    if !release_output.status.success() {
+        return Ok(command_result_from_outputs(
+            &[&release_output],
+            false,
+            "DHCP lease renewed.",
+            "DHCP lease release failed.",
+        ));
+    }
+
+    let renew_timeout = remaining_dhcp_timeout(started, total_timeout)?;
+    let renew_output = run_process_blocking("ipconfig", &["/renew"], renew_timeout)
+        .map_err(|err| normalize_dhcp_timeout_error(err, total_timeout))?;
+
+    Ok(command_result_from_outputs(
+        &[&release_output, &renew_output],
+        renew_output.status.success(),
+        "DHCP lease renewed.",
+        "DHCP lease renew failed.",
+    ))
 }
 
 /// Run a network fix command (flush DNS, renew IP, etc.)
@@ -942,7 +1003,22 @@ pub async fn check_internet() -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_disallowed_shell_metacharacters, validate_network_command};
+    use super::{
+        collect_process_output, command_result_from_outputs,
+        contains_disallowed_shell_metacharacters, normalize_dhcp_timeout_error,
+        validate_network_command,
+    };
+    use std::os::windows::process::ExitStatusExt;
+    use std::process::{ExitStatus, Output};
+    use std::time::Duration;
+
+    fn fake_output(code: u32, stdout: &str, stderr: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
 
     #[test]
     fn validate_network_command_allows_expected_diagnostic_commands() {
@@ -975,6 +1051,57 @@ mod tests {
         );
         assert!(
             validate_network_command(r#"netsh interface set interface "Ethernet disable"#).is_err()
+        );
+    }
+
+    #[test]
+    fn collect_process_output_combines_stdout_and_stderr() {
+        let output = fake_output(1, "line one\n", "line two\n");
+
+        assert_eq!(collect_process_output(&output), "line one\nline two");
+    }
+
+    #[test]
+    fn command_result_from_outputs_marks_failure_when_any_step_fails() {
+        let release_output = fake_output(0, "released", "");
+        let renew_output = fake_output(1, "", "renew failed");
+
+        let result = command_result_from_outputs(
+            &[&release_output, &renew_output],
+            false,
+            "DHCP lease renewed.",
+            "DHCP lease renew failed.",
+        );
+
+        assert!(!result.success);
+        assert_eq!(result.output, "released\nrenew failed");
+    }
+
+    #[test]
+    fn command_result_from_outputs_uses_failure_fallback_without_output() {
+        let renew_output = fake_output(1, "", "");
+
+        let result = command_result_from_outputs(
+            &[&renew_output],
+            false,
+            "DHCP lease renewed.",
+            "DHCP lease renew failed.",
+        );
+
+        assert!(!result.success);
+        assert_eq!(result.output, "DHCP lease renew failed.");
+    }
+
+    #[test]
+    fn normalize_dhcp_timeout_error_rewrites_step_timeout_to_overall_budget() {
+        let normalized = normalize_dhcp_timeout_error(
+            "Command timed out after 12s: ipconfig /renew".to_string(),
+            Duration::from_secs(90),
+        );
+
+        assert_eq!(
+            normalized,
+            "Command timed out after 90s: ipconfig /release && ipconfig /renew"
         );
     }
 }
