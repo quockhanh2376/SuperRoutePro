@@ -5,6 +5,23 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-25 - v10.1.3 Release Finalization
+
+**Done**
+- Bumped the outward-facing app version from `10.1.2` to `10.1.3` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Added a curated `v10.1.3` release summary to `CHANGELOG.md` so the shipped notes reflect the Speed Test work, the single-WAN persistence fix, and the startup optimization pass.
+- Re-ran the full release gate successfully with `npm run check` while pointing Cargo at `D:\\srpcheck-1013` to avoid the known Windows file-lock flake on shared target directories.
+- Produced a fresh NSIS installer for `v10.1.3` at `D:\\srprel-1013b\\release\\bundle\\nsis\\Super Route Pro_10.1.3_x64-setup.exe` using a clean dedicated release target directory.
+
+**Notes And Decisions**
+- The NotebookLM optimization roadmap was used as release guidance only; the larger restructuring items remain intentionally deferred until after this patch release.
+- The existing GitHub release workflow is tag-driven, so pushing `v10.1.3` remains the final publication step after this release commit is created.
+
+**Next Steps**
+- Commit the release metadata update on the working branch, push the branch, and push the `v10.1.3` tag to trigger the GitHub release workflow.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-25 - NotebookLM Roadmap Cross-Check And Release Prep
 
 **Done**
