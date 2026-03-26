@@ -1,9 +1,9 @@
-import { memo, useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Globe, Flame,
   Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
-  ChevronDown, ChevronUp, ArrowDownUp, X, CircleHelp
+  ArrowDownUp, X, CircleHelp
 } from "lucide-react";
 import {
   getNetworkSnapshot, getRoutingTable,
@@ -28,6 +28,9 @@ import { getNicTableMessage } from "./nicTableModel";
 import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
 import { SpeedTestModal } from "./SpeedTestModal";
+import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
+import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
+import { useBufferedLog } from "./hooks/useBufferedLog";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -73,9 +76,7 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
   ].join("\n");
 };
 
-const IP_SCAN_MAX_TARGETS = 512;
 const IP_SCAN_BATCH_SIZE = 24;
-const FALLBACK_IP_SCAN_PREFIX = 24;
 const DONATE_QR_IMAGE_PATH = "/donate-qr-vpbank.png";
 
 const formatBatteryPercent = (value: number | null | undefined, fractionDigits = 1): string => {
@@ -111,121 +112,6 @@ const getBatteryWearLevel = (wearPercent: number | null | undefined): string => 
   if (wearPercent <= 15) return "Good";
   if (wearPercent <= 30) return "Moderate";
   return "High wear";
-};
-
-type IpScanPlan = {
-  targets: string[];
-  subnetLabel: string;
-  truncated: boolean;
-  source: "route" | "fallback";
-};
-
-const parseIpv4 = (value: string): number[] | null => {
-  const parts = value.trim().split(".");
-  if (parts.length !== 4) return null;
-  const octets = parts.map((part) => Number.parseInt(part, 10));
-  if (octets.some((octet) => !Number.isFinite(octet) || octet < 0 || octet > 255)) {
-    return null;
-  }
-  return octets;
-};
-
-const ipv4ToInt = (octets: number[]): number =>
-  (
-    ((octets[0] << 24) >>> 0) +
-    ((octets[1] << 16) >>> 0) +
-    ((octets[2] << 8) >>> 0) +
-    (octets[3] >>> 0)
-  ) >>> 0;
-
-const intToIpv4 = (value: number): string =>
-  `${(value >>> 24) & 255}.${(value >>> 16) & 255}.${(value >>> 8) & 255}.${value & 255}`;
-
-const prefixToMaskInt = (prefix: number): number => {
-  if (prefix <= 0) return 0;
-  if (prefix >= 32) return 0xffffffff >>> 0;
-  return (0xffffffff << (32 - prefix)) >>> 0;
-};
-
-const maskToPrefix = (mask: string): number | null => {
-  const octets = parseIpv4(mask);
-  if (!octets) return null;
-  const maskInt = ipv4ToInt(octets);
-  let prefix = 0;
-  let zeroSeen = false;
-  for (let bit = 31; bit >= 0; bit -= 1) {
-    const isOne = ((maskInt >>> bit) & 1) === 1;
-    if (isOne) {
-      if (zeroSeen) return null;
-      prefix += 1;
-    } else {
-      zeroSeen = true;
-    }
-  }
-  return prefix;
-};
-
-const buildIpScanPlan = (nic: NetworkInterface, routes: RouteEntry[]): IpScanPlan | null => {
-  const nicOctets = parseIpv4(nic.ip);
-  if (!nicOctets) return null;
-
-  const nicInt = ipv4ToInt(nicOctets);
-  let networkInt: number | null = null;
-  let prefix: number | null = null;
-  let source: "route" | "fallback" = "fallback";
-
-  const connectedRoute = routes.find((route) => {
-    if (route.interface_index !== nic.index) return false;
-    if (route.gateway !== "0.0.0.0") return false;
-    if (route.destination === "0.0.0.0" || route.netmask === "255.255.255.255") return false;
-    return parseIpv4(route.destination) !== null && parseIpv4(route.netmask) !== null;
-  });
-
-  if (connectedRoute) {
-    const routePrefix = maskToPrefix(connectedRoute.netmask);
-    const routeDestination = parseIpv4(connectedRoute.destination);
-    if (
-      routePrefix !== null &&
-      routePrefix >= 16 &&
-      routePrefix <= 30 &&
-      routeDestination
-    ) {
-      const routeMaskInt = prefixToMaskInt(routePrefix);
-      networkInt = ipv4ToInt(routeDestination) & routeMaskInt;
-      prefix = routePrefix;
-      source = "route";
-    }
-  }
-
-  if (networkInt === null || prefix === null) {
-    prefix = FALLBACK_IP_SCAN_PREFIX;
-    networkInt = nicInt & prefixToMaskInt(prefix);
-    source = "fallback";
-  }
-
-  const hostSpan = 2 ** (32 - prefix);
-  const hostCapacity = Math.max(0, hostSpan - 2);
-  if (hostCapacity <= 0) return null;
-
-  const firstHost = networkInt + 1;
-  const lastHost = networkInt + hostSpan - 2;
-  const selfInRange = nicInt >= firstHost && nicInt <= lastHost;
-  const availableTargets = Math.max(0, hostCapacity - (selfInRange ? 1 : 0));
-  const scanCount = Math.min(IP_SCAN_MAX_TARGETS, availableTargets);
-  const targets: string[] = [];
-
-  for (let offset = 1; offset < hostSpan - 1 && targets.length < scanCount; offset += 1) {
-    const hostInt = (networkInt + offset) >>> 0;
-    if (hostInt === nicInt) continue;
-    targets.push(intToIpv4(hostInt));
-  }
-
-  return {
-    targets,
-    subnetLabel: `${intToIpv4(networkInt)}/${prefix}`,
-    truncated: availableTargets > targets.length,
-    source,
-  };
 };
 
 type CacheCleanupOption = {
@@ -502,8 +388,6 @@ export default function App() {
   const [hasLoadedNicSnapshot, setHasLoadedNicSnapshot] = useState(false);
   const [pingTarget, setPingTarget] = useState("1.1.1.1");
   const [pingMode, setPingMode] = useState<"ping" | "fping">("ping");
-  const [pingLogVersion, setPingLogVersion] = useState(0);
-  const [commandLogVersion, setCommandLogVersion] = useState(0);
   const [pingRunning, setPingRunning] = useState(false);
   const [ipScanModalOpen, setIpScanModalOpen] = useState(false);
   const [ipScanRunning, setIpScanRunning] = useState(false);
@@ -710,6 +594,20 @@ export default function App() {
   const [formGw, setFormGw] = useState("");
   const [formMetric, setFormMetric] = useState("10");
 
+  const {
+    version: pingLogVersion,
+    text: pingOutputText,
+    appendLines: appendPingLines,
+    appendLine: appendPingLine,
+    clear: clearPingOutput,
+  } = useBufferedLog(600);
+  const {
+    version: commandLogVersion,
+    text: commandOutputText,
+    appendLines: appendCommandLines,
+    clear: clearCommandOutput,
+  } = useBufferedLog(1200);
+
   const pingLoopRef = useRef<number | null>(null);
   const pingBusyRef = useRef(false);
   const pingSeqRef = useRef(0);
@@ -718,14 +616,8 @@ export default function App() {
   const ipScanStopRequestedRef = useRef(false);
   const latestLoadRequestRef = useRef(0);
   const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
-  const pingLogLinesRef = useRef<string[]>([]);
-  const commandLogLinesRef = useRef<string[]>([]);
-  const pingRenderRafRef = useRef<number | null>(null);
-  const commandRenderRafRef = useRef<number | null>(null);
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
   const commandOutputRef = useRef<HTMLPreElement | null>(null);
-  const MAX_LOG_LINES = 600;
-  const MAX_COMMAND_LINES = 1200;
 
   // ======================== DATA LOADING ========================
 
@@ -1083,58 +975,6 @@ export default function App() {
       setStatusMsg(`Error: ${err}`);
     }
   }, [handleRepairCommandResult]);
-
-  const schedulePingLogRender = useCallback(() => {
-    if (pingRenderRafRef.current !== null) return;
-    pingRenderRafRef.current = window.requestAnimationFrame(() => {
-      pingRenderRafRef.current = null;
-      setPingLogVersion((v) => v + 1);
-    });
-  }, []);
-
-  const scheduleCommandLogRender = useCallback(() => {
-    if (commandRenderRafRef.current !== null) return;
-    commandRenderRafRef.current = window.requestAnimationFrame(() => {
-      commandRenderRafRef.current = null;
-      setCommandLogVersion((v) => v + 1);
-    });
-  }, []);
-
-  const clearPingOutput = useCallback(() => {
-    if (!pingLogLinesRef.current.length) return;
-    pingLogLinesRef.current = [];
-    schedulePingLogRender();
-  }, [schedulePingLogRender]);
-
-  const clearCommandOutput = useCallback(() => {
-    if (!commandLogLinesRef.current.length) return;
-    commandLogLinesRef.current = [];
-    scheduleCommandLogRender();
-  }, [scheduleCommandLogRender]);
-
-  const appendCommandLines = useCallback((lines: string[]) => {
-    if (!lines.length) return;
-    const buffer = commandLogLinesRef.current;
-    buffer.push(...lines);
-    if (buffer.length > MAX_COMMAND_LINES) {
-      buffer.splice(0, buffer.length - MAX_COMMAND_LINES);
-    }
-    scheduleCommandLogRender();
-  }, [scheduleCommandLogRender]);
-
-  const appendPingLines = useCallback((lines: string[]) => {
-    if (!lines.length) return;
-    const buffer = pingLogLinesRef.current;
-    buffer.push(...lines);
-    if (buffer.length > MAX_LOG_LINES) {
-      buffer.splice(0, buffer.length - MAX_LOG_LINES);
-    }
-    schedulePingLogRender();
-  }, [schedulePingLogRender]);
-
-  const appendPingLine = useCallback((line: string) => {
-    appendPingLines([line]);
-  }, [appendPingLines]);
 
   const appendCommandOutput = useCallback((title: string, output: string) => {
     const stamp = new Date().toLocaleTimeString("en-GB");
@@ -1898,14 +1738,6 @@ export default function App() {
 
   // ======================== RENDER ========================
 
-  const commandOutputText = useMemo(
-    () => commandLogLinesRef.current.join("\n"),
-    [commandLogVersion]
-  );
-  const pingOutputText = useMemo(
-    () => pingLogLinesRef.current.join("\n"),
-    [pingLogVersion]
-  );
   const diagnosticsOutputText = diagnosticView === "routing"
     ? (routingOutput || "Routing table output will appear here.")
     : (commandOutputText || "Command output will appear here.");
@@ -1967,12 +1799,6 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (lensTimerRef.current) window.clearTimeout(lensTimerRef.current);
-      if (pingRenderRafRef.current !== null) {
-        window.cancelAnimationFrame(pingRenderRafRef.current);
-      }
-      if (commandRenderRafRef.current !== null) {
-        window.cancelAnimationFrame(commandRenderRafRef.current);
-      }
     };
   }, []);
 
@@ -3025,191 +2851,4 @@ export default function App() {
     </div>
   );
 }
-
-// ======================== SUBCOMPONENTS ========================
-
-const OutputConsole = memo(function OutputConsole({
-  diagnosticView,
-  routesCount,
-  diagnosticsOutputText,
-  pingOutputText,
-  commandOutputRef,
-  pingOutputRef,
-  onShowCommand,
-  onShowRouting,
-  onClearCommand,
-  onClearPing,
-}: {
-  diagnosticView: "command" | "routing";
-  routesCount: number;
-  diagnosticsOutputText: string;
-  pingOutputText: string;
-  commandOutputRef: React.RefObject<HTMLPreElement | null>;
-  pingOutputRef: React.RefObject<HTMLPreElement | null>;
-  onShowCommand: () => void;
-  onShowRouting: () => void;
-  onClearCommand: () => void;
-  onClearPing: () => void;
-}) {
-  return (
-    <div className="output-console-shell flex flex-col flex-1 p-3 overflow-hidden">
-      <div className="flex items-center gap-2 mb-2">
-        <Activity className="w-4 h-4 text-blue-400" />
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Output Console</span>
-        <span className="text-[0.62rem] text-slate-600 ml-auto">
-          {diagnosticView === "routing" ? `${routesCount} routes snapshot` : "Command + Ping live logs"}
-        </span>
-      </div>
-
-      <div className="output-console-grid flex-1 min-h-0">
-        <div className="min-h-0 flex flex-col">
-          <div className="flex items-center justify-between mb-1 gap-2">
-            <span className="text-[0.72rem] text-slate-400 uppercase tracking-wider font-semibold">
-              {diagnosticView === "routing" ? "Routing Table Output" : "Command Output"}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={onShowCommand}
-                className={`capsule-btn compact-pill console-chip console-chip-command ${
-                  diagnosticView === "command" ? "console-chip-command-active" : ""
-                }`}
-              >
-                Command
-              </button>
-              <button
-                onClick={onShowRouting}
-                className={`capsule-btn compact-pill console-chip console-chip-routing ${
-                  diagnosticView === "routing" ? "console-chip-routing-active" : ""
-                }`}
-              >
-                Routing
-              </button>
-              <button
-                onClick={diagnosticView === "routing" ? onShowRouting : onClearCommand}
-                className="capsule-btn compact-pill console-chip console-chip-refresh"
-              >
-                {diagnosticView === "routing" ? "Refresh" : "Clear"}
-              </button>
-            </div>
-          </div>
-          <pre
-            ref={commandOutputRef}
-            className="text-[0.76rem] font-mono bg-[#0c1220] border border-slate-700/50 rounded-xl p-3 flex-1 min-h-0 overflow-auto text-slate-300 whitespace-pre-wrap"
-          >
-            {diagnosticsOutputText}
-          </pre>
-        </div>
-
-        <div className="min-h-0 flex flex-col">
-          <div className="flex items-center justify-between mb-1 gap-2">
-            <span className="text-[0.72rem] text-slate-400 uppercase tracking-wider font-semibold">
-              Ping & Tracert Output
-            </span>
-            <button
-              onClick={onClearPing}
-              className="capsule-btn compact-pill bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border-slate-600 transition"
-            >
-              Clear
-            </button>
-          </div>
-          <pre
-            ref={pingOutputRef}
-            className="text-[0.8rem] font-mono bg-[#0c1220] border border-slate-700/50 rounded-xl p-3 flex-1 min-h-0 overflow-auto text-slate-300 whitespace-pre-wrap"
-          >
-            {pingOutputText || "Ping log is ready. Click Start to run continuous ping."}
-          </pre>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-const Field = memo(function Field({ label, value, onChange, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
-  return (
-    <div>
-      <label className="text-[0.6rem] text-slate-500 uppercase tracking-wider font-bold">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full mt-0.5 px-2.5 py-1.5 text-xs font-mono bg-[#0c1220] border border-slate-700/50 rounded-md focus:border-blue-500/50 focus:outline-none text-slate-200 placeholder:text-slate-700"
-      />
-    </div>
-  );
-});
-
-const ActionBtn = memo(function ActionBtn({ icon: Icon, label, color, onClick, disabled = false, compact = false }: {
-  icon: React.ElementType; label: string; color: string; onClick: () => void; disabled?: boolean; compact?: boolean;
-}) {
-  const colors: Record<string, string> = {
-    emerald: "bg-emerald-600/80 hover:bg-emerald-500 border-emerald-700/50",
-    red: "bg-red-600/80 hover:bg-red-500 border-red-700/50",
-    blue: "bg-blue-600/80 hover:bg-blue-500 border-blue-700/50",
-    orange: "bg-orange-600/80 hover:bg-orange-500 border-orange-700/50",
-    slate: "bg-slate-700/80 hover:bg-slate-600 border-slate-600/70",
-  };
-  const sizeClass = compact
-    ? "action-btn-compact min-w-[54px] px-1.5 gap-1 py-1 text-[0.66rem]"
-    : "min-w-[72px] px-2.5 gap-1.5 py-1.5 text-[0.76rem]";
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`capsule-btn flex items-center justify-center font-bold text-white border transition disabled:opacity-45 disabled:cursor-not-allowed ${sizeClass} ${colors[color] || colors.blue}`}
-    >
-      <Icon className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} /> {label}
-    </button>
-  );
-});
-
-const Section = memo(function Section({ icon: Icon, title, open, onToggle, children }: {
-  icon: React.ElementType; title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-[#1e293b]/50 border border-slate-700/30 rounded-xl overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="capsule-btn-soft flex items-center justify-between w-full px-4 py-3 hover:bg-slate-700/20 transition"
-      >
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-blue-400" />
-          <span className="text-sm font-bold text-slate-300">{title}</span>
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-      </button>
-      {open && <div className="px-4 pb-4">{children}</div>}
-    </div>
-  );
-});
-
-const ToolBtn = memo(function ToolBtn({ icon: Icon, label, desc, onClick, tone, compact, disabled = false }: {
-  icon: React.ElementType; label: string; desc: string; onClick: () => void; tone?: "safe" | "system" | "danger"; compact?: boolean; disabled?: boolean;
-}) {
-  const toneClass = tone ?? "safe";
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`tool-card tool-card-${toneClass} ${compact ? "tool-card-compact" : ""} disabled:opacity-45 disabled:cursor-not-allowed`}
-    >
-      <span className="tool-icon-shell">
-        <Icon className="w-3.5 h-3.5" />
-      </span>
-      <div className="min-w-0">
-        <div className="tool-title">{label}</div>
-        <div className="tool-desc">{desc}</div>
-      </div>
-    </button>
-  );
-});
-
-
-
-
-
-
-
 
