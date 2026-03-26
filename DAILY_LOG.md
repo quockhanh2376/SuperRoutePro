@@ -5,6 +5,27 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Speed Test Native Desktop Smoke Test After Asia Auto-Edge Policy
+
+**Done**
+- Ran a real native desktop smoke test against a freshly rebuilt binary from the current branch at `D:\\srprel-speed-smoke\\release\\SuperRoute.exe` instead of relying only on unit tests.
+- Confirmed the updated modal/runtime strings now appear as intended in the native app:
+  - progress copy showed `Speed test finished via Cloudflare (Asia auto-edge).`
+  - provider metadata showed `Cloudflare (Asia auto-edge)`
+  - server metadata showed `Asia Preferred (SIN edge)`
+- Confirmed the full native run completed successfully in the desktop app with real measurements visible in the modal, including download/upload/ping/jitter/public IP/timestamp.
+
+**Notes And Decisions**
+- The previously shipped `v10.1.3` release artifact still showed the older wording because it was built before this Speed Test policy patch; that behavior is expected and not a regression in the new code.
+- For runtime verification of the new wording, the correct artifact was the freshly rebuilt native binary from the current branch, not the already-tagged `v10.1.3` installer.
+- NotebookLM still cannot be written directly from the current toolset, so this smoke-test note is recorded here in `DAILY_LOG.md` as the source file for notebook refresh/re-sync.
+
+**Next Steps**
+- If we want this native smoke-tested policy to ship outside the branch, cut a new release/build from the updated commit rather than reusing the older `v10.1.3` installer.
+- If product direction moves closer to `speedtest.net`, the next feature slice should be multi-target or server-selectable testing rather than more relabeling on top of Cloudflare auto-edge.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Speed Test Policy Finalized As Cloudflare Asia Auto-Edge
 
 **Done**
