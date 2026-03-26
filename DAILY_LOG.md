@@ -48,6 +48,58 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Speed Test Target Catalog Foundation And Native Modal Smoke
+
+**Done**
+- Added a real target catalog foundation for Speed Test instead of keeping the feature hard-wired to one implicit backend target:
+  - backend now exposes `list_speed_test_targets()` and accepts optional `target_id` in `run_speed_test`,
+  - result payload now includes `target_id` and `target_label`,
+  - frontend API, browser demo result, modal state, and component tests were updated to use the new contract.
+- Shipped the first UI shell for multi-target work in the modal:
+  - added `Target` metadata beside `Provider` and `Server`,
+  - added a target selector surface in the modal with the initial `Auto Asia` catalog entry,
+  - kept the selector honest by exposing only one real option instead of fake country choices on top of Cloudflare auto-edge.
+- Verified the slice with:
+  - `cargo check --manifest-path src-tauri/Cargo.toml --target-dir .cargo-target-speedtest-catalog`
+  - `cargo test --manifest-path src-tauri/Cargo.toml speed_test --target-dir .cargo-target-speedtest-catalog`
+  - `npm run test:node`
+  - `npm run build`
+- Completed a native desktop smoke pass for the new selector shell by:
+  - launching the native `SuperRoute.exe` against the local dev server at `http://localhost:1420`,
+  - confirming the desktop app loaded normally,
+  - confirming the Speed Test modal opens and renders the new `AUTO ASIA` target chip plus target dropdown in native runtime.
+
+**Notes And Decisions**
+- This slice is intentionally a catalog/contract slice, not a fake country-picker slice. The product still only supports the real `Auto Asia` target until backend endpoints exist for region-pinned tests.
+- Earlier native smoke work already confirmed the finalized runtime provider/server labels for the Cloudflare Asia auto-edge policy; this smoke pass focused on the new target selector shell and native modal plumbing.
+- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` entry remains the source file for notebook refresh/re-sync.
+
+**Next Steps**
+- Add real region-pinned targets only when the backend has concrete endpoints or provider strategy for them.
+- When those targets exist, expand the modal selector from `Auto Asia` to a curated list such as `Japan/Korea`, `US West`, and `Europe`.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-26 - NIC Description Regression Fixed After Fast Startup Optimization
+
+**Done**
+- Re-checked the `Ethernet X` / `Ethernet Y` naming issue and confirmed it was a regression introduced by the fast startup NIC snapshot path, not expected product behavior.
+- Kept the startup optimization in place, but restored richer NIC names after first paint by asynchronously enriching loaded NIC rows with `persistGetNicStableIds(interfaceIndexes)`.
+- Added a dedicated frontend merge model in `src/nicDescriptionModel.ts` plus targeted Node tests in `tests/nicDescriptionModel.test.ts`.
+- Verified the regression fix with `npm run test:node` and `npm run build`.
+- Confirmed in native desktop runtime that the NIC table again shows richer adapter names such as `Broadcom NetXtreme Gigabit Ethernet` and `Realtek PCIe GbE Family Controller` instead of generic aliases like `Ethernet 4`.
+
+**Notes And Decisions**
+- This fix preserves the startup performance win from the basic snapshot path instead of reverting to the slower `getmac`-heavy load path.
+- The enrichment step is keyed by interface index so the UI can recover vendor/model naming without expanding backend surface area or delaying the first render.
+- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` entry remains the source file for notebook refresh/re-sync.
+
+**Next Steps**
+- If the brief alias-first render is still noticeable on slower machines, add a small UI hint or skeleton state for description enrichment.
+- Keep the richer-description merge local to the frontend until another feature actually requires those full names during the initial backend snapshot.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Speed Test Native Desktop Smoke Test After Asia Auto-Edge Policy
 
 **Done**
