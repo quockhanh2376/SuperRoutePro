@@ -5,6 +5,48 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 2 (lib.rs Split + Command/Bootstrap Wiring)
+
+**Done**
+- Executed the second thin maintenance slice from `NeedToDo.md`, focused on making `src-tauri/src/lib.rs` a real composition root without changing shipped behavior.
+- Coordinated two sub-agent audits before editing:
+  - one reviewed the lowest-risk extraction boundaries for `lib.rs`
+  - one reviewed the smallest useful regression net so the slice stayed small and testable
+- Extracted startup/runtime validation plus WebView bootstrap logic into `src-tauri/src/app_bootstrap.rs`:
+  - runtime environment validation
+  - startup block/error dialog path
+  - main window setup
+  - WebView2 data-directory recovery helpers
+  - existing startup/bootstrap unit tests moved with the bootstrap code
+- Extracted persist-facing Tauri commands into `src-tauri/src/persist_commands.rs`:
+  - `persist_save_config`
+  - `persist_load_config`
+  - `persist_get_nic_stable_id`
+  - `persist_get_nic_stable_ids`
+- Extracted repair-facing Tauri commands into `src-tauri/src/repair_commands.rs`:
+  - repair session/status commands
+  - unlock/lock commands
+  - all `repair_*` command wrappers
+  - broker elevation launch helper
+  - main-window close handler used to relock repair mode
+- Reduced `src-tauri/src/lib.rs` down to module declarations, imports, the Tauri builder chain, and the `generate_handler!` registration list.
+
+**Notes And Decisions**
+- This slice intentionally did not move `tauri::generate_handler!()` or `tauri::generate_context!()` out of `lib.rs`; keeping them there avoids extra macro/type indirection while still achieving the composition-root goal.
+- No new behavior was introduced in the command handlers. This was a move-only refactor for ownership and maintainability.
+- The refactor was kept to four runtime files (`lib.rs` plus three new modules) to make review and rollback straightforward.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test route_service_behavior --test repair_broker_flow --test speed_test_targets_contract`
+
+**Next Steps**
+- Continue the remaining `NeedToDo.md` backend cleanup by splitting the remaining bootstrap/invoke concerns only if there is a clear ownership seam beyond this composition-root slice.
+- Revisit `win32_net` cache invalidation and any remaining command-helper centralization in a later thin pass.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 1 (Startup Unification + Repair Hardening + AU/UI/Test Pass)
 
 **Done**
