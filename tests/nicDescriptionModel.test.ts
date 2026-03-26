@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mergeNicDescriptions } from "../src/nicDescriptionModel.ts";
+import {
+  choosePreferredNicDescription,
+  mergeNicDescriptions,
+  stabilizeNicSnapshotDescriptions,
+} from "../src/nicDescriptionModel.ts";
 import type { NetworkInterface } from "../src/api.ts";
 
 const BASE_NICS: NetworkInterface[] = [
@@ -54,5 +58,47 @@ test("ignores enrichment rows that do not match any loaded NIC", () => {
       { interfaceIndex: "999", description: "Unused adapter" },
     ]),
     BASE_NICS,
+  );
+});
+
+test("keeps richer NIC descriptions when a later snapshot regresses to Ethernet aliases", () => {
+  assert.deepEqual(
+    stabilizeNicSnapshotDescriptions(
+      [
+        {
+          ...BASE_NICS[0],
+          description: "Broadcom NetXtreme Gigabit Ethernet",
+        },
+        {
+          ...BASE_NICS[1],
+          description: "Realtek PCIe GbE Family Controller",
+        },
+      ],
+      BASE_NICS,
+    ),
+    [
+      {
+        ...BASE_NICS[0],
+        description: "Broadcom NetXtreme Gigabit Ethernet",
+      },
+      {
+        ...BASE_NICS[1],
+        description: "Realtek PCIe GbE Family Controller",
+      },
+    ],
+  );
+});
+
+test("prefers incoming richer descriptions over generic aliases", () => {
+  assert.equal(
+    choosePreferredNicDescription("Ethernet 2", "Broadcom NetXtreme Gigabit Ethernet"),
+    "Broadcom NetXtreme Gigabit Ethernet",
+  );
+});
+
+test("rejects generic replacement when current NIC description is already richer", () => {
+  assert.equal(
+    choosePreferredNicDescription("Realtek PCIe GbE Family Controller", "Ethernet 3"),
+    "Realtek PCIe GbE Family Controller",
   );
 });

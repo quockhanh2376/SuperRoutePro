@@ -252,9 +252,24 @@ fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeN
 /// Enumerate network adapters using netsh only.
 /// Faster than the full variant because it skips the expensive `getmac` enrichment pass.
 pub fn enumerate_adapters_basic() -> Result<Vec<NativeNic>, String> {
+    if let Some(cached) = recent_cached_adapters(false) {
+        return Ok(cached);
+    }
+
     let adapters = enumerate_adapters_inner(false)?;
     cache_adapters(&adapters, false);
     Ok(adapters)
+}
+
+/// Enumerate adapters for UI snapshots.
+/// Prefers a fresh enriched cache when available so the UI does not regress from
+/// stable adapter descriptions back to friendly aliases like "Ethernet 2".
+pub fn enumerate_adapters_for_snapshot() -> Result<Vec<NativeNic>, String> {
+    if let Some(cached) = recent_cached_adapters(true) {
+        return Ok(cached);
+    }
+
+    enumerate_adapters_basic()
 }
 
 /// Enumerate network adapters using netsh plus getmac enrichment (works on all Windows 10/11).

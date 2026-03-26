@@ -23,7 +23,11 @@ import {
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
-import { mergeNicDescriptions } from "./nicDescriptionModel";
+import {
+  mergeNicDescriptions,
+  stabilizeNicSnapshotDescriptions,
+  syncSelectedNicToList,
+} from "./nicDescriptionModel";
 import { getNicTableMessage } from "./nicTableModel";
 import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
@@ -586,6 +590,11 @@ export default function App() {
   const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
   const commandOutputRef = useRef<HTMLPreElement | null>(null);
+  const latestNicsRef = useRef<NetworkInterface[]>([]);
+
+  useEffect(() => {
+    latestNicsRef.current = nics;
+  }, [nics]);
 
   // ======================== DATA LOADING ========================
 
@@ -599,13 +608,19 @@ export default function App() {
       if (requestId !== latestLoadRequestRef.current) {
         return;
       }
-      setNics(snapshot.interfaces);
+      const stabilizedInterfaces = stabilizeNicSnapshotDescriptions(
+        latestNicsRef.current,
+        snapshot.interfaces,
+      );
+      latestNicsRef.current = stabilizedInterfaces;
+      setNics(stabilizedInterfaces);
+      setSelectedNic((current) => syncSelectedNicToList(current, stabilizedInterfaces));
       setRoutes(snapshot.routes);
       setRoutingOutput(formatRoutingSnapshot(snapshot.routes));
       setHasLoadedNicSnapshot(true);
-      setStatusMsg(`Loaded ${snapshot.interfaces.length} NICs, ${snapshot.routes.length} routes`);
+      setStatusMsg(`Loaded ${stabilizedInterfaces.length} NICs, ${snapshot.routes.length} routes`);
 
-      const interfaceIndexes = snapshot.interfaces.map((nic) => nic.index);
+      const interfaceIndexes = stabilizedInterfaces.map((nic) => nic.index);
       if (interfaceIndexes.length > 0) {
         void (async () => {
           try {
@@ -617,7 +632,11 @@ export default function App() {
               interfaceIndex,
               description: stableIds[index]?.description ?? "",
             }));
-            setNics((current) => mergeNicDescriptions(current, descriptionEntries));
+            setNics((current) => {
+              const enriched = mergeNicDescriptions(current, descriptionEntries);
+              latestNicsRef.current = enriched;
+              return enriched;
+            });
             setSelectedNic((current) => {
               if (!current) {
                 return current;

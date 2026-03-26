@@ -173,16 +173,17 @@ fn read_ipv4_route_table_blocking() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
-    let adapters = tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic)
-        .await
-        .map_err(|error| format!("Task join error: {error}"))??;
+    let adapters =
+        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_for_snapshot)
+            .await
+            .map_err(|error| format!("Task join error: {error}"))??;
     Ok(build_network_interfaces(&adapters, active_only))
 }
 
 #[tauri::command]
 pub async fn get_network_snapshot(active_only: bool) -> Result<NetworkSnapshot, String> {
     let adapters_task =
-        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic);
+        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_for_snapshot);
     let route_task = tauri::async_runtime::spawn_blocking(read_ipv4_route_table_blocking);
 
     let adapters = adapters_task
@@ -203,7 +204,7 @@ pub async fn get_network_snapshot(active_only: bool) -> Result<NetworkSnapshot, 
 pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
     let route_task = tauri::async_runtime::spawn_blocking(read_ipv4_route_table_blocking);
     let adapters_task =
-        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_basic);
+        tauri::async_runtime::spawn_blocking(crate::win32_net::enumerate_adapters_for_snapshot);
 
     let output = route_task
         .await

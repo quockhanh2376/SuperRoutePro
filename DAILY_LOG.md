@@ -5,6 +5,24 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - NIC Card Name Stabilization
+
+**Done**
+- Fixed the NIC table regression where device names could bounce between generic friendly aliases like `Ethernet 2` / `Ethernet 3` and the richer adapter names such as `Broadcom NetXtreme Gigabit Ethernet` or `Realtek PCIe GbE Family Controller`.
+- Frontend snapshot handling in `src/App.tsx` now stabilizes incoming NIC rows against the previously enriched list instead of blindly replacing the table with a fresh generic snapshot.
+- Added description-preference helpers in `src/nicDescriptionModel.ts` so the app prefers richer adapter descriptions over generic aliases and keeps the selected NIC aligned with the stabilized NIC list.
+- Backend snapshot reads in `src-tauri/src/network_snapshot.rs` now prefer the fresh enriched adapter cache from `src-tauri/src/win32_net.rs` when available, so refreshes stop regressing to friendly aliases after the first stable-ID enrichment pass.
+- Added Node coverage in `tests/nicDescriptionModel.test.ts` for the new rules that reject generic replacements once a richer NIC description is known.
+
+**Notes And Decisions**
+- The root cause was not just the async enrich step itself; the bigger problem was that each fresh snapshot replaced the current NIC list with `enumerate_adapters_basic()` output before the later enrich pass restored the richer descriptions.
+- The fix keeps startup responsiveness while eliminating the repeated flip-flop on refresh and reload within the running session.
+
+**Next Steps**
+- If we still want to remove the very first-session friendly-name flash completely on cold launch, the next step would be a dedicated backend snapshot API that returns stable descriptions in one call without a second frontend enrich phase.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Optimisation Program Slice (Baseline + Backend Split + UI/Test Follow-Up)
 
 **Done**
