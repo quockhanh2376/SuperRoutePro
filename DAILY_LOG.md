@@ -5,6 +5,55 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Optimisation Program Slice (Baseline + Backend Split + UI/Test Follow-Up)
+
+**Done**
+- Captured a fresh local baseline for the current Windows machine before continuing the optimization work:
+  - `route print -4` ~= `421.96 ms`
+  - `netsh interface ipv4 show interfaces` ~= `93.28 ms`
+  - `netsh interface ipv4 show addresses` ~= `105.17 ms`
+  - `getmac /fo csv /v /nh` ~= `985.11 ms`
+- Logged the current React shell pressure points and followed through on two more frontend decomposition slices already pushed on `feature/speed-test-modal-v1`:
+  - `ed115d6` `refactor: split app chrome and log hooks`
+  - `88b1975` `refactor: split app modal UI`
+- Reduced the frontend root further:
+  - `src/App.tsx` now sits at `2601` lines instead of staying near the old `~3k` line hot path.
+  - Large battery and IP-scan modal JSX moved out into `src/components/BatteryModal.tsx` and `src/components/IpScanModal.tsx`.
+- Continued the Rust modularization program:
+  - added `src-tauri/src/process_exec.rs` for shared hidden-process execution and timeout helpers
+  - added `src-tauri/src/ping.rs` and switched ping/fping commands to the extracted module
+  - added `src-tauri/src/battery.rs` and moved battery-report / battery-summary commands out of `network.rs`
+  - added `src-tauri/src/cache_cleanup.rs` and switched repair/profile cleanup logic onto the shared cleanup path
+  - added `src-tauri/src/network_snapshot.rs` and moved NIC snapshot / route-table read logic out of `network.rs`
+- Reduced the backend hotspot materially:
+  - `src-tauri/src/network.rs` is now `915` lines
+  - snapshot/routing read responsibilities now live in `src-tauri/src/network_snapshot.rs` (`331` lines)
+- Optimized the NIC enrich path in `src-tauri/src/win32_net.rs`:
+  - cached the recent basic adapter snapshot
+  - reused cached `netsh` enumeration and layered `getmac` metadata only when stable-description enrichment is requested
+  - added tests covering `getmac` metadata parsing and cache-based adapter enrichment
+- Added a new persist flow contract test slice:
+  - `386a589` `test: add persist flow contract coverage`
+  - new `tests/persistFlow.test.ts` covers NIC enrichment -> persist config shaping and startup-state resolution
+- Fixed the native ICMP path in the new ping module so the Windows handle is closed once via `IcmpCloseHandle`, not double-closed.
+- Verified the integrated tree with:
+  - `C:\Users\ADMVN\.cargo\bin\cargo.exe check --manifest-path src-tauri/Cargo.toml`
+  - `npm run test:node`
+  - `npm run build`
+
+**Notes And Decisions**
+- The `getmac` pass remains the expensive part of NIC enrichment on this machine, so the optimization keeps startup on `enumerate_adapters_basic()` and reuses cached basic adapter data for later stable-ID enrichment instead of re-running the full `netsh + netsh + getmac` chain.
+- The ping/IP-scan redesign is now split into a dedicated backend module, but the frontend orchestration flow still has room for a deeper hook split if we want to keep shrinking `App.tsx`.
+- `network.rs` is no longer the single home for snapshot read, battery, ping/fping, and cleanup helpers; route mutation, diagnostics, and bloatware remain there for now.
+- NotebookLM could not be updated directly from this session because local NotebookLM MCP health is currently `authenticated=false` and the library is empty. `DAILY_LOG.md` remains the source-of-truth file for the next notebook sync.
+
+**Next Steps**
+- Continue the `network.rs` split by extracting route mutation / diagnostics / bloatware catalog if we want the file to stop acting as the remaining Rust façade.
+- Consider a deeper frontend hook split for ping/IP-scan orchestration after the modal/UI extraction settles.
+- When NotebookLM auth/library is restored locally, sync this `DAILY_LOG.md` entry into the notebook source set.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Frontend App.tsx Decomposition Slice 2
 
 **Done**

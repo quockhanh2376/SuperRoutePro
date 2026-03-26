@@ -1,5 +1,10 @@
+mod battery;
+pub mod cache_cleanup;
 mod network;
+mod network_snapshot;
 pub mod persist_startup;
+mod ping;
+pub mod process_exec;
 pub mod repair_actions;
 pub mod repair_ipc;
 pub mod repair_protocol;
@@ -13,13 +18,14 @@ pub mod win32_net;
 
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
+use battery::{get_battery_report, get_battery_summary};
 use network::{
-    add_route, check_internet, clear_cache_targets, delete_route, flush_routes, fping_scan,
-    get_battery_report, get_battery_summary, get_bloatware_candidates, get_network_interfaces,
-    get_network_snapshot, get_routing_table, get_wan_persist_on_startup_status, ping_host,
-    remove_bloatware, run_network_command, set_default_gateway, set_wan_persist_on_startup,
-    test_tcp_port,
+    add_route, check_internet, clear_cache_targets, delete_route, flush_routes,
+    get_bloatware_candidates, get_wan_persist_on_startup_status, remove_bloatware,
+    run_network_command, set_default_gateway, set_wan_persist_on_startup, test_tcp_port,
 };
+use network_snapshot::{get_network_interfaces, get_network_snapshot, get_routing_table};
+use ping::{fping_scan, ping_host};
 use repair_ipc::{
     complete_unlock_request, get_repair_service_health as read_repair_service_health,
     get_repair_session_status as read_repair_session_status, issue_unlock_request,

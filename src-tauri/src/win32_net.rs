@@ -7,6 +7,8 @@
 use crate::win32_consts::CREATE_NO_WINDOW;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use std::process::Command;
 
 #[cfg(target_os = "windows")]
@@ -21,6 +23,27 @@ pub struct NativeNic {
     pub ip_addresses: Vec<String>,
     pub gateways: Vec<String>,
     pub oper_status_up: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CachedAdapterSnapshot {
+    captured_at: Instant,
+    adapters: Vec<NativeNic>,
+    enriched_with_getmac: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GetmacMetadata {
+    connection_name: String,
+    description: String,
+    mac_address: String,
+}
+
+const ADAPTER_CACHE_TTL: Duration = Duration::from_secs(10);
+
+fn adapter_cache() -> &'static Mutex<Option<CachedAdapterSnapshot>> {
+    static CACHE: OnceLock<Mutex<Option<CachedAdapterSnapshot>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
 }
 
 pub fn is_valid_ipv4_address(value: &str) -> bool {
@@ -47,6 +70,75 @@ fn run_hidden(cmd: &str, args: &[&str]) -> Result<String, String> {
         .map_err(|e| format!("Failed to run {} {:?}: {}", cmd, args, e))?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn cache_adapters(adapters: &[NativeNic], enriched_with_getmac: bool) {
+    let mut cache = adapter_cache()
+        .lock()
+        .expect("adapter cache mutex should not be poisoned");
+    *cache = Some(CachedAdapterSnapshot {
+        captured_at: Instant::now(),
+        adapters: adapters.to_vec(),
+        enriched_with_getmac,
+    });
+}
+
+fn recent_cached_adapters(require_getmac_enrichment: bool) -> Option<Vec<NativeNic>> {
+    let cache = adapter_cache()
+        .lock()
+        .expect("adapter cache mutex should not be poisoned");
+    let snapshot = cache.as_ref()?;
+    if snapshot.captured_at.elapsed() > ADAPTER_CACHE_TTL {
+        return None;
+    }
+    if require_getmac_enrichment && !snapshot.enriched_with_getmac {
+        return None;
+    }
+    Some(snapshot.adapters.clone())
+}
+
+fn parse_getmac_metadata(output: &str) -> Vec<GetmacMetadata> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let fields = parse_csv_line(trimmed);
+            if fields.len() < 3 {
+                return None;
+            }
+
+            Some(GetmacMetadata {
+                connection_name: fields[0].clone(),
+                description: fields[1].clone(),
+                mac_address: fields[2].clone(),
+            })
+        })
+        .collect()
+}
+
+fn apply_getmac_metadata_to_adapters(adapters: &mut [NativeNic], metadata: &[GetmacMetadata]) {
+    for entry in metadata {
+        if let Some(nic) = adapters
+            .iter_mut()
+            .find(|adapter| adapter.friendly_name == entry.connection_name)
+        {
+            nic.mac_address = entry.mac_address.clone();
+            if !entry.description.is_empty() && entry.description != "N/A" {
+                nic.description = entry.description.clone();
+            }
+        }
+    }
+}
+
+fn enrich_adapters_with_getmac(adapters: &mut [NativeNic]) {
+    if let Ok(mac_text) = run_hidden("getmac", &["/fo", "csv", "/v", "/nh"]) {
+        let metadata = parse_getmac_metadata(&mac_text);
+        apply_getmac_metadata_to_adapters(adapters, &metadata);
+    }
 }
 
 fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeNic>, String> {
@@ -142,34 +234,10 @@ fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeN
         }
 
         if include_getmac_metadata {
-            // Step 3: Get MAC addresses and richer adapter descriptions from "getmac /fo csv /v /nh"
-            if let Ok(mac_text) = run_hidden("getmac", &["/fo", "csv", "/v", "/nh"]) {
-                for line in mac_text.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-
-                    // CSV: "Connection Name","Network Adapter","Physical Address","Transport Name"
-                    let fields: Vec<String> = parse_csv_line(trimmed);
-                    if fields.len() >= 3 {
-                        let conn_name = &fields[0];
-                        let adapter_desc = &fields[1];
-                        let mac = &fields[2];
-
-                        // Match by connection name (friendly_name)
-                        if let Some(nic) =
-                            adapters.iter_mut().find(|a| a.friendly_name == *conn_name)
-                        {
-                            nic.mac_address = mac.clone();
-                            // Use the adapter description from getmac as the real description
-                            if !adapter_desc.is_empty() && *adapter_desc != "N/A" {
-                                nic.description = adapter_desc.clone();
-                            }
-                        }
-                    }
-                }
-            }
+            // Reuse the fresh basic enumeration and only layer getmac metadata on top.
+            // This keeps the startup snapshot fast while allowing later enrich flows to
+            // avoid repeating the netsh passes.
+            enrich_adapters_with_getmac(&mut adapters);
         }
 
         Ok(adapters)
@@ -184,12 +252,25 @@ fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeN
 /// Enumerate network adapters using netsh only.
 /// Faster than the full variant because it skips the expensive `getmac` enrichment pass.
 pub fn enumerate_adapters_basic() -> Result<Vec<NativeNic>, String> {
-    enumerate_adapters_inner(false)
+    let adapters = enumerate_adapters_inner(false)?;
+    cache_adapters(&adapters, false);
+    Ok(adapters)
 }
 
 /// Enumerate network adapters using netsh plus getmac enrichment (works on all Windows 10/11).
 pub fn enumerate_adapters() -> Result<Vec<NativeNic>, String> {
-    enumerate_adapters_inner(true)
+    if let Some(cached) = recent_cached_adapters(true) {
+        return Ok(cached);
+    }
+
+    let mut adapters = if let Some(cached_basic) = recent_cached_adapters(false) {
+        cached_basic
+    } else {
+        enumerate_adapters_basic()?
+    };
+    enrich_adapters_with_getmac(&mut adapters);
+    cache_adapters(&adapters, true);
+    Ok(adapters)
 }
 
 /// Simple CSV line parser handling quoted fields.
@@ -229,7 +310,7 @@ fn parse_csv_line(line: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_valid_ipv4_address;
+    use super::{apply_getmac_metadata_to_adapters, is_valid_ipv4_address, parse_getmac_metadata, NativeNic};
 
     #[test]
     fn valid_ipv4_filter_rejects_unspecified_link_local_and_non_ipv4_values() {
@@ -238,5 +319,38 @@ mod tests {
         assert!(!is_valid_ipv4_address("0.0.0.0"));
         assert!(!is_valid_ipv4_address("169.254.10.20"));
         assert!(!is_valid_ipv4_address("fe80::1"));
+    }
+
+    #[test]
+    fn parse_getmac_metadata_reads_connection_name_description_and_mac() {
+        let metadata = parse_getmac_metadata(
+            r#""Wi-Fi","Intel(R) Wi-Fi 6 AX201 160MHz","AA-BB-CC-DD-EE-FF","\Device\Tcpip_{GUID}""#,
+        );
+
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata[0].connection_name, "Wi-Fi");
+        assert_eq!(metadata[0].description, "Intel(R) Wi-Fi 6 AX201 160MHz");
+        assert_eq!(metadata[0].mac_address, "AA-BB-CC-DD-EE-FF");
+    }
+
+    #[test]
+    fn apply_getmac_metadata_updates_cached_basic_adapters_without_reenumerating_netsh() {
+        let mut adapters = vec![NativeNic {
+            interface_index: 7,
+            description: "Wi-Fi".to_string(),
+            mac_address: String::new(),
+            friendly_name: "Wi-Fi".to_string(),
+            ip_addresses: vec!["192.168.1.25".to_string()],
+            gateways: vec!["192.168.1.1".to_string()],
+            oper_status_up: true,
+        }];
+        let metadata = parse_getmac_metadata(
+            r#""Wi-Fi","Intel(R) Wi-Fi 6 AX201 160MHz","AA-BB-CC-DD-EE-FF","\Device\Tcpip_{GUID}""#,
+        );
+
+        apply_getmac_metadata_to_adapters(&mut adapters, &metadata);
+
+        assert_eq!(adapters[0].description, "Intel(R) Wi-Fi 6 AX201 160MHz");
+        assert_eq!(adapters[0].mac_address, "AA-BB-CC-DD-EE-FF");
     }
 }
