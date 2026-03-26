@@ -5,6 +5,50 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-26 - Optimization Roadmap Status Summary For NotebookLM
+
+**Done**
+- Closed the release-safe quick wins called out by both `Optimise.md` and `Lộ trình Tối ưu hóa và Tái cấu trúc Super Route Pro`:
+  - restored the saved theme from `localStorage` before first paint,
+  - moved `check_internet()` work onto `spawn_blocking`,
+  - consolidated the duplicated Windows `CREATE_NO_WINDOW` constant into `src-tauri/src/win32_consts.rs`.
+- Implemented the main low-risk startup/runtime optimizations from the roadmap:
+  - parallelized startup persistence-status and repair-context awaits,
+  - reused cached route data for the first diagnostics routing view open,
+  - batched persisted stable-NIC lookups instead of re-enumerating adapters per route,
+  - optimized startup route replay to enumerate adapters once and reuse lookup maps,
+  - switched `RestartActiveAdapters` to the lighter `enumerate_adapters_basic()` path.
+- Landed the broader shipping fixes that materially improved the app even though they were larger than the roadmap's smallest quick wins:
+  - fixed the single-WAN + per-NIC persisted-route behavior so only the chosen WAN keeps the default route while NIC2/NIC3 keep their own specific routes,
+  - improved NIC startup performance by removing `getmac` from the startup critical path and introducing the `get_network_snapshot()` fast path,
+  - shipped the Speed Test modal/native backend path plus extra tests and release packaging follow-through.
+- Verified the shipped state through `v10.1.3` with `npm run check` plus a successful NSIS release build.
+
+**Partially Done / Needs Follow-Up**
+- Test coverage improved meaningfully, but only in targeted areas:
+  - added Rust unit tests for speed test label/fallback logic,
+  - added frontend/model tests for persisted-route shaping and Speed Test modal rendering.
+- Startup persistence has been improved and the new per-route-NIC replay path is in place, but the roadmap's bigger goal of one clean source of truth is not finished yet because the legacy `SuperRoutePro-PersistWAN` path still exists beside the newer `SuperRouteProPersist` service flow.
+- Backend deduplication has started only at the small/shared-constant level; the larger duplicate cleanup across cache/bloatware/file helpers is still outstanding.
+- Documentation/logging are in much better shape through `DAILY_LOG.md` and `CHANGELOG.md`, but the broader stale-doc cleanup noted in the roadmap has not been fully completed.
+
+**Not Done Yet**
+- Break up the `App.tsx` god component into smaller hooks/components/modules.
+- Fully consolidate startup persistence into one end-state and retire the remaining legacy WAN scheduled-task/script path.
+- Finish deeper backend deduplication for repeated repair/network helper logic instead of only sharing constants and some route lookup work.
+- Add broader E2E/integration coverage for the high-value user flows called out by the roadmap.
+- Revisit deeper process polling / blocking-command cleanup beyond the already completed `check_internet()` fix.
+
+**Notes And Decisions**
+- NotebookLM ad-hoc retrieval for the two roadmap documents was noisy on 2026-03-26, so this status summary is based on the validated implementation work already logged in this file across 2026-03-25 sessions rather than on a fresh raw export from NotebookLM.
+- The roadmap documents were still useful as prioritization guides, but `v10.1.3` intentionally focused on low-risk, release-safe items plus the WAN/NIC/Speed Test fixes that were already in flight.
+
+**Next Steps**
+- If continuing the roadmap after `v10.1.3`, the highest-value next slice is startup-persistence consolidation.
+- After that, the clean architectural follow-up is splitting `App.tsx`, then tackling the remaining backend deduplication and broader E2E coverage.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-25 - v10.1.3 Release Finalization
 
 **Done**
