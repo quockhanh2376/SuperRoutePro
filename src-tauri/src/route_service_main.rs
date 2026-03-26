@@ -5,14 +5,18 @@
 //! routes using stable NIC identifiers (description / MAC) to survive
 //! InterfaceIndex changes across reboots.
 
-use super_route_pro_lib::route_persist::{self, CustomRoute, NicIdentifier, PersistConfig, WanConfig};
+use std::collections::HashMap;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use super_route_pro_lib::route_persist::{
+    self, CustomRoute, NicIdentifier, PersistConfig, WanConfig,
+};
+#[cfg(target_os = "windows")]
+use super_route_pro_lib::win32_consts::CREATE_NO_WINDOW;
 
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 const MAX_RETRY_SECONDS: u64 = 60;
 const RETRY_INTERVAL_SECONDS: u64 = 5;
 
@@ -38,12 +42,12 @@ fn main() {
     let mut elapsed: u64 = 0;
     loop {
         match find_nic_interface_index(&config.nic) {
-            Ok(index) => {
+            Ok((index, adapters)) => {
                 eprintln!(
                     "[SuperRouteService] NIC '{}' found at InterfaceIndex {index}",
                     config.nic.description
                 );
-                apply_routes(&config, &index);
+                apply_routes(&config, &index, &adapters);
                 eprintln!("[SuperRouteService] Routes applied. Exiting.");
                 return;
             }
@@ -73,19 +77,79 @@ fn main() {
 
 /// Find the current InterfaceIndex of a NIC by matching its description (primary)
 /// or MAC address (fallback).
-fn find_nic_interface_index(nic: &NicIdentifier) -> Result<String, String> {
+fn find_nic_interface_index(
+    nic: &NicIdentifier,
+) -> Result<(String, Vec<super_route_pro_lib::win32_net::NativeNic>), String> {
     let adapters = super_route_pro_lib::win32_net::enumerate_adapters()?;
+    let index = resolve_nic_interface_index_from_adapters(nic, &adapters)?;
+    Ok((index, adapters))
+}
 
-    // Primary match: by description
-    for adapter in &adapters {
-        if adapter.description.eq_ignore_ascii_case(&nic.description) {
+// ---------------------------------------------------------------------------
+// Route application
+// ---------------------------------------------------------------------------
+
+fn apply_routes(
+    config: &PersistConfig,
+    interface_index: &str,
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) {
+    // Apply WAN (default gateway)
+    if let Some(wan) = &config.wan {
+        clear_default_routes();
+        apply_wan(wan, interface_index);
+    }
+
+    let nic_index_lookup = build_nic_index_lookup(adapters);
+
+    // Apply custom routes
+    for route in &config.custom_routes {
+        match resolve_custom_route_interface_index(route, interface_index, &nic_index_lookup) {
+            Ok(route_interface_index) => apply_custom_route(route, &route_interface_index),
+            Err(e) => eprintln!(
+                "[SuperRouteService] Skipping route {}/{} because its NIC could not be resolved: {e}",
+                route.destination, route.mask
+            ),
+        }
+    }
+}
+
+fn build_nic_index_lookup(
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> HashMap<String, String> {
+    let mut lookup = HashMap::new();
+    for adapter in adapters {
+        lookup.insert(
+            adapter.description.to_ascii_lowercase(),
+            adapter.interface_index.to_string(),
+        );
+        lookup.insert(
+            adapter.friendly_name.to_ascii_lowercase(),
+            adapter.interface_index.to_string(),
+        );
+        if !adapter.mac_address.is_empty() {
+            lookup.insert(
+                adapter.mac_address.replace(':', "-").to_uppercase(),
+                adapter.interface_index.to_string(),
+            );
+        }
+    }
+    lookup
+}
+
+fn resolve_nic_interface_index_from_adapters(
+    nic: &NicIdentifier,
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> Result<String, String> {
+    let desc = nic.description.to_ascii_lowercase();
+    for adapter in adapters {
+        if adapter.description.to_ascii_lowercase() == desc {
             return Ok(adapter.interface_index.to_string());
         }
     }
 
-    // Fallback match: by MAC address
     let normalized_mac = nic.mac_address.replace(':', "-").to_uppercase();
-    for adapter in &adapters {
+    for adapter in adapters {
         if adapter.mac_address.to_uppercase() == normalized_mac {
             return Ok(adapter.interface_index.to_string());
         }
@@ -97,19 +161,37 @@ fn find_nic_interface_index(nic: &NicIdentifier) -> Result<String, String> {
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Route application
-// ---------------------------------------------------------------------------
+fn resolve_custom_route_interface_index(
+    route: &CustomRoute,
+    default_interface_index: &str,
+    nic_index_lookup: &HashMap<String, String>,
+) -> Result<String, String> {
+    match &route.nic {
+        Some(nic) => {
+            let desc = nic.description.to_ascii_lowercase();
+            if let Some(index) = nic_index_lookup.get(&desc) {
+                return Ok(index.clone());
+            }
 
-fn apply_routes(config: &PersistConfig, interface_index: &str) {
-    // Apply WAN (default gateway)
-    if let Some(wan) = &config.wan {
-        apply_wan(wan, interface_index);
+            let normalized_mac = nic.mac_address.replace(':', "-").to_uppercase();
+            if let Some(index) = nic_index_lookup.get(&normalized_mac) {
+                return Ok(index.clone());
+            }
+
+            Err(format!(
+                "No adapter matching description='{}' or MAC='{}'",
+                nic.description, nic.mac_address
+            ))
+        }
+        None => Ok(default_interface_index.to_string()),
     }
+}
 
-    // Apply custom routes
-    for route in &config.custom_routes {
-        apply_custom_route(route, interface_index);
+fn clear_default_routes() {
+    for _ in 0..6 {
+        if run_route_command(&["delete", "0.0.0.0"]).is_err() {
+            break;
+        }
     }
 }
 

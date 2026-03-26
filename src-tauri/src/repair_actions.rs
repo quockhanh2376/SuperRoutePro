@@ -1,3 +1,6 @@
+use crate::cache_cleanup::{
+    cleanup_paths_for_profile_root, run_cleanup_for_profile_root, sanitize_cleanup_targets,
+};
 use crate::network;
 use crate::persist_startup;
 use crate::repair_protocol::{
@@ -5,14 +8,14 @@ use crate::repair_protocol::{
     RepairSessionStatus,
 };
 use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser};
+#[cfg(target_os = "windows")]
+use crate::win32_consts::CREATE_NO_WINDOW;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::process::{Command, Stdio};
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const ALLOWED_BLOATWARE_PACKAGES: [&str; 29] = [
     "Clipchamp.Clipchamp",
@@ -93,286 +96,6 @@ fn run_powershell_script_blocking(_script: String) -> Result<String, String> {
     Err("Repair actions are only available on Windows.".to_string())
 }
 
-fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut selected = Vec::new();
-
-    for target in targets {
-        let trimmed = target.trim().to_lowercase();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let is_safe_token = trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
-        if !is_safe_token || !seen.insert(trimmed.clone()) {
-            continue;
-        }
-
-        if cleanup_paths_for_target(
-            &RepairTargetUser {
-                sid: "S-1-5-21-0".to_string(),
-                account_name: "placeholder".to_string(),
-                profile_path: r"C:\Users\placeholder".to_string(),
-                is_loaded: false,
-            },
-            &trimmed,
-        )
-        .is_some()
-        {
-            selected.push(trimmed);
-        }
-    }
-
-    selected
-}
-
-fn cleanup_paths_for_target(target_user: &RepairTargetUser, target: &str) -> Option<Vec<String>> {
-    let profile_root = target_user.profile_path.trim_end_matches(['\\', '/']);
-    let local = format!(r"{profile_root}\AppData\Local");
-
-    match target {
-        "user_temp" => Some(vec![format!(r"{local}\Temp")]),
-        "windows_temp" => Some(vec![r"C:\Windows\Temp".to_string()]),
-        "windows_update_cache" => {
-            Some(vec![r"C:\Windows\SoftwareDistribution\Download".to_string()])
-        }
-        "prefetch" => Some(vec![r"C:\Windows\Prefetch".to_string()]),
-        "explorer_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\Explorer")]),
-        "edge_cache" => Some(vec![
-            format!(r"{local}\Microsoft\Edge\User Data\Default\Cache"),
-            format!(r"{local}\Microsoft\Edge\User Data\Default\Code Cache"),
-            format!(r"{local}\Microsoft\Edge\User Data\Default\GPUCache"),
-        ]),
-        "chrome_cache" => Some(vec![
-            format!(r"{local}\Google\Chrome\User Data\Default\Cache"),
-            format!(r"{local}\Google\Chrome\User Data\Default\Code Cache"),
-            format!(r"{local}\Google\Chrome\User Data\Default\GPUCache"),
-        ]),
-        "firefox_cache" => Some(vec![format!(r"{local}\Mozilla\Firefox\Profiles")]),
-        "inet_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\INetCache")]),
-        "web_cache" => Some(vec![format!(r"{local}\Microsoft\Windows\WebCache")]),
-        "crash_dumps" => Some(vec![format!(r"{local}\CrashDumps")]),
-        "wer_reports" => Some(vec![
-            r"C:\ProgramData\Microsoft\Windows\WER".to_string(),
-            format!(r"{local}\Microsoft\Windows\WER"),
-        ]),
-        "d3d_shader_cache" => Some(vec![format!(r"{local}\D3DSCache")]),
-        _ => None,
-    }
-}
-
-/// Clean all files and subdirectories inside a directory, leaving the directory itself.
-fn clean_directory_contents(path: &std::path::Path) -> (u64, u64) {
-    let mut deleted = 0u64;
-    let mut failed = 0u64;
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return (0, 0);
-    };
-    for entry in entries.flatten() {
-        let entry_path = entry.path();
-        if entry_path.is_dir() {
-            match std::fs::remove_dir_all(&entry_path) {
-                Ok(_) => deleted += 1,
-                Err(_) => failed += 1,
-            }
-        } else {
-            match std::fs::remove_file(&entry_path) {
-                Ok(_) => deleted += 1,
-                Err(_) => failed += 1,
-            }
-        }
-    }
-    (deleted, failed)
-}
-
-/// Delete files matching a glob-like prefix in a directory (e.g. thumbcache_*.db)
-fn clean_files_with_prefix(dir: &std::path::Path, prefix: &str, suffix: &str) -> (u64, u64) {
-    let mut deleted = 0u64;
-    let mut failed = 0u64;
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return (0, 0);
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with(prefix) && name.ends_with(suffix) {
-            match std::fs::remove_file(entry.path()) {
-                Ok(_) => deleted += 1,
-                Err(_) => failed += 1,
-            }
-        }
-    }
-    (deleted, failed)
-}
-
-/// Run a native cache cleanup for a specific target. Returns (label, success, detail).
-fn run_cleanup_for_target(target_user: &RepairTargetUser, target: &str) -> Option<(bool, String)> {
-    let profile_root = target_user.profile_path.trim_end_matches(['\\', '/']);
-    let local = format!(r"{profile_root}\AppData\Local");
-
-    match target {
-        "user_temp" => {
-            let path = std::path::Path::new(&local).join("Temp");
-            let (del, fail) = clean_directory_contents(&path);
-            Some((
-                fail == 0,
-                format!("[OK] User Temp cleaned ({del} items removed, {fail} failed)."),
-            ))
-        }
-        "windows_temp" => {
-            let path = std::path::Path::new(r"C:\Windows\Temp");
-            let (del, fail) = clean_directory_contents(path);
-            Some((
-                fail == 0,
-                format!("[OK] Windows Temp cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "windows_update_cache" => {
-            // Stop services, clean, restart
-            #[cfg(target_os = "windows")]
-            {
-                let _ = Command::new("net")
-                    .args(["stop", "wuauserv", "/y"])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-                let _ = Command::new("net")
-                    .args(["stop", "bits", "/y"])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-            }
-            let path = std::path::Path::new(r"C:\Windows\SoftwareDistribution\Download");
-            let (del, fail) = clean_directory_contents(path);
-            #[cfg(target_os = "windows")]
-            {
-                let _ = Command::new("net")
-                    .args(["start", "wuauserv"])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-                let _ = Command::new("net")
-                    .args(["start", "bits"])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-            }
-            Some((
-                fail == 0,
-                format!("[OK] Windows Update cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "prefetch" => {
-            let path = std::path::Path::new(r"C:\Windows\Prefetch");
-            let (del, fail) = clean_directory_contents(path);
-            Some((
-                fail == 0,
-                format!("[OK] Prefetch cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "explorer_cache" => {
-            let explorer_dir = std::path::Path::new(&local).join(r"Microsoft\Windows\Explorer");
-            let (d1, f1) = clean_files_with_prefix(&explorer_dir, "thumbcache_", ".db");
-            let (d2, f2) = clean_files_with_prefix(&explorer_dir, "iconcache_", ".db");
-            let del = d1 + d2;
-            let fail = f1 + f2;
-            Some((
-                fail == 0,
-                format!("[OK] Explorer cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "edge_cache" => {
-            let base = std::path::Path::new(&local).join(r"Microsoft\Edge\User Data\Default");
-            let mut del = 0u64;
-            let mut fail = 0u64;
-            for sub in ["Cache", "Code Cache", "GPUCache"] {
-                let (d, f) = clean_directory_contents(&base.join(sub));
-                del += d;
-                fail += f;
-            }
-            Some((
-                fail == 0,
-                format!("[OK] Microsoft Edge cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "chrome_cache" => {
-            let base = std::path::Path::new(&local).join(r"Google\Chrome\User Data\Default");
-            let mut del = 0u64;
-            let mut fail = 0u64;
-            for sub in ["Cache", "Code Cache", "GPUCache"] {
-                let (d, f) = clean_directory_contents(&base.join(sub));
-                del += d;
-                fail += f;
-            }
-            Some((
-                fail == 0,
-                format!("[OK] Google Chrome cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "firefox_cache" => {
-            let profiles_dir = std::path::Path::new(&local).join(r"Mozilla\Firefox\Profiles");
-            let mut del = 0u64;
-            let mut fail = 0u64;
-            if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
-                for entry in entries.flatten() {
-                    let cache2 = entry.path().join("cache2");
-                    let (d, f) = clean_directory_contents(&cache2);
-                    del += d;
-                    fail += f;
-                }
-            }
-            Some((
-                fail == 0,
-                format!("[OK] Mozilla Firefox cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "inet_cache" => {
-            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\INetCache");
-            let (del, fail) = clean_directory_contents(&path);
-            Some((
-                fail == 0,
-                format!("[OK] INetCache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "web_cache" => {
-            let path = std::path::Path::new(&local).join(r"Microsoft\Windows\WebCache");
-            let (del, fail) = clean_directory_contents(&path);
-            Some((
-                fail == 0,
-                format!("[OK] WebCache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "crash_dumps" => {
-            let path = std::path::Path::new(&local).join("CrashDumps");
-            let (del, fail) = clean_directory_contents(&path);
-            Some((
-                fail == 0,
-                format!("[OK] Crash dumps cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "wer_reports" => {
-            let (d1, f1) = clean_directory_contents(std::path::Path::new(
-                r"C:\ProgramData\Microsoft\Windows\WER",
-            ));
-            let (d2, f2) = clean_directory_contents(
-                &std::path::Path::new(&local).join(r"Microsoft\Windows\WER"),
-            );
-            let del = d1 + d2;
-            let fail = f1 + f2;
-            Some((
-                fail == 0,
-                format!("[OK] Windows Error Reporting cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        "d3d_shader_cache" => {
-            let path = std::path::Path::new(&local).join("D3DSCache");
-            let (del, fail) = clean_directory_contents(&path);
-            Some((
-                fail == 0,
-                format!("[OK] DirectX Shader Cache cleaned ({del} items, {fail} failed)."),
-            ))
-        }
-        _ => None,
-    }
-}
-
 pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
     if !validate_target_sid(&request.target_sid) {
         return Err("Missing or invalid target SID for profile cleanup.".to_string());
@@ -397,8 +120,10 @@ pub fn build_profile_cleanup_plan_for_target(
 
     let mut plan = Vec::new();
     for target in sanitize_cleanup_targets(&request.targets) {
-        if let Some(paths) = cleanup_paths_for_target(target_user, &target) {
-            plan.extend(paths);
+        if let Some(paths) =
+            cleanup_paths_for_profile_root(Path::new(&target_user.profile_path), &target)
+        {
+            plan.extend(paths.into_iter().map(|path| path.to_string_lossy().to_string()));
         }
     }
 
@@ -498,7 +223,7 @@ pub fn run_machine_action_blocking(
         }
         RepairMachineAction::RestartActiveAdapters => {
             // Enumerate physical adapters that are up, then disable+enable each via netsh
-            match crate::win32_net::enumerate_adapters() {
+            match crate::win32_net::enumerate_adapters_basic() {
                 Ok(adapters) => {
                     let mut restarted = 0;
                     let mut errors = Vec::new();
@@ -650,7 +375,7 @@ pub fn clear_profile_caches_blocking(
 
     for target in selected_targets {
         output_lines.push(format!("[TARGET] {target}"));
-        match run_cleanup_for_target(&target_user, &target) {
+        match run_cleanup_for_profile_root(Path::new(&target_user.profile_path), &target) {
             Some((success, detail)) => {
                 output_lines.push(detail);
                 if success {

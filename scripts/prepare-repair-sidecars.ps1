@@ -16,6 +16,14 @@ function Get-HostTargetTriple {
     return ($hostLine -replace '^host:\s*', '').Trim()
 }
 
+function Get-CargoTargetRoot {
+    if ($env:CARGO_TARGET_DIR) {
+        return $env:CARGO_TARGET_DIR
+    }
+
+    return (Join-Path $tauriDir "target")
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..")
 $tauriDir = Join-Path $repoRoot "src-tauri"
@@ -31,10 +39,11 @@ New-Item -ItemType Directory -Path $binariesDir -Force | Out-Null
 Write-Host "Preparing repair sidecars for target $targetTriple" -ForegroundColor Cyan
 
 $bins = @("SuperRouteRepairBroker", "SuperRouteService")
+$cargoTargetRoot = Get-CargoTargetRoot
 foreach ($bin in $bins) {
     & cargo build --manifest-path (Join-Path $tauriDir "Cargo.toml") --release --target $targetTriple --bin $bin
 
-    $sourcePath = Join-Path $tauriDir "target\$targetTriple\release\$bin.exe"
+    $sourcePath = Join-Path $cargoTargetRoot "$targetTriple\release\$bin.exe"
     if (-not (Test-Path $sourcePath)) {
         throw "Expected sidecar binary was not built: $sourcePath"
     }
