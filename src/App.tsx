@@ -23,6 +23,7 @@ import {
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
+import { mergeNicDescriptions } from "./nicDescriptionModel";
 import { getNicTableMessage } from "./nicTableModel";
 import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
@@ -743,6 +744,32 @@ export default function App() {
       setRoutingOutput(formatRoutingSnapshot(snapshot.routes));
       setHasLoadedNicSnapshot(true);
       setStatusMsg(`Loaded ${snapshot.interfaces.length} NICs, ${snapshot.routes.length} routes`);
+
+      const interfaceIndexes = snapshot.interfaces.map((nic) => nic.index);
+      if (interfaceIndexes.length > 0) {
+        void (async () => {
+          try {
+            const stableIds = await persistGetNicStableIds(interfaceIndexes);
+            if (requestId !== latestLoadRequestRef.current) {
+              return;
+            }
+            const descriptionEntries = interfaceIndexes.map((interfaceIndex, index) => ({
+              interfaceIndex,
+              description: stableIds[index]?.description ?? "",
+            }));
+            setNics((current) => mergeNicDescriptions(current, descriptionEntries));
+            setSelectedNic((current) => {
+              if (!current) {
+                return current;
+              }
+              const [enrichedCurrent] = mergeNicDescriptions([current], descriptionEntries);
+              return enrichedCurrent;
+            });
+          } catch (enrichErr) {
+            console.warn("Failed to enrich NIC descriptions:", enrichErr);
+          }
+        })();
+      }
     } catch (err) {
       if (requestId !== latestLoadRequestRef.current) {
         return;
