@@ -5,6 +5,34 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 11 (Repair Target Pure-Logic Coverage)
+
+**Done**
+- Added another low-risk backend regression slice focused on the pure helper layer in `src-tauri/src/repair_targets.rs`.
+- Added unit coverage for:
+  - accepting realistic SID formats used by Windows user profiles
+  - rejecting malformed SID inputs
+  - normalizing valid `X:\Users\<name>` profile roots while uppercasing the drive letter
+  - rejecting traversal, non-user roots, UNC paths, and deeper nested paths
+- Kept this slice strictly test-only:
+  - no registry access behavior changed
+  - no target enumeration behavior changed
+  - no repair command wiring changed
+
+**Notes And Decisions**
+- `repair_targets.rs` is a good place to add pure-logic tests because it sits under privileged profile-repair flows but does not need any Windows registry mocking for these specific seams.
+- Protecting `validate_target_sid()` and `normalize_profile_root()` gives the higher-level repair/profile cleanup path a safer foundation without widening the runtime surface.
+- I kept the tests focused on deterministic helper logic rather than trying to fake the full registry-backed target enumeration path.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can either keep tightening repair/profile coverage, or return to a small runtime refactor in `repair_actions.rs` with the new guardrails in place.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 10 (Repair Action Validation Coverage)
 
 **Done**
