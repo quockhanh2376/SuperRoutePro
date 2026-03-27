@@ -31,6 +31,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 - [x] Add NIC cache invalidation hooks so manual refresh and selected repair flows do not leave stale adapter metadata behind.
 - [x] Extract connectivity probing into a dedicated module and clean up repair-action helper duplication.
 - [x] Add integration and regression coverage for persist config, route service behavior, repair broker flow, speed test target contracts, NIC snapshot seams, repair-action validation, startup task detection, and related helper seams.
+- [x] Route `npm run test:rust` through a clean-target runner on Windows so local Rust verification avoids long-lived target-dir file-lock noise.
 
 ### Still Worth Reviewing
 
