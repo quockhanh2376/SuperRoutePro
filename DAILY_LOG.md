@@ -5,6 +5,34 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 13 (Remove Dead Non-Repair Command Surface)
+
+**Done**
+- Removed the unused non-repair bloatware/cache cleanup command surface from the current app runtime.
+- Deleted the old frontend invoke wrappers from `src/api.ts`:
+  - `removeBloatware(...)`
+  - `clearCacheTargets(...)`
+- Removed the matching Tauri command registration from `src-tauri/src/lib.rs`.
+- Deleted the old command handlers from `src-tauri/src/network.rs`:
+  - `remove_bloatware`
+  - `clear_cache_targets`
+- Updated `PROJECT_SUMMARY.md` so it no longer documents the dead command names and now points at the repair-mediated command flow instead.
+
+**Notes And Decisions**
+- The live app was already using only the repair variants from `App.tsx`, so this was a cleanup slice rather than a behavior change for current UI users.
+- I kept `get_bloatware_candidates()` intact because the Remove Apps modal still depends on that discovery path.
+- This slice intentionally removes only the dead public surface that had drifted behind the broker/repair architecture, without touching the still-active repair implementations in `repair_commands.rs`.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `npm run build`
+- `npm run test:node`
+
+**Next Steps**
+- A good next thin slice is to centralize one more small Windows helper seam, or to continue trimming duplicated repair/runtime documentation now that the old command surface is gone.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 12 (Env-Driven Cleanup System Paths)
 
 **Done**

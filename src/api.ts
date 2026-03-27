@@ -230,10 +230,6 @@ export async function getBloatwareCandidates(): Promise<BloatwareItem[]> {
   return invoke<BloatwareItem[]>("get_bloatware_candidates");
 }
 
-export async function removeBloatware(packages: string[]): Promise<CommandResult> {
-  return invoke<CommandResult>("remove_bloatware", { packages });
-}
-
 export async function repairRemoveBloatware(
   targetSid: string,
   packages: string[],
@@ -244,10 +240,6 @@ export async function repairRemoveBloatware(
     packages,
     removeProvisioned,
   });
-}
-
-export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
-  return invoke<CommandResult>("clear_cache_targets", { targets });
 }
 
 export async function repairClearCacheTargets(

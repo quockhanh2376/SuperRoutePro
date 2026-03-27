@@ -23,9 +23,8 @@ pub mod win32_net;
 
 use battery::{get_battery_report, get_battery_summary};
 use network::{
-    add_route, check_internet, clear_cache_targets, delete_route, flush_routes,
-    get_bloatware_candidates, remove_bloatware, run_network_command, set_default_gateway,
-    test_tcp_port,
+    add_route, check_internet, delete_route, flush_routes, get_bloatware_candidates,
+    run_network_command, set_default_gateway, test_tcp_port,
 };
 use network_snapshot::{
     get_network_interfaces, get_network_snapshot, get_routing_table,
@@ -69,8 +68,6 @@ pub fn run() {
             run_speed_test,
             check_internet,
             get_bloatware_candidates,
-            remove_bloatware,
-            clear_cache_targets,
             get_battery_report,
             get_battery_summary,
             get_repair_service_health,

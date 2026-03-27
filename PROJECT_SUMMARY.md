@@ -154,8 +154,8 @@ Main backend file: `src-tauri/src/network.rs`.
 - `fping_scan(targets, timeout_ms?)`
 - `check_internet()`
 - `get_bloatware_candidates()`
-- `remove_bloatware(packages)`
-- `clear_cache_targets(targets)`
+- `repair_remove_bloatware(target_sid, packages, remove_provisioned)`
+- `repair_clear_cache_targets(target_sid, targets)`
 - `get_battery_report()`
 
 ### 6.2 Command execution model
@@ -184,10 +184,10 @@ Main backend file: `src-tauri/src/network.rs`.
 - Remove apps:
   - Predefined candidate list
   - Detect installed/provisioned packages
-  - Remove selected packages with summary output
+  - Removal is routed through Repair Mode command flow
 - Cache cleanup:
   - Predefined cleanup targets (Windows + browser + crash/wer/shader cache)
-  - Per-target PowerShell recipe execution with summary
+  - Cleanup is routed through Repair Mode command flow
 - Battery report:
   - Generates HTML via `powercfg /batteryreport`
   - Reads report file and returns HTML string for iframe preview
