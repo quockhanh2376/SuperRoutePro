@@ -1,7 +1,7 @@
+use crate::bloatware_catalog::canonical_bloatware_package;
 use crate::cache_cleanup::{
     cleanup_paths_for_profile_root, run_cleanup_for_profile_root, sanitize_cleanup_targets,
 };
-use crate::bloatware_catalog::canonical_bloatware_package;
 use crate::network;
 use crate::persist_startup;
 use crate::process_exec::{
@@ -20,12 +20,43 @@ fn locked_result_if_needed(session_status: &RepairSessionStatus) -> Option<Repai
     session_status.locked.then(RepairCommandResult::locked)
 }
 
+fn selected_cleanup_targets(request: &ProfileCleanupRequest) -> Vec<String> {
+    sanitize_cleanup_targets(&request.targets)
+}
+
+fn cleanup_plan_for_profile_root(profile_root: &Path, targets: &[String]) -> Vec<String> {
+    targets
+        .iter()
+        .filter_map(|target| cleanup_paths_for_profile_root(profile_root, target))
+        .flat_map(|paths| {
+            paths
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn selected_appx_packages(request: &AppxRemovalRequest) -> Vec<String> {
+    let mut seen = HashSet::new();
+
+    request
+        .packages
+        .iter()
+        .filter_map(|package| {
+            let canonical_name = canonical_bloatware_package(package)?.to_string();
+            seen.insert(canonical_name.clone())
+                .then_some(canonical_name)
+        })
+        .collect()
+}
+
 pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
     if !validate_target_sid(&request.target_sid) {
         return Err("Missing or invalid target SID for profile cleanup.".to_string());
     }
 
-    if sanitize_cleanup_targets(&request.targets).is_empty() {
+    if selected_cleanup_targets(request).is_empty() {
         return Err("No valid cleanup targets selected.".to_string());
     }
 
@@ -42,18 +73,10 @@ pub fn build_profile_cleanup_plan_for_target(
         return Err("Cleanup request target SID does not match resolved target user.".to_string());
     }
 
-    let mut plan = Vec::new();
-    for target in sanitize_cleanup_targets(&request.targets) {
-        if let Some(paths) =
-            cleanup_paths_for_profile_root(Path::new(&target_user.profile_path), &target)
-        {
-            plan.extend(
-                paths
-                    .into_iter()
-                    .map(|path| path.to_string_lossy().to_string()),
-            );
-        }
-    }
+    let plan = cleanup_plan_for_profile_root(
+        Path::new(&target_user.profile_path),
+        &selected_cleanup_targets(request),
+    );
 
     if plan.is_empty() {
         return Err("No profile cleanup paths resolved for the selected target.".to_string());
@@ -67,13 +90,7 @@ pub fn validate_appx_removal_request(request: &AppxRemovalRequest) -> Result<(),
         return Err("Missing or invalid target SID for Appx removal.".to_string());
     }
 
-    let valid_count = request
-        .packages
-        .iter()
-        .filter(|package| canonical_bloatware_package(package).is_some())
-        .count();
-
-    if valid_count == 0 {
+    if selected_appx_packages(request).is_empty() {
         return Err("No valid Appx packages selected.".to_string());
     }
 
@@ -252,7 +269,7 @@ pub fn clear_profile_caches_blocking(
 
     validate_profile_cleanup_request(&request)?;
     let target_user = resolve_repair_target_by_sid(&request.target_sid)?;
-    let selected_targets = sanitize_cleanup_targets(&request.targets);
+    let selected_targets = selected_cleanup_targets(&request);
 
     let mut output_lines = vec![
         format!(
@@ -319,19 +336,7 @@ pub fn remove_appx_for_target_blocking(
     validate_appx_removal_request(&request)?;
     let target_user = resolve_repair_target_by_sid(&request.target_sid)?;
 
-    let mut seen = HashSet::new();
-    let selected: Vec<String> = request
-        .packages
-        .iter()
-        .filter_map(|package| {
-            let canonical_name = canonical_bloatware_package(package)?.to_string();
-            if seen.insert(canonical_name.clone()) {
-                Some(canonical_name)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let selected = selected_appx_packages(&request);
 
     let mut output_lines = vec![
         format!(
@@ -470,8 +475,8 @@ pub async fn remove_appx_for_target(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_profile_cleanup_plan_for_target, validate_appx_removal_request,
-        validate_profile_cleanup_request,
+        build_profile_cleanup_plan_for_target, selected_appx_packages, selected_cleanup_targets,
+        validate_appx_removal_request, validate_profile_cleanup_request,
     };
     use crate::repair_protocol::{AppxRemovalRequest, ProfileCleanupRequest};
     use crate::repair_targets::RepairTargetUser;
@@ -517,16 +522,18 @@ mod tests {
             .expect("known cleanup targets should resolve");
 
         assert_eq!(plan.len(), 4);
-        assert!(plan.iter().any(|path| path.ends_with(r"demo\AppData\Local\Temp")));
-        assert!(plan.iter().any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Cache")));
-        assert!(
-            plan.iter()
-                .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Code Cache"))
-        );
-        assert!(
-            plan.iter()
-                .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\GPUCache"))
-        );
+        assert!(plan
+            .iter()
+            .any(|path| path.ends_with(r"demo\AppData\Local\Temp")));
+        assert!(plan
+            .iter()
+            .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Cache")));
+        assert!(plan
+            .iter()
+            .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Code Cache")));
+        assert!(plan
+            .iter()
+            .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\GPUCache")));
     }
 
     #[test]
@@ -540,6 +547,22 @@ mod tests {
             build_profile_cleanup_plan_for_target(&sample_target_user(), &request).unwrap_err(),
             "Cleanup request target SID does not match resolved target user."
         );
+    }
+
+    #[test]
+    fn selected_cleanup_targets_deduplicates_and_filters_invalid_tokens() {
+        let request = ProfileCleanupRequest {
+            target_sid: sample_target_user().sid,
+            targets: vec![
+                " user_temp ".to_string(),
+                "USER_TEMP".to_string(),
+                "../oops".to_string(),
+                "chrome_cache".to_string(),
+            ],
+        };
+
+        let selected = selected_cleanup_targets(&request);
+        assert_eq!(selected, vec!["user_temp", "chrome_cache"]);
     }
 
     #[test]
@@ -566,5 +589,21 @@ mod tests {
             validate_appx_removal_request(&request).unwrap_err(),
             "No valid Appx packages selected."
         );
+    }
+
+    #[test]
+    fn selected_appx_packages_canonicalizes_case_and_deduplicates() {
+        let request = AppxRemovalRequest {
+            target_sid: sample_target_user().sid,
+            packages: vec![
+                "microsoft.skypeapp".to_string(),
+                "Microsoft.SkypeApp".to_string(),
+                "Contoso.UnknownApp".to_string(),
+            ],
+            remove_provisioned: false,
+        };
+
+        let selected = selected_appx_packages(&request);
+        assert_eq!(selected, vec!["Microsoft.SkypeApp"]);
     }
 }
