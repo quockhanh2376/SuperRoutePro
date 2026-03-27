@@ -251,3 +251,45 @@ pub fn resolve_repair_target_by_sid(_target_sid: &str) -> Result<RepairTargetUse
 pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
     Err("Repair targets are only available on Windows.".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_profile_root, validate_target_sid};
+    use std::path::PathBuf;
+
+    #[test]
+    fn validate_target_sid_accepts_realistic_user_sids() {
+        assert!(validate_target_sid(
+            "S-1-5-21-123456789-234567890-345678901-1001"
+        ));
+        assert!(validate_target_sid(" S-1-5-18 "));
+    }
+
+    #[test]
+    fn validate_target_sid_rejects_malformed_values() {
+        assert!(!validate_target_sid(""));
+        assert!(!validate_target_sid("demo"));
+        assert!(!validate_target_sid("S-1-5-21-abc"));
+        assert!(!validate_target_sid("S-1-5-21-1234-"));
+    }
+
+    #[test]
+    fn normalize_profile_root_accepts_users_paths_and_normalizes_drive_case() {
+        assert_eq!(
+            normalize_profile_root(r"c:\Users\Demo\"),
+            Some(PathBuf::from(r"C:\Users\Demo"))
+        );
+        assert_eq!(
+            normalize_profile_root("D:/Users/AnotherUser"),
+            Some(PathBuf::from(r"D:\Users\AnotherUser"))
+        );
+    }
+
+    #[test]
+    fn normalize_profile_root_rejects_non_user_roots_and_traversal() {
+        assert_eq!(normalize_profile_root(r"C:\Windows\System32"), None);
+        assert_eq!(normalize_profile_root(r"C:\Users\demo\..\Admin"), None);
+        assert_eq!(normalize_profile_root(r"\\server\share\demo"), None);
+        assert_eq!(normalize_profile_root(r"C:\Users\demo\Desktop"), None);
+    }
+}

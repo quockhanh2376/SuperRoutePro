@@ -26,6 +26,30 @@ const getStageLabel = (stage: string) => {
   }
 };
 
+const getLiveStatusLabel = (stage: string) => {
+  switch (stage) {
+    case "preflight":
+      return "Preparing";
+    case "latency":
+      return "Measuring latency";
+    case "download":
+      return "Download in progress";
+    case "upload":
+      return "Upload in progress";
+    case "finalize":
+      return "Finalizing";
+    default:
+      return "Running";
+  }
+};
+
+const getLiveThroughputValue = (stage: string, currentSpeedMbps: number | null | undefined) => {
+  if (stage !== "download" && stage !== "upload" && stage !== "finalize") {
+    return "-- Mbps";
+  }
+  return formatMetric(currentSpeedMbps, "Mbps");
+};
+
 export type SpeedTestModalDialogProps = {
   error: string;
   isTesting: boolean;
@@ -57,6 +81,10 @@ export function SpeedTestModalDialog({
     ?? null;
   const targetLabel = result?.target_label ?? activeTarget?.label ?? "Auto";
   const providerLabel = result?.provider ?? activeTarget?.provider ?? "Auto";
+  const progressPercent = Math.min(100, Math.max(0, progress.percent));
+  const progressStageLabel = getStageLabel(progress.stage);
+  const liveStatusLabel = getLiveStatusLabel(progress.stage);
+  const liveThroughputValue = getLiveThroughputValue(progress.stage, progress.current_speed_mbps);
 
   return (
     <div
@@ -97,7 +125,7 @@ export function SpeedTestModalDialog({
             <div>
               <div className="speed-test-target-title">Test Target</div>
               <div className="speed-test-target-subtitle">
-                Fixed regional backends are available now. Auto Asia keeps the route-aware Cloudflare path, while regional targets use smaller payloads where needed for long-haul stability.
+                The catalog can mix auto-selected and fixed regional backends. This modal stays neutral so new targets like Auto Australia can appear without any copy changes.
               </div>
             </div>
             <div className="speed-test-target-chip">{activeTarget?.label ?? "Auto"}</div>
@@ -122,72 +150,117 @@ export function SpeedTestModalDialog({
           </div>
         </div>
 
-        <div className="speed-test-progress-shell">
-          <div className="speed-test-progress-topline">
-            <span className="speed-test-stage-chip">{getStageLabel(progress.stage)}</span>
-            <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
-          </div>
-          <div className="speed-test-progress-track">
-            <div
-              className="speed-test-progress-fill"
-              style={{ width: `${Math.min(100, Math.max(0, progress.percent))}%` }}
-            />
-          </div>
-          <div className="speed-test-progress-message">{progress.message}</div>
-          <div className="speed-test-live-speed">
-            Live speed: <strong>{formatMetric(progress.current_speed_mbps, "Mbps")}</strong>
-          </div>
-        </div>
+        {isTesting ? (
+          <div className="speed-test-live-shell">
+            <div className="speed-test-live-grid">
+              <div className="speed-test-live-card speed-test-live-card-primary">
+                <span className="speed-test-live-label">Live Throughput</span>
+                <span className="speed-test-live-value">{liveThroughputValue}</span>
+                <span className="speed-test-live-copy">Current transfer rate</span>
+              </div>
+              <div className="speed-test-live-card">
+                <span className="speed-test-live-label">Stage</span>
+                <span className="speed-test-live-value">{progressStageLabel}</span>
+                <span className="speed-test-live-copy">Progress {Math.round(progress.percent)}%</span>
+              </div>
+              <div className="speed-test-live-card">
+                <span className="speed-test-live-label">Target</span>
+                <span className="speed-test-live-value">{targetLabel}</span>
+                <span className="speed-test-live-copy">{providerLabel}</span>
+              </div>
+              <div className="speed-test-live-card">
+                <span className="speed-test-live-label">Status</span>
+                <span className="speed-test-live-value">{liveStatusLabel}</span>
+                <span className="speed-test-live-copy">{progress.message}</span>
+              </div>
+            </div>
 
-        <div className="speed-test-summary-grid">
-          <div className="speed-test-summary-card">
-            <div className="speed-test-summary-label">Download</div>
-            <div className="speed-test-summary-value">
-              {result ? formatMetric(result.download_mbps, "Mbps") : "-- Mbps"}
+            <div className="speed-test-live-meter">
+              <div className="speed-test-progress-topline">
+                <span className="speed-test-stage-chip">{progressStageLabel}</span>
+                <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
+              </div>
+              <div className="speed-test-progress-track">
+                <div
+                  className="speed-test-progress-fill"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className="speed-test-progress-message">{progress.message}</div>
             </div>
           </div>
-          <div className="speed-test-summary-card">
-            <div className="speed-test-summary-label">Upload</div>
-            <div className="speed-test-summary-value">
-              {result ? formatMetric(result.upload_mbps, "Mbps") : "-- Mbps"}
+        ) : (
+          <div className="speed-test-progress-shell">
+            <div className="speed-test-progress-topline">
+              <span className="speed-test-stage-chip">{progressStageLabel}</span>
+              <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
+            </div>
+            <div className="speed-test-progress-track">
+              <div
+                className="speed-test-progress-fill"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <div className="speed-test-progress-message">{progress.message}</div>
+            <div className="speed-test-live-speed">
+              Live speed: <strong>{formatMetric(progress.current_speed_mbps, "Mbps")}</strong>
             </div>
           </div>
-          <div className="speed-test-summary-card">
-            <div className="speed-test-summary-label">Ping</div>
-            <div className="speed-test-summary-value">
-              {result ? formatMetric(result.ping_ms, "ms") : "-- ms"}
-            </div>
-          </div>
-          <div className="speed-test-summary-card">
-            <div className="speed-test-summary-label">Jitter</div>
-            <div className="speed-test-summary-value">
-              {result ? formatMetric(result.jitter_ms, "ms") : "-- ms"}
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="speed-test-meta-grid">
-          <div className="speed-test-meta-row">
-            <span className="speed-test-meta-label">Target</span>
-            <span className="speed-test-meta-value">{targetLabel}</span>
-          </div>
-          <div className="speed-test-meta-row">
-            <span className="speed-test-meta-label">Provider</span>
-            <span className="speed-test-meta-value">{providerLabel}</span>
-          </div>
-          <div className="speed-test-meta-row">
-            <span className="speed-test-meta-label">Server</span>
-            <span className="speed-test-meta-value">{result?.server_label ?? "Awaiting run"}</span>
-          </div>
-          <div className="speed-test-meta-row">
-            <span className="speed-test-meta-label">Public IP</span>
-            <span className="speed-test-meta-value">{result?.ip || "--"}</span>
-          </div>
-          <div className="speed-test-meta-row">
-            <span className="speed-test-meta-label">Timestamp</span>
-            <span className="speed-test-meta-value">{result?.timestamp ?? "--"}</span>
-          </div>
-        </div>
+        {result && (
+          <>
+            <div className="speed-test-summary-grid">
+              <div className="speed-test-summary-card">
+                <div className="speed-test-summary-label">Download</div>
+                <div className="speed-test-summary-value">
+                  {formatMetric(result.download_mbps, "Mbps")}
+                </div>
+              </div>
+              <div className="speed-test-summary-card">
+                <div className="speed-test-summary-label">Upload</div>
+                <div className="speed-test-summary-value">
+                  {formatMetric(result.upload_mbps, "Mbps")}
+                </div>
+              </div>
+              <div className="speed-test-summary-card">
+                <div className="speed-test-summary-label">Ping</div>
+                <div className="speed-test-summary-value">
+                  {formatMetric(result.ping_ms, "ms")}
+                </div>
+              </div>
+              <div className="speed-test-summary-card">
+                <div className="speed-test-summary-label">Jitter</div>
+                <div className="speed-test-summary-value">
+                  {formatMetric(result.jitter_ms, "ms")}
+                </div>
+              </div>
+            </div>
+
+            <div className="speed-test-meta-grid">
+              <div className="speed-test-meta-row">
+                <span className="speed-test-meta-label">Target</span>
+                <span className="speed-test-meta-value">{targetLabel}</span>
+              </div>
+              <div className="speed-test-meta-row">
+                <span className="speed-test-meta-label">Provider</span>
+                <span className="speed-test-meta-value">{providerLabel}</span>
+              </div>
+              <div className="speed-test-meta-row">
+                <span className="speed-test-meta-label">Server</span>
+                <span className="speed-test-meta-value">{result.server_label}</span>
+              </div>
+              <div className="speed-test-meta-row">
+                <span className="speed-test-meta-label">Public IP</span>
+                <span className="speed-test-meta-value">{result.ip || "--"}</span>
+              </div>
+              <div className="speed-test-meta-row">
+                <span className="speed-test-meta-label">Timestamp</span>
+                <span className="speed-test-meta-value">{result.timestamp}</span>
+              </div>
+            </div>
+          </>
+        )}
 
         {error && (
           <div className="speed-test-error-box">

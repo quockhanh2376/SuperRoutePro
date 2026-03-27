@@ -1,21 +1,18 @@
 // Prevents console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(test, allow(dead_code))]
 
 //! SuperRouteService — Run-once startup service that re-applies WAN and custom
 //! routes using stable NIC identifiers (description / MAC) to survive
 //! InterfaceIndex changes across reboots.
 
 use std::collections::HashMap;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use super_route_pro_lib::process_exec::run_hidden_output_blocking;
 use super_route_pro_lib::route_persist::{
     self, CustomRoute, NicIdentifier, PersistConfig, WanConfig,
 };
-#[cfg(target_os = "windows")]
-use super_route_pro_lib::win32_consts::CREATE_NO_WINDOW;
 
 const MAX_RETRY_SECONDS: u64 = 60;
 const RETRY_INTERVAL_SECONDS: u64 = 5;
@@ -253,11 +250,7 @@ fn apply_custom_route(route: &CustomRoute, interface_index: &str) {
 }
 
 fn run_route_command(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("route")
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run 'route': {e}"))?;
+    let output = run_hidden_output_blocking("route", args)?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -345,4 +338,28 @@ fn show_balloon_tip(title: &str, message: &str) {
 #[cfg(not(target_os = "windows"))]
 fn show_balloon_tip(_title: &str, message: &str) {
     eprintln!("[SuperRouteService] NOTIFICATION: {message}");
+}
+
+#[cfg(test)]
+pub(crate) fn test_build_nic_index_lookup(
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> HashMap<String, String> {
+    build_nic_index_lookup(adapters)
+}
+
+#[cfg(test)]
+pub(crate) fn test_resolve_nic_interface_index_from_adapters(
+    nic: &NicIdentifier,
+    adapters: &[super_route_pro_lib::win32_net::NativeNic],
+) -> Result<String, String> {
+    resolve_nic_interface_index_from_adapters(nic, adapters)
+}
+
+#[cfg(test)]
+pub(crate) fn test_resolve_custom_route_interface_index(
+    route: &CustomRoute,
+    default_interface_index: &str,
+    nic_index_lookup: &HashMap<String, String>,
+) -> Result<String, String> {
+    resolve_custom_route_interface_index(route, default_interface_index, nic_index_lookup)
 }

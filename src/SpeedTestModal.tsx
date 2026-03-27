@@ -24,14 +24,14 @@ const DEFAULT_PROGRESS: SpeedTestProgress = {
 const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
   {
     id: "auto_asia",
-    label: "Auto Asia",
-    description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
-    provider: "Cloudflare (Asia auto-edge)",
+    label: "Auto",
+    description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
+    provider: "Cloudflare (auto-selected edge)",
   },
   {
     id: "jp_kr",
     label: "JP/KR",
-    description: "Fixed Northeast Asia backend pinned to Tokyo, Japan. Use this to compare against Auto Asia without Cloudflare auto-edge routing.",
+    description: "Fixed regional backend pinned to Tokyo, Japan. Use this to compare against the auto-selected route without Cloudflare auto-edge routing.",
     provider: "LibreSpeed (regional fixed backend)",
   },
   {
@@ -43,7 +43,7 @@ const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
   {
     id: "eu",
     label: "EU",
-    description: "Fixed Europe backend pinned to London, England. Payload sizes stay smaller here so long-haul runs from Southeast Asia remain stable.",
+    description: "Fixed Europe backend pinned to London, England. Payload sizes stay smaller here so long-haul runs from any distant region remain stable.",
     provider: "LibreSpeed (regional fixed backend)",
   },
 ];
@@ -153,7 +153,7 @@ export function SpeedTestModal({
     ?? null;
 
   const handleStart = useCallback(async () => {
-    const targetLabel = selectedTarget?.label ?? (tauriRuntime ? "Auto Asia" : "Browser Preview");
+    const targetLabel = selectedTarget?.label ?? (tauriRuntime ? "Auto" : "Browser Preview");
 
     setIsTesting(true);
     setError("");

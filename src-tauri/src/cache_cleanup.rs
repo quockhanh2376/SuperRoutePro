@@ -1,7 +1,27 @@
+use crate::process_exec::run_hidden_output_blocking;
+use crate::windows_paths::{current_user_profile_root, program_data_dir, system_root_dir};
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+fn run_service_control_command(args: &[&str]) {
+    let _ = run_hidden_output_blocking("net", args);
+}
+
+fn windows_temp_dir() -> PathBuf {
+    system_root_dir().join("Temp")
+}
+
+fn windows_update_download_dir() -> PathBuf {
+    system_root_dir().join(r"SoftwareDistribution\Download")
+}
+
+fn windows_prefetch_dir() -> PathBuf {
+    system_root_dir().join("Prefetch")
+}
+
+fn windows_wer_reports_dir() -> PathBuf {
+    program_data_dir().join(r"Microsoft\Windows\WER")
+}
 
 pub fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
@@ -29,27 +49,34 @@ pub fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
 }
 
 pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Option<Vec<PathBuf>> {
-    let profile_root = profile_root.to_string_lossy().trim_end_matches(['\\', '/']).to_string();
+    let profile_root = profile_root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
     let local = format!(r"{profile_root}\AppData\Local");
 
     match target {
         "user_temp" => Some(vec![PathBuf::from(format!(r"{local}\Temp"))]),
-        "windows_temp" => Some(vec![PathBuf::from(r"C:\Windows\Temp")]),
-        "windows_update_cache" => Some(vec![PathBuf::from(
-            r"C:\Windows\SoftwareDistribution\Download",
-        )]),
-        "prefetch" => Some(vec![PathBuf::from(r"C:\Windows\Prefetch")]),
+        "windows_temp" => Some(vec![windows_temp_dir()]),
+        "windows_update_cache" => Some(vec![windows_update_download_dir()]),
+        "prefetch" => Some(vec![windows_prefetch_dir()]),
         "explorer_cache" => Some(vec![PathBuf::from(format!(
             r"{local}\Microsoft\Windows\Explorer"
         ))]),
         "edge_cache" => Some(vec![
             PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\Cache")),
-            PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\Code Cache")),
-            PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\GPUCache")),
+            PathBuf::from(format!(
+                r"{local}\Microsoft\Edge\User Data\Default\Code Cache"
+            )),
+            PathBuf::from(format!(
+                r"{local}\Microsoft\Edge\User Data\Default\GPUCache"
+            )),
         ]),
         "chrome_cache" => Some(vec![
             PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\Cache")),
-            PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\Code Cache")),
+            PathBuf::from(format!(
+                r"{local}\Google\Chrome\User Data\Default\Code Cache"
+            )),
             PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\GPUCache")),
         ]),
         "firefox_cache" => Some(vec![PathBuf::from(format!(
@@ -63,7 +90,7 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
         ))]),
         "crash_dumps" => Some(vec![PathBuf::from(format!(r"{local}\CrashDumps"))]),
         "wer_reports" => Some(vec![
-            PathBuf::from(r"C:\ProgramData\Microsoft\Windows\WER"),
+            windows_wer_reports_dir(),
             PathBuf::from(format!(r"{local}\Microsoft\Windows\WER")),
         ]),
         "d3d_shader_cache" => Some(vec![PathBuf::from(format!(r"{local}\D3DSCache"))]),
@@ -72,7 +99,10 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
 }
 
 pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option<(bool, String)> {
-    let profile_root = profile_root.to_string_lossy().trim_end_matches(['\\', '/']).to_string();
+    let profile_root = profile_root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
     let local = format!(r"{profile_root}\AppData\Local");
 
     match target {
@@ -85,8 +115,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "windows_temp" => {
-            let path = Path::new(r"C:\Windows\Temp");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_temp_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             Some((
                 failed == 0,
                 format!("[OK] Windows Temp cleaned ({deleted} items, {failed} failed)."),
@@ -95,27 +125,15 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
         "windows_update_cache" => {
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("net")
-                    .args(["stop", "wuauserv", "/y"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
-                let _ = std::process::Command::new("net")
-                    .args(["stop", "bits", "/y"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
+                run_service_control_command(&["stop", "wuauserv", "/y"]);
+                run_service_control_command(&["stop", "bits", "/y"]);
             }
-            let path = Path::new(r"C:\Windows\SoftwareDistribution\Download");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_update_download_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("net")
-                    .args(["start", "wuauserv"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
-                let _ = std::process::Command::new("net")
-                    .args(["start", "bits"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
+                run_service_control_command(&["start", "wuauserv"]);
+                run_service_control_command(&["start", "bits"]);
             }
             Some((
                 failed == 0,
@@ -123,8 +141,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "prefetch" => {
-            let path = Path::new(r"C:\Windows\Prefetch");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_prefetch_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             Some((
                 failed == 0,
                 format!("[OK] Prefetch cleaned ({deleted} items, {failed} failed)."),
@@ -198,8 +216,9 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "wer_reports" => {
-            let (d1, f1) = clean_directory_contents(Path::new(r"C:\ProgramData\Microsoft\Windows\WER"));
-            let (d2, f2) = clean_directory_contents(&Path::new(&local).join(r"Microsoft\Windows\WER"));
+            let (d1, f1) = clean_directory_contents(&windows_wer_reports_dir());
+            let (d2, f2) =
+                clean_directory_contents(&Path::new(&local).join(r"Microsoft\Windows\WER"));
             let deleted = d1 + d2;
             let failed = f1 + f2;
             Some((
@@ -220,18 +239,9 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
 }
 
 pub fn run_cleanup_for_current_user(target: &str) -> Option<(&'static str, bool, String)> {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
-        let user_profile =
-            std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\Users\Default".to_string());
-        format!(r"{}\AppData\Local", user_profile)
-    });
-    let profile_root = Path::new(&local)
-        .parent()
-        .and_then(|path| path.parent())
-        .unwrap_or_else(|| Path::new(r"C:\Users\Default"));
-
+    let profile_root = current_user_profile_root();
     let label = label_for_target(target)?;
-    let result = run_cleanup_for_profile_root(profile_root, target)?;
+    let result = run_cleanup_for_profile_root(&profile_root, target)?;
     Some((label, result.0, result.1))
 }
 
@@ -328,9 +338,9 @@ mod tests {
         let paths = cleanup_paths_for_profile_root(Path::new(r"C:\Users\demo"), "chrome_cache")
             .expect("chrome cache should resolve");
 
-        assert!(paths
-            .iter()
-            .any(|path| path.to_string_lossy().contains(r"C:\Users\demo\AppData\Local\Google\Chrome")));
+        assert!(paths.iter().any(|path| path
+            .to_string_lossy()
+            .contains(r"C:\Users\demo\AppData\Local\Google\Chrome")));
     }
 
     #[test]

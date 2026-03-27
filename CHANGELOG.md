@@ -1,5 +1,20 @@
 # Changelog
 
+## v10.1.6 (2026-03-27)
+
+### Highlights
+- Executed the first `NeedToDo` delivery slices across backend, frontend, and tests: startup persistence now flows through one main path, repair actions use typed command helpers instead of ad-hoc shell strings, and shared Windows process/path helpers were centralized to reduce future maintenance risk.
+- Expanded Speed Test substantially for the `10.1.6` line: added `Auto Australia`, moved the live run UI from generic progress bars to metric cards, and tightened the light/dark theme treatment so live status, metric labels, and hint text stay readable in both modes.
+- Hardened networking and repair reliability: quoted adapter names like `Ethernet (Corp)` remain valid while shell chaining stays blocked, DHCP renew preserves the old `ipconfig /release && ipconfig /renew` semantics with real exit-code reporting and a 90-second end-to-end timeout budget, and NIC display names now stay stable across refreshes with targeted cache invalidation after adapter-affecting actions.
+- Split the Tauri composition root and supporting backend seams for maintainability: `lib.rs` is now a thinner command/builder shell, internet probing moved into a dedicated module, dead non-repair command surfaces were removed, and startup task detection now treats mixed-case `schtasks` "missing task" output correctly across `stdout` and `stderr`.
+- Extended regression coverage around the shipped seams, including persist round-trips, route-service behavior, repair broker flow, speed-test target contracts, NIC snapshot resolution, repair validation, startup task detection, connectivity probe versioning, and the refreshed Speed Test modal stages.
+
+### Verification
+- GitHub CI `validate-windows-build` passed for the current `10.1.6` release head before tagging.
+- Re-ran `cargo test --manifest-path src-tauri/Cargo.toml` against a clean `CARGO_TARGET_DIR` to eliminate the local Windows target-dir lock noise seen in the long-lived workspace.
+- Rebuilt the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.6\\Super Route Pro_10.1.6_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.6`.
+
 ## v10.1.5 (2026-03-26)
 
 ### Highlights

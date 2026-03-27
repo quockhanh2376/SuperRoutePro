@@ -8,12 +8,12 @@ import {
 import {
   getNetworkSnapshot, getRoutingTable,
   runNetworkCommand, pingHost, testTcpPort,
-  fpingScan, getWanPersistOnStartupStatus, checkInternet,
+  fpingScan, checkInternet,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
-  repairSetWanPersistOnStartup, repairSavePersistConfig, repairClearPersistConfig,
-  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds,
+  repairSavePersistConfig, repairClearPersistConfig,
+  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
@@ -222,7 +222,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
           { name: "DEL", detail: "Delete route based on Destination + Subnet Mask." },
           { name: "WAN", detail: "Set selected NIC as default internet route (0.0.0.0/0) and clean competing defaults." },
           { name: "FLUSH", detail: "Flush all routes (dangerous). Use when you need full route reset." },
-          { name: "Persist on startup", detail: "When enabled, WAN action also creates startup task to re-apply selected WAN after reboot." },
+          { name: "Persist on startup", detail: "When enabled, WAN action saves one unified startup replay config for the selected WAN and custom routes after reboot." },
         ],
       },
       {
@@ -281,7 +281,7 @@ const HELP_GUIDE_CONTENT: Record<HelpLanguage, HelpGuideContent> = {
           { name: "DEL", detail: "Xóa route theo Destination + Subnet Mask." },
           { name: "WAN", detail: "Đặt NIC đã chọn làm đường ra Internet mặc định (default route 0.0.0.0/0), đồng thời dọn default route cạnh tranh." },
           { name: "FLUSH", detail: "Xóa toàn bộ route hiện có (nguy hiểm), dùng khi cần reset routing từ đầu." },
-          { name: "Persist on startup", detail: "Nếu bật, mỗi lần bấm WAN app sẽ tạo task startup để tự áp WAN đã chọn sau khi khởi động lại máy." },
+          { name: "Persist on startup", detail: "Nếu bật, mỗi lần bấm WAN app sẽ lưu một cấu hình startup thống nhất để tự áp WAN và các route custom sau khi khởi động lại máy." },
         ],
       },
       {
@@ -455,23 +455,24 @@ export default function App() {
 
     const loadPersistStatus = async () => {
       try {
-        const [legacyTaskResult, persistedConfigResult] = await Promise.allSettled([
-          getWanPersistOnStartupStatus(),
-          persistLoadConfig(),
-        ]);
-        const legacyTaskEnabled =
-          legacyTaskResult.status === "fulfilled" ? legacyTaskResult.value : null;
+        const persistedConfigResult = await persistLoadConfig();
         const persistedConfigEnabled =
-          persistedConfigResult.status === "fulfilled"
-            ? (persistedConfigResult.value ? persistedConfigResult.value.enabled : null)
-            : null;
+          persistedConfigResult ? persistedConfigResult.enabled : null;
 
         if (active) {
           setPersistWanOnStartup(
             resolvePersistStartupEnabled({
               localPreference,
-              legacyTaskEnabled,
               persistedConfigEnabled,
+            }),
+          );
+        }
+      } catch {
+        if (active) {
+          setPersistWanOnStartup(
+            resolvePersistStartupEnabled({
+              localPreference,
+              persistedConfigEnabled: null,
             }),
           );
         }
@@ -598,12 +599,18 @@ export default function App() {
 
   // ======================== DATA LOADING ========================
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (options?: { invalidateNicCache?: boolean }) => {
     const requestId = latestLoadRequestRef.current + 1;
     latestLoadRequestRef.current = requestId;
     setLoading(true);
     setStatusMsg("Loading data...");
     try {
+      if (options?.invalidateNicCache) {
+        await invalidateNetworkAdapterCache();
+        if (requestId !== latestLoadRequestRef.current) {
+          return;
+        }
+      }
       const snapshot = await getNetworkSnapshot(activeOnly);
       if (requestId !== latestLoadRequestRef.current) {
         return;
@@ -670,7 +677,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   // Internet monitor with adaptive polling and cancellation-safe updates.
@@ -877,22 +884,6 @@ export default function App() {
         return;
       }
 
-      const persistResult = await repairSetWanPersistOnStartup(
-        selectedNic.index,
-        persistWanOnStartup
-      );
-      const persistTaskApplied = await handleRepairCommandResult("Persist WAN On Startup", persistResult, {
-        appendOutput: true,
-        refresh: true,
-        successMessage: persistWanOnStartup
-          ? "Startup persistence task updated."
-          : "Startup persistence task removed.",
-        failureMessage: "Persist WAN On Startup - Failed",
-      });
-      if (!persistTaskApplied) {
-        return;
-      }
-
       const persistWriteMode = getPersistStartupWriteMode(persistWanOnStartup);
       if (persistWriteMode === "save") {
         try {
@@ -973,7 +964,13 @@ export default function App() {
   async function handleRepairCommandResult(
     title: string,
     result: { success: boolean; output: string; requires_unlock: boolean },
-    options?: { refresh?: boolean; appendOutput?: boolean; successMessage?: string; failureMessage?: string },
+    options?: {
+      refresh?: boolean;
+      invalidateNicCache?: boolean;
+      appendOutput?: boolean;
+      successMessage?: string;
+      failureMessage?: string;
+    },
   ) {
     if (options?.appendOutput !== false) {
       appendCommandOutput(title, result.output);
@@ -993,7 +990,7 @@ export default function App() {
     );
 
     if (result.success && options?.refresh) {
-      await loadData();
+      await loadData({ invalidateNicCache: options.invalidateNicCache });
     }
     return result.success;
   }
@@ -1001,13 +998,17 @@ export default function App() {
   async function executeRepairAction(
     action: RepairMachineAction,
     title: string,
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; invalidateNicCache?: boolean }
   ) {
     setDiagnosticView("command");
     setStatusMsg(`Running ${title}...`);
     try {
       const result = await runRepairMachineAction(action);
-      await handleRepairCommandResult(title, result, { appendOutput: true, refresh: options?.refresh });
+      await handleRepairCommandResult(title, result, {
+        appendOutput: true,
+        refresh: options?.refresh,
+        invalidateNicCache: options?.invalidateNicCache,
+      });
     } catch (err) {
       appendCommandOutput(title, `Error: ${err}`);
       setStatusMsg(`Error: ${err}`);
@@ -1017,7 +1018,7 @@ export default function App() {
   const executeNetCmd = useCallback(async (
     cmd: string,
     title: string,
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; invalidateNicCache?: boolean }
   ) => {
     setDiagnosticView("command");
     setStatusMsg(`Running ${title}...`);
@@ -1032,7 +1033,7 @@ export default function App() {
         setStatusMsg(result.success ? `${title} - Success!` : `${title} - Failed`);
       }
       if (options?.refresh) {
-        loadData();
+        void loadData({ invalidateNicCache: options?.invalidateNicCache });
       }
     } catch (err) {
       appendCommandOutput(title, `Error: ${err}`);
@@ -1136,7 +1137,10 @@ export default function App() {
     openConfirm(
       "Restart Active Adapters",
       "Restart active physical network adapters now?",
-      () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", { refresh: true })
+      () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", {
+        refresh: true,
+        invalidateNicCache: true,
+      })
     );
   };
 
@@ -1909,7 +1913,9 @@ export default function App() {
                   <span className="text-[0.65rem] text-slate-500">Active only</span>
                 </label>
                 <button
-                  onClick={loadData}
+                  onClick={() => {
+                    void loadData({ invalidateNicCache: true });
+                  }}
                   disabled={loading}
                   className="capsule-btn p-1.5 hover:bg-slate-700/50 text-slate-400 hover:text-white transition disabled:opacity-50"
                   title="Refresh"
@@ -2011,7 +2017,7 @@ export default function App() {
                 <span>Persist on startup</span>
               </label>
               <span className="wan-persist-hint">
-                Auto create/remove startup task when you click WAN
+                Save or clear one unified startup replay config when you click WAN
               </span>
             </div>
           </div>
@@ -2044,7 +2050,7 @@ export default function App() {
               <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
                 onClick={() => executeRepairAction("FlushDns", "Flush DNS")} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={RefreshCw} label="Renew IP" desc="Release and renew DHCP"
-                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true })} tone="safe" disabled={!machineRepairEnabled} />
+                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true, invalidateNicCache: true })} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Wifi} label="Wi-Fi Info" desc="Show WLAN interface details"
                 onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} tone="system" />
               <ToolBtn icon={Trash2} label="Clear ARP" desc="Flush ARP cache"

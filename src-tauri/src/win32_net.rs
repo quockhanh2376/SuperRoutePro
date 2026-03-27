@@ -3,16 +3,11 @@
 //!
 //! Uses netsh (always available on Windows) instead of wmic (deprecated/removed in Windows 11).
 
-#[cfg(target_os = "windows")]
-use crate::win32_consts::CREATE_NO_WINDOW;
+use crate::process_exec::run_hidden_stdout_blocking;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use std::process::Command;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeNic {
@@ -60,18 +55,6 @@ pub fn is_valid_ipv4_address(value: &str) -> bool {
     !address.is_unspecified() && !(octets[0] == 169 && octets[1] == 254)
 }
 
-/// Run a command with CREATE_NO_WINDOW and timeout, return stdout as String.
-#[cfg(target_os = "windows")]
-fn run_hidden(cmd: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(cmd)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run {} {:?}: {}", cmd, args, e))?;
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
 fn cache_adapters(adapters: &[NativeNic], enriched_with_getmac: bool) {
     let mut cache = adapter_cache()
         .lock()
@@ -84,17 +67,25 @@ fn cache_adapters(adapters: &[NativeNic], enriched_with_getmac: bool) {
 }
 
 fn recent_cached_adapters(require_getmac_enrichment: bool) -> Option<Vec<NativeNic>> {
-    let cache = adapter_cache()
+    let mut cache = adapter_cache()
         .lock()
         .expect("adapter cache mutex should not be poisoned");
     let snapshot = cache.as_ref()?;
     if snapshot.captured_at.elapsed() > ADAPTER_CACHE_TTL {
+        *cache = None;
         return None;
     }
     if require_getmac_enrichment && !snapshot.enriched_with_getmac {
         return None;
     }
     Some(snapshot.adapters.clone())
+}
+
+pub fn invalidate_adapter_cache() {
+    let mut cache = adapter_cache()
+        .lock()
+        .expect("adapter cache mutex should not be poisoned");
+    *cache = None;
 }
 
 fn parse_getmac_metadata(output: &str) -> Vec<GetmacMetadata> {
@@ -135,7 +126,7 @@ fn apply_getmac_metadata_to_adapters(adapters: &mut [NativeNic], metadata: &[Get
 }
 
 fn enrich_adapters_with_getmac(adapters: &mut [NativeNic]) {
-    if let Ok(mac_text) = run_hidden("getmac", &["/fo", "csv", "/v", "/nh"]) {
+    if let Ok(mac_text) = run_hidden_stdout_blocking("getmac", &["/fo", "csv", "/v", "/nh"]) {
         let metadata = parse_getmac_metadata(&mac_text);
         apply_getmac_metadata_to_adapters(adapters, &metadata);
     }
@@ -146,7 +137,8 @@ fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeN
     {
         // Step 1: Get interface list with Idx, Name, State
         //   "Idx  Met  MTU  State  Name"
-        let iface_text = run_hidden("netsh", &["interface", "ipv4", "show", "interfaces"])?;
+        let iface_text =
+            run_hidden_stdout_blocking("netsh", &["interface", "ipv4", "show", "interfaces"])?;
         let mut adapters: Vec<NativeNic> = Vec::new();
 
         for line in iface_text.lines() {
@@ -183,7 +175,8 @@ fn enumerate_adapters_inner(include_getmac_metadata: bool) -> Result<Vec<NativeN
         }
 
         // Step 2: Get IP addresses and gateways from "netsh interface ipv4 show addresses"
-        let addr_text = run_hidden("netsh", &["interface", "ipv4", "show", "addresses"])?;
+        let addr_text =
+            run_hidden_stdout_blocking("netsh", &["interface", "ipv4", "show", "addresses"])?;
         let mut current_name = String::new();
 
         for line in addr_text.lines() {
@@ -325,7 +318,10 @@ fn parse_csv_line(line: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_getmac_metadata_to_adapters, is_valid_ipv4_address, parse_getmac_metadata, NativeNic};
+    use super::{
+        apply_getmac_metadata_to_adapters, cache_adapters, invalidate_adapter_cache,
+        is_valid_ipv4_address, parse_getmac_metadata, recent_cached_adapters, NativeNic,
+    };
 
     #[test]
     fn valid_ipv4_filter_rejects_unspecified_link_local_and_non_ipv4_values() {
@@ -367,5 +363,25 @@ mod tests {
 
         assert_eq!(adapters[0].description, "Intel(R) Wi-Fi 6 AX201 160MHz");
         assert_eq!(adapters[0].mac_address, "AA-BB-CC-DD-EE-FF");
+    }
+
+    #[test]
+    fn invalidate_adapter_cache_clears_recent_snapshot() {
+        let adapters = vec![NativeNic {
+            interface_index: 7,
+            description: "Intel(R) Wi-Fi".to_string(),
+            mac_address: "AA-BB-CC-DD-EE-FF".to_string(),
+            friendly_name: "Wi-Fi".to_string(),
+            ip_addresses: vec!["192.168.1.25".to_string()],
+            gateways: vec!["192.168.1.1".to_string()],
+            oper_status_up: true,
+        }];
+
+        cache_adapters(&adapters, true);
+        assert!(recent_cached_adapters(true).is_some());
+
+        invalidate_adapter_cache();
+
+        assert!(recent_cached_adapters(false).is_none());
     }
 }

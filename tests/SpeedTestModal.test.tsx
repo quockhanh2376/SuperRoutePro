@@ -41,9 +41,15 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
       targetOptions={[
         {
           id: "auto_asia",
-          label: "Auto Asia",
-          description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
-          provider: "Cloudflare (Asia auto-edge)",
+          label: "Auto",
+          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (auto-selected edge)",
+        },
+        {
+          id: "auto_au",
+          label: "Auto Australia",
+          description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
+          provider: "Cloudflare (auto-selected edge)",
         },
         {
           id: "us_west",
@@ -61,5 +67,81 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
   assert.match(html, /Los Angeles, United States \(Clouvider\)/);
   assert.match(html, /LibreSpeed \(regional fixed backend\)/);
   assert.match(html, /Region Target/);
-  assert.match(html, /Fixed regional backends are available now/);
+  assert.match(html, /Auto Australia/);
+  assert.match(html, /The catalog can mix auto-selected and fixed regional backends/);
+});
+
+test("SpeedTestModalDialog renders live metric cards while a run is active", () => {
+  const html = renderToStaticMarkup(
+    <SpeedTestModalDialog
+      error=""
+      isTesting
+      onClose={() => {}}
+      onStart={() => {}}
+      onTargetChange={() => {}}
+      progress={{
+        stage: "download",
+        percent: 42,
+        current_speed_mbps: 188.6,
+        message: "Measuring download throughput...",
+      }}
+      result={null}
+      selectedTargetId="auto_au"
+      tauriRuntime
+      targetOptions={[
+        {
+          id: "auto_asia",
+          label: "Auto",
+          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (auto-selected edge)",
+        },
+        {
+          id: "auto_au",
+          label: "Auto Australia",
+          description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
+          provider: "Cloudflare (auto-selected edge)",
+        },
+      ]}
+    />,
+  );
+
+  assert.match(html, /Live Throughput/);
+  assert.match(html, /Stage/);
+  assert.match(html, /Auto Australia/);
+  assert.match(html, /Download in progress/);
+  assert.match(html, /Measuring download throughput/);
+  assert.match(html, /download throughput/i);
+});
+
+test("SpeedTestModalDialog derives a stage-aware live status label", () => {
+  const html = renderToStaticMarkup(
+    <SpeedTestModalDialog
+      error=""
+      isTesting
+      onClose={() => {}}
+      onStart={() => {}}
+      onTargetChange={() => {}}
+      progress={{
+        stage: "latency",
+        percent: 18,
+        current_speed_mbps: 0,
+        message: "Checking latency before throughput run...",
+      }}
+      result={null}
+      selectedTargetId="auto_asia"
+      tauriRuntime
+      targetOptions={[
+        {
+          id: "auto_asia",
+          label: "Auto",
+          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (auto-selected edge)",
+        },
+      ]}
+    />,
+  );
+
+  assert.match(html, /Measuring latency/);
+  assert.match(html, /-- Mbps/);
+  assert.doesNotMatch(html, />Streaming</);
 });

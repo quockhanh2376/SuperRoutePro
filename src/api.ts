@@ -147,6 +147,10 @@ export async function getNetworkSnapshot(activeOnly: boolean): Promise<NetworkSn
   return invoke<NetworkSnapshot>("get_network_snapshot", { activeOnly });
 }
 
+export async function invalidateNetworkAdapterCache(): Promise<void> {
+  return invoke<void>("invalidate_network_adapter_cache");
+}
+
 export async function getRoutingTable(): Promise<RouteEntry[]> {
   return invoke<RouteEntry[]>("get_routing_table");
 }
@@ -180,17 +184,6 @@ export async function setDefaultGateway(
   interfaceIndex: string
 ): Promise<CommandResult> {
   return invoke<CommandResult>("set_default_gateway", { gateway, interfaceIndex });
-}
-
-export async function setWanPersistOnStartup(
-  interfaceIndex: string,
-  enabled: boolean
-): Promise<CommandResult> {
-  return invoke<CommandResult>("set_wan_persist_on_startup", { interfaceIndex, enabled });
-}
-
-export async function getWanPersistOnStartupStatus(): Promise<boolean> {
-  return invoke<boolean>("get_wan_persist_on_startup_status");
 }
 
 export async function runNetworkCommand(command: string): Promise<CommandResult> {
@@ -237,10 +230,6 @@ export async function getBloatwareCandidates(): Promise<BloatwareItem[]> {
   return invoke<BloatwareItem[]>("get_bloatware_candidates");
 }
 
-export async function removeBloatware(packages: string[]): Promise<CommandResult> {
-  return invoke<CommandResult>("remove_bloatware", { packages });
-}
-
 export async function repairRemoveBloatware(
   targetSid: string,
   packages: string[],
@@ -251,10 +240,6 @@ export async function repairRemoveBloatware(
     packages,
     removeProvisioned,
   });
-}
-
-export async function clearCacheTargets(targets: string[]): Promise<CommandResult> {
-  return invoke<CommandResult>("clear_cache_targets", { targets });
 }
 
 export async function repairClearCacheTargets(
@@ -335,16 +320,6 @@ export async function repairSetDefaultGateway(
   return invoke<RepairCommandResult>("repair_set_default_gateway", {
     gateway,
     interfaceIndex,
-  });
-}
-
-export async function repairSetWanPersistOnStartup(
-  interfaceIndex: string,
-  enabled: boolean,
-): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_set_wan_persist_on_startup", {
-    interfaceIndex,
-    enabled,
   });
 }
 

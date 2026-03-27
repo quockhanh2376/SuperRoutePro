@@ -1,4 +1,4 @@
-use crate::route_persist;
+use crate::{network, route_persist};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +79,43 @@ pub struct RepairCommandResult {
     pub requires_unlock: bool,
 }
 
+impl RepairCommandResult {
+    pub fn success(output: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            output: output.into(),
+            requires_unlock: false,
+        }
+    }
+
+    pub fn failure(output: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            output: output.into(),
+            requires_unlock: false,
+        }
+    }
+
+    pub fn locked() -> Self {
+        Self {
+            success: false,
+            output: "Repair Mode is locked. Unlock Repair Mode before running admin fixes."
+                .to_string(),
+            requires_unlock: true,
+        }
+    }
+}
+
+impl From<network::CommandResult> for RepairCommandResult {
+    fn from(result: network::CommandResult) -> Self {
+        Self {
+            success: result.success,
+            output: result.output,
+            requires_unlock: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepairIpcRequest {
     pub auth_token: String,
@@ -112,12 +149,6 @@ pub struct SetDefaultGatewayRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetWanPersistOnStartupRequest {
-    pub interface_index: String,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistConfigRequest {
     pub config: route_persist::PersistConfig,
 }
@@ -141,7 +172,6 @@ pub enum RepairMachineAction {
     DeleteRoute(DeleteRouteRequest),
     FlushRoutes,
     SetDefaultGateway(SetDefaultGatewayRequest),
-    SetWanPersistOnStartup(SetWanPersistOnStartupRequest),
     SavePersistConfig(PersistConfigRequest),
     ClearPersistConfig,
     FlushDns,

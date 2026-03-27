@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(test, allow(dead_code))]
 
 use std::io::ErrorKind;
 use std::io::{Read, Write};
@@ -199,6 +200,23 @@ fn repair_action_error(err: String) -> RepairCommandResult {
         output: err,
         requires_unlock: false,
     }
+}
+
+#[cfg(test)]
+pub(crate) fn test_unauthorized_response(
+    request: &RepairServiceRequest,
+) -> RepairServiceResponse {
+    unauthorized_response(request)
+}
+
+#[cfg(test)]
+pub(crate) fn test_handle_request(
+    session_manager: &mut RepairSessionManager,
+    port: u16,
+    request: RepairServiceRequest,
+    should_exit: &mut bool,
+) -> RepairServiceResponse {
+    handle_request(session_manager, port, request, should_exit)
 }
 
 #[cfg(target_os = "windows")]

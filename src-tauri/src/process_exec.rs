@@ -51,6 +51,25 @@ pub fn run_process_blocking(
     }
 }
 
+pub fn run_hidden_output_blocking(program: &str, args: &[&str]) -> Result<Output, String> {
+    Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|err| format!("Failed to run {} {}: {}", program, args.join(" "), err))
+}
+
+pub fn run_hidden_stdout_blocking(program: &str, args: &[&str]) -> Result<String, String> {
+    let output = run_hidden_output_blocking(program, args)?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+pub fn ps_escape_single_quoted(input: &str) -> String {
+    input.replace('\'', "''")
+}
+
 pub fn run_powershell_blocking(script: &str, timeout: Duration) -> Result<String, String> {
     let output = run_process_blocking(
         "powershell",
@@ -126,4 +145,18 @@ pub async fn run_process(
     })
     .await
     .map_err(|err| format!("Process task join error: {}", err))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ps_escape_single_quoted;
+
+    #[test]
+    fn single_quote_escaping_doubles_embedded_quotes() {
+        assert_eq!(
+            ps_escape_single_quoted("Contoso's App"),
+            "Contoso''s App"
+        );
+        assert_eq!(ps_escape_single_quoted("plain"), "plain");
+    }
 }

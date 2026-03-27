@@ -220,6 +220,11 @@ pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
     ))
 }
 
+#[tauri::command]
+pub fn invalidate_network_adapter_cache() {
+    crate::win32_net::invalidate_adapter_cache();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -329,4 +334,13 @@ Persistent Routes:
         assert!(is_blacklisted_nic(&hyper_v));
         assert!(build_network_interfaces(&[tailscale, hyper_v], true).is_empty());
     }
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn test_build_network_interfaces(
+    adapters: &[crate::win32_net::NativeNic],
+    active_only: bool,
+) -> Vec<NetworkInterface> {
+    build_network_interfaces(adapters, active_only)
 }

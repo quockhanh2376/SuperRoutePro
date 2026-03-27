@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 use serde::Serialize;
 
 pub const DEFAULT_SPEED_TEST_TARGET_ID: &str = "auto_asia";
@@ -7,6 +9,8 @@ const PREFERRED_ASIA_COLOS: [&str; 38] = [
     "TPE", "KHH", "MFM", "NRT", "HND", "KIX", "ICN", "GMP", "PUS", "KTM", "DAC", "CCU", "DEL",
     "BOM", "AMD", "BLR", "MAA", "HYD", "COK", "CJB", "CMB", "DXB", "DOH", "MCT", "BAH",
 ];
+
+const PREFERRED_AU_COLOS: [&str; 5] = ["SYD", "MEL", "BNE", "PER", "ADL"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpeedTestBackendKind {
@@ -22,6 +26,7 @@ pub struct SpeedTestTarget {
     pub description: &'static str,
     pub provider_label: &'static str,
     pub default_server_label: &'static str,
+    pub preferred_region_label: Option<&'static str>,
     pub preferred_colos: &'static [&'static str],
     pub latency_url: &'static str,
     pub download_url: &'static str,
@@ -50,6 +55,7 @@ const AUTO_ASIA_TARGET: SpeedTestTarget = SpeedTestTarget {
     description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
     provider_label: "Cloudflare (Asia auto-edge)",
     default_server_label: "Cloudflare auto edge",
+    preferred_region_label: Some("Asia"),
     preferred_colos: &PREFERRED_ASIA_COLOS,
     latency_url: "https://speed.cloudflare.com/__down",
     download_url: "https://speed.cloudflare.com/__down",
@@ -62,6 +68,26 @@ const AUTO_ASIA_TARGET: SpeedTestTarget = SpeedTestTarget {
     max_upload_bytes: 8 * 1024 * 1024,
 };
 
+const AUTO_AU_TARGET: SpeedTestTarget = SpeedTestTarget {
+    backend_kind: SpeedTestBackendKind::CloudflareAutoEdge,
+    id: "auto_au",
+    target_label: "Auto Australia",
+    description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
+    provider_label: "Cloudflare (Australia auto-edge)",
+    default_server_label: "Cloudflare auto edge",
+    preferred_region_label: Some("Australia"),
+    preferred_colos: &PREFERRED_AU_COLOS,
+    latency_url: "https://speed.cloudflare.com/__down",
+    download_url: "https://speed.cloudflare.com/__down",
+    upload_url: "https://speed.cloudflare.com/__up",
+    ip_lookup_url: "https://speed.cloudflare.com/cdn-cgi/trace",
+    default_download_mb: 16,
+    min_download_mb: 8,
+    max_download_mb: 24,
+    min_upload_bytes: 2 * 1024 * 1024,
+    max_upload_bytes: 8 * 1024 * 1024,
+};
+
 const JP_KR_TARGET: SpeedTestTarget = SpeedTestTarget {
     backend_kind: SpeedTestBackendKind::LibreSpeedRegional,
     id: "jp_kr",
@@ -69,6 +95,7 @@ const JP_KR_TARGET: SpeedTestTarget = SpeedTestTarget {
     description: "Fixed Northeast Asia backend pinned to Tokyo, Japan. Use this to compare against Auto Asia without Cloudflare auto-edge routing.",
     provider_label: "LibreSpeed (regional fixed backend)",
     default_server_label: "Tokyo, Japan (A573)",
+    preferred_region_label: None,
     preferred_colos: &[],
     latency_url: "https://librespeed.a573.net/backend/empty.php",
     download_url: "https://librespeed.a573.net/backend/garbage.php",
@@ -88,6 +115,7 @@ const US_WEST_TARGET: SpeedTestTarget = SpeedTestTarget {
     description: "Fixed trans-Pacific backend pinned to Los Angeles, United States. Use this to compare long-haul performance against a stable US West endpoint.",
     provider_label: "LibreSpeed (regional fixed backend)",
     default_server_label: "Los Angeles, United States (Clouvider)",
+    preferred_region_label: None,
     preferred_colos: &[],
     latency_url: "https://la.speedtest.clouvider.net/backend/empty.php",
     download_url: "https://la.speedtest.clouvider.net/backend/garbage.php",
@@ -107,6 +135,7 @@ const EU_TARGET: SpeedTestTarget = SpeedTestTarget {
     description: "Fixed Europe backend pinned to London, England. Payload sizes stay smaller here so long-haul runs from Southeast Asia remain stable.",
     provider_label: "LibreSpeed (regional fixed backend)",
     default_server_label: "London, England (Clouvider)",
+    preferred_region_label: None,
     preferred_colos: &[],
     latency_url: "https://lon.speedtest.clouvider.net/backend/empty.php",
     download_url: "https://lon.speedtest.clouvider.net/backend/garbage.php",
@@ -119,8 +148,13 @@ const EU_TARGET: SpeedTestTarget = SpeedTestTarget {
     max_upload_bytes: 512 * 1024,
 };
 
-const SPEED_TEST_TARGETS: [SpeedTestTarget; 4] =
-    [AUTO_ASIA_TARGET, JP_KR_TARGET, US_WEST_TARGET, EU_TARGET];
+const SPEED_TEST_TARGETS: [SpeedTestTarget; 5] = [
+    AUTO_ASIA_TARGET,
+    AUTO_AU_TARGET,
+    JP_KR_TARGET,
+    US_WEST_TARGET,
+    EU_TARGET,
+];
 
 fn build_speed_test_catalog_entry(target: SpeedTestTarget) -> SpeedTestCatalogEntry {
     SpeedTestCatalogEntry {
@@ -161,11 +195,12 @@ mod tests {
             .map(|target| target.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["auto_asia", "jp_kr", "us_west", "eu"]);
+        assert_eq!(ids, vec!["auto_asia", "auto_au", "jp_kr", "us_west", "eu"]);
         assert_eq!(targets[0].provider, "Cloudflare (Asia auto-edge)");
-        assert!(targets[1].description.contains("Tokyo"));
-        assert!(targets[2].description.contains("Los Angeles"));
-        assert!(targets[3].description.contains("London"));
+        assert_eq!(targets[1].provider, "Cloudflare (Australia auto-edge)");
+        assert!(targets[2].description.contains("Tokyo"));
+        assert!(targets[3].description.contains("Los Angeles"));
+        assert!(targets[4].description.contains("London"));
     }
 
     #[test]
@@ -179,10 +214,13 @@ mod tests {
         );
 
         let eu_target = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+        let auto_au =
+            resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
         assert_eq!(
             eu_target.default_server_label,
             "London, England (Clouvider)"
         );
+        assert_eq!(auto_au.target_label, "Auto Australia");
         assert_eq!(
             eu_target.backend_kind,
             SpeedTestBackendKind::LibreSpeedRegional

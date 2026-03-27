@@ -5,6 +5,564 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Review Follow-Up (Startup Task Detection + Probe Version Metadata)
+
+**Done**
+- Tightened `src-tauri/src/persist_startup.rs` so missing-task detection now inspects combined `stdout + stderr` instead of only `stderr`.
+- The same startup-task detection now normalizes message casing before checking the known `schtasks` missing-task markers, so `Cannot Find` / `cannot find` no longer split behavior.
+- Added small unit coverage in `persist_startup.rs` for:
+  - mixed-case missing-task text from `stdout`
+  - missing-task text from `stderr`
+  - unrelated hard errors that must still surface as `Err`
+  - combined output formatting
+- Replaced the hardcoded connectivity probe user-agent in `src-tauri/src/connectivity_probe.rs` with a compile-time string derived from `env!("CARGO_PKG_VERSION")`.
+- Added probe coverage to assert the user-agent always tracks the package version and retains the expected prefix/suffix.
+- Re-verified that the `ProgramData` panic-safety review item remains covered by the existing drop-based guard in `src-tauri/tests/persist_config_roundtrip.rs`, so no extra patch was needed there.
+
+**Notes And Decisions**
+- This patch stays deliberately narrow: no behavior changes to startup registration itself, only the error classification path around `schtasks`.
+- The task-missing heuristic is now more robust for case and output stream placement, but it is still English-string based because `schtasks` does not expose a better structured contract here.
+- The connectivity probe version source is now tied directly to Cargo package metadata, so future release bumps do not need a second manual string edit.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml persist_startup --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml connectivity_probe --lib`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- Keep pushing review fixes as isolated slices like this so the branch stays easy to audit and cherry-pick.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - Review Follow-Up (Test Guard + Stage-Aware Speed Status)
+
+**Done**
+- Tightened `src-tauri/tests/persist_config_roundtrip.rs` so the `ProgramData` override now restores reliably via a small RAII guard instead of relying on the last lines of the test body.
+- The same guard also cleans up the temporary test directory on drop so the roundtrip test stops leaving temp artifacts behind.
+- Updated `src/SpeedTestModalView.tsx` so the live Speed Test status card is stage-aware instead of always showing `Streaming`.
+- The live target/provider card now reuses the resolved display labels that already back the rest of the modal.
+- Added frontend coverage in `tests/SpeedTestModal.test.tsx` for the stage-aware live status wording.
+
+**Notes And Decisions**
+- The env-var review was a real test-hygiene issue because a panic before the restore block could leak `ProgramData` into later tests in the same process.
+- The Speed Test tweak is intentionally copy-only and keeps the same layout; it just stops showing a misleading status during `preflight`, `latency`, and `finalize`.
+- A separate review note about PR scope is workflow-related rather than a runtime/code bug, so I did not force unrelated code churn into this patch.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --test persist_config_roundtrip`
+- `npm run test:node`
+- `npm run build`
+
+**Next Steps**
+- Keep resolving review feedback this way: patch real code/test issues directly, and handle scope-only PR comments through branch/PR hygiene rather than mixing them into runtime files.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 14 (Shared Windows Path Helpers)
+
+**Done**
+- Added a small internal `src-tauri/src/windows_paths.rs` module so Windows path resolution now lives in one place instead of being split across multiple files.
+- Moved the shared `%SystemRoot%` and `%ProgramData%` resolution logic into that module with the same fallback behavior as before:
+  - `C:\\Windows`
+  - `C:\\ProgramData`
+- Added one more helper there for current-user profile root resolution so the cleanup path can derive the profile consistently from:
+  - `LOCALAPPDATA`
+  - or `USERPROFILE`
+  - with the same `C:\\Users\\Default` fallback
+- Switched `src-tauri/src/cache_cleanup.rs` to use the shared helper module instead of keeping its own local env/path resolution functions.
+- Switched `src-tauri/src/route_persist.rs` to use the same shared `%ProgramData%` helper for `persist.json` location resolution.
+
+**Notes And Decisions**
+- This slice keeps the scope intentionally narrow: only Windows path resolution moved, with no command, cleanup target, or persist schema behavior changes.
+- `CREATE_NO_WINDOW` was already centralized earlier, so path helpers were the cleanest remaining Windows-specific maintenance seam.
+- I kept the new module internal (`mod windows_paths`) to avoid widening the public crate surface before there is a real need.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml windows_paths::tests --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml cache_cleanup::tests --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml route_persist::tests --lib`
+
+**Next Steps**
+- The next thin slice can continue shaving Windows-specific duplication, or pivot back to another low-risk backend seam now that command surface and path resolution are both cleaner.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 13 (Remove Dead Non-Repair Command Surface)
+
+**Done**
+- Removed the unused non-repair bloatware/cache cleanup command surface from the current app runtime.
+- Deleted the old frontend invoke wrappers from `src/api.ts`:
+  - `removeBloatware(...)`
+  - `clearCacheTargets(...)`
+- Removed the matching Tauri command registration from `src-tauri/src/lib.rs`.
+- Deleted the old command handlers from `src-tauri/src/network.rs`:
+  - `remove_bloatware`
+  - `clear_cache_targets`
+- Updated `PROJECT_SUMMARY.md` so it no longer documents the dead command names and now points at the repair-mediated command flow instead.
+
+**Notes And Decisions**
+- The live app was already using only the repair variants from `App.tsx`, so this was a cleanup slice rather than a behavior change for current UI users.
+- I kept `get_bloatware_candidates()` intact because the Remove Apps modal still depends on that discovery path.
+- This slice intentionally removes only the dead public surface that had drifted behind the broker/repair architecture, without touching the still-active repair implementations in `repair_commands.rs`.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `npm run build`
+- `npm run test:node`
+
+**Next Steps**
+- A good next thin slice is to centralize one more small Windows helper seam, or to continue trimming duplicated repair/runtime documentation now that the old command surface is gone.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 12 (Env-Driven Cleanup System Paths)
+
+**Done**
+- Landed another low-risk backend maintenance slice in `src-tauri/src/cache_cleanup.rs`.
+- Replaced the remaining hardcoded system cleanup roots with small helpers that resolve from the environment first:
+  - `SystemRoot` for `Windows\\Temp`, `SoftwareDistribution\\Download`, and `Prefetch`
+  - `ProgramData` for the machine-level `Microsoft\\Windows\\WER` path
+- Kept the runtime behavior intact:
+  - target tokens did not change
+  - cleanup labels did not change
+  - cleanup execution still flows through the existing helper paths
+- Added pure unit coverage for the new path-resolution helpers so this stays deterministic without mutating process-global environment variables during tests.
+
+**Notes And Decisions**
+- This is one of the cleaner `NeedToDo.md` quick wins because it reduces hardcoded Windows assumptions without widening any privileged behavior.
+- I kept the slice inside `cache_cleanup.rs` instead of creating a new shared path module yet; the helper count is still small enough that a wider extraction would have been more churn than value.
+- The environment-aware helpers now line up better with the existing `ProgramData` handling already used by `route_persist.rs`.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml cache_cleanup::tests --lib`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- The next thin slice can keep shaving backend debt by removing more low-risk duplication, or pivot to one of the remaining `NeedToDo.md` runtime items once the current regression net is strong enough.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 11 (Repair Target Pure-Logic Coverage)
+
+**Done**
+- Added another low-risk backend regression slice focused on the pure helper layer in `src-tauri/src/repair_targets.rs`.
+- Added unit coverage for:
+  - accepting realistic SID formats used by Windows user profiles
+  - rejecting malformed SID inputs
+  - normalizing valid `X:\Users\<name>` profile roots while uppercasing the drive letter
+  - rejecting traversal, non-user roots, UNC paths, and deeper nested paths
+- Kept this slice strictly test-only:
+  - no registry access behavior changed
+  - no target enumeration behavior changed
+  - no repair command wiring changed
+
+**Notes And Decisions**
+- `repair_targets.rs` is a good place to add pure-logic tests because it sits under privileged profile-repair flows but does not need any Windows registry mocking for these specific seams.
+- Protecting `validate_target_sid()` and `normalize_profile_root()` gives the higher-level repair/profile cleanup path a safer foundation without widening the runtime surface.
+- I kept the tests focused on deterministic helper logic rather than trying to fake the full registry-backed target enumeration path.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can either keep tightening repair/profile coverage, or return to a small runtime refactor in `repair_actions.rs` with the new guardrails in place.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 10 (Repair Action Validation Coverage)
+
+**Done**
+- Added a thin Rust-only regression slice around `src-tauri/src/repair_actions.rs`, which still carried important validation and planning logic without direct test coverage.
+- Added unit coverage for:
+  - profile cleanup request validation rejecting invalid SIDs
+  - profile cleanup request validation rejecting unknown cleanup targets
+  - profile cleanup plan expansion for a real target profile root
+  - profile cleanup plan rejection when the resolved target user does not match the request SID
+  - Appx removal request validation accepting known package names case-insensitively
+  - Appx removal request validation rejecting empty/unknown package selections
+- Kept this slice test-only:
+  - no runtime behavior changed
+  - no PowerShell command text changed
+  - no broker/session wiring changed
+
+**Notes And Decisions**
+- `repair_actions.rs` is still one of the higher-risk backend modules because it combines request validation, privileged action orchestration, and user-facing error shaping.
+- I chose coverage over another refactor here because the current code paths are already sensitive and the missing regression net was the bigger quality gap.
+- These tests protect the inputs and plan-shaping layers without trying to mock privileged PowerShell execution.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can return to refactoring `repair_actions.rs` with more confidence now that its validation seams are covered, or pivot to another NeedToDo area.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 9 (NIC Snapshot Resolution Test Seam)
+
+**Done**
+- Added a focused integration-style regression seam for the NIC description path that has been a real source of churn in this codebase.
+- Exposed a tiny test-only helper from `src-tauri/src/network_snapshot.rs` so integration tests can exercise the snapshot interface shaping without widening the production API.
+- Added `src-tauri/tests/nic_snapshot_resolution.rs` to lock two behaviors together:
+  - active snapshot rows surface the enriched adapter description instead of generic friendly aliases like `Ethernet 2`
+  - the snapshot-derived NIC identifier still resolves cleanly through the startup route service lookup path
+- Kept the slice intentionally narrow and test-first:
+  - no runtime behavior changed
+  - no frontend code changed
+  - no new production command surface was added
+
+**Notes And Decisions**
+- This slice targets the exact seam called out in `NeedToDo.md`: protecting the network snapshot + stable NIC resolution behavior with a regression test that crosses module boundaries.
+- I kept the helper test-only so production code does not gain extra surface area just to satisfy integration coverage.
+- The test data intentionally mirrors the kind of enriched-vs-generic adapter naming that previously caused the UI to bounce between `Ethernet N` and richer vendor descriptions.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can stay backend-only and focus on the remaining repair orchestration hot path, or switch to a small AU speed-test validation slice if product wants that track resumed.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 8 (Repair Helper Dedup Follow-Up)
+
+**Done**
+- Applied another thin backend cleanup slice around `src-tauri/src/repair_actions.rs` and the shared process helper module.
+- Moved the single-quoted PowerShell string escaping helper into `src-tauri/src/process_exec.rs` so repair and network code now share one escaping rule instead of carrying local copies.
+- Replaced the repeated `session_status.locked` guard blocks in `src-tauri/src/repair_actions.rs` with one small local helper that returns the standard `RepairCommandResult::locked()` payload.
+- Kept behavior intentionally unchanged:
+  - no machine action routing changed
+  - no PowerShell payload text changed
+  - no repair unlock semantics changed
+- Added a focused unit test in `src-tauri/src/process_exec.rs` so the shared PowerShell single-quote escaping contract stays protected.
+
+**Notes And Decisions**
+- This is deliberately a helper-hygiene slice, not a machine-action behavior slice.
+- The goal was to remove small but high-churn duplication from the repair path so future fixes do not have to remember multiple local escape helpers or manually keep the locked-state payload in sync.
+- `repair_actions.rs` still owns the higher-level repair orchestration; this pass only trims repeated plumbing.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin backend slice should either add a focused NIC-resolution integration seam, or continue shrinking the remaining repair orchestration hotspots.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 7 (Extract Connectivity Probe Module)
+
+**Done**
+- Continued the backend cleanup track with another thin slice focused on reducing the size and responsibility of `src-tauri/src/network.rs`.
+- Moved the new internet connectivity probe implementation out of `src-tauri/src/network.rs` into a dedicated `src-tauri/src/connectivity_probe.rs` module.
+- Kept the shipped behavior intact:
+  - `check_internet()` still returns the same `Result<bool, String>` contract to the frontend
+  - the sequential `Microsoft Connect Test -> Cloudflare trace` fallback model is unchanged
+  - the short per-probe timeout and captive-portal-resistant response classification remain unchanged
+- Moved the probe-specific matcher tests with the code so future changes to the connectivity path stay isolated from route/DHCP/cache-cleanup tests in `network.rs`.
+- Added the new module to `src-tauri/src/lib.rs` so the composition root owns the probe slice explicitly instead of leaving it buried inside the larger network command module.
+
+**Notes And Decisions**
+- This slice intentionally did not widen scope into richer UI diagnostics or probe-source reporting. The goal here was module boundary cleanup only.
+- Keeping probe tests beside the probe module makes the remaining `network.rs` test block easier to scan because it now focuses on command shaping, DHCP semantics, and validator behavior.
+- This is a maintainability slice rather than a behavior slice, but it continues the broader NeedToDo goal of shrinking backend hotspots into more legible feature modules.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep slicing the backend hotspot down, the next good candidate is the remaining repair helper cleanup path in `repair_actions.rs`, or a focused NIC-resolution integration test slice.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 6 (Explicit Internet Probe Model)
+
+**Done**
+- Executed the next thin backend slice from `NeedToDo.md` by replacing the ambiguous raw TCP internet check in `src-tauri/src/network.rs`.
+- Reworked `check_internet()` away from `8.8.8.8:53` and onto an explicit HTTP probe model with two small endpoints:
+  - `http://www.msftconnecttest.com/connecttest.txt`
+  - `https://speed.cloudflare.com/cdn-cgi/trace`
+- Added explicit probe classification helpers so connectivity is judged by both HTTP status and expected response body shape:
+  - Microsoft probe must return `200 OK` plus exact body `Microsoft Connect Test`
+  - Cloudflare fallback must return `200 OK` plus expected trace fields (`h=speed.cloudflare.com` and `ip=...`)
+- Added a dedicated reqwest client builder for the connectivity probe path with:
+  - explicit per-probe timeout kept short so the sequential fallback stays close to the old online/offline polling feel
+  - explicit user agent
+  - redirect disabled so redirected captive-portal-like responses do not get treated as success
+- Added pure unit coverage for the new response-classification helpers instead of introducing any live-network tests into the suite.
+- Tightened the matcher coverage further so later refactors do not accidentally relax:
+  - non-`200` status rejection
+  - trimmed Microsoft payload acceptance
+  - Cloudflare trace acceptance with whitespace and case variation
+- Live-validated the two probe endpoints from the current dev machine before landing the change:
+  - Microsoft endpoint returned `200` with `Microsoft Connect Test`
+  - Cloudflare endpoint returned `200` with trace output including `h=speed.cloudflare.com` and `ip=...`
+
+**Notes And Decisions**
+- This slice stayed backend-only and intentionally did not change the frontend polling cadence in `App.tsx`.
+- The per-target timeout was kept at `2s` so the sequential fallback does not noticeably slow the existing online monitor compared with the old raw socket probe.
+- The goal was clarity and maintainability, not captive-portal detection. The new model is still a simple online/offline signal, but it now checks explicit HTTP semantics instead of inferring internet access from a single TCP socket.
+- Keeping a Cloudflare fallback means environments that block one probe path still have a second lightweight check before the app reports offline.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep going on this track, the next thin slice could decide whether the online monitor should surface probe source/failure reason for debugging, or whether the current boolean signal is enough.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 5 (Cache Cleanup Service Helper Dedup)
+
+**Done**
+- Executed a very small backend-only follow-up slice on top of the shared process-helper work already on the branch.
+- Centralized the remaining fire-and-forget hidden service-control calls in `src-tauri/src/cache_cleanup.rs`:
+  - added a small local `run_service_control_command()` wrapper
+  - routed that wrapper through `process_exec::run_hidden_output_blocking`
+  - replaced the duplicated `net stop/start` `CREATE_NO_WINDOW` blocks used around `windows_update_cache` cleanup
+- Kept the cleanup behavior intentionally unchanged:
+  - service stop/start remains fire-and-forget
+  - cleanup success still depends on filesystem deletion results, not on parsing `net` command output
+
+**Notes And Decisions**
+- This slice stayed deliberately narrow because slice 4 had already consolidated the more important shared process helpers.
+- I did not widen this pass into timeout-policy or result-shaping changes for cache cleanup commands; the goal here was dedupe only.
+- With this pass, the obvious hidden `net` service-control duplication is gone from the cache cleanup flow without widening review risk.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- Decide whether the next thin backend slice should revisit `check_internet()` probe semantics or stop the helper cleanup track here.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 4 (Process Helper Consolidation Follow-Up)
+
+**Done**
+- Executed another thin backend-only cleanup slice to reduce the remaining duplicated command execution wrappers.
+- Consolidated `src-tauri/src/network.rs` onto the shared `src-tauri/src/process_exec.rs` process helpers:
+  - removed the local copies of `run_process_blocking`
+  - removed the local copies of `run_cmd_blocking`
+  - removed the local copies of `run_powershell_blocking`
+  - removed the local copies of the async `run_powershell`
+  - switched the module to the shared timeout constants from `process_exec`
+- Tightened the remaining wrapper duplication without changing behavior policy:
+  - `src-tauri/src/repair_actions.rs` still keeps its own PowerShell result-shaping semantics, but now reuses the shared hidden output helper for the low-level spawn/output step
+  - `src-tauri/src/route_service_main.rs` now also reuses the shared hidden output helper for `route` execution while preserving its own stdout/stderr shaping
+- Left intentionally out of scope for this slice:
+  - `cache_cleanup.rs` fire-and-forget `net stop/start` calls
+  - any larger redesign of `network.rs` command-result shaping
+  - any timeout-policy changes for repair cleanup PowerShell scripts
+
+**Notes And Decisions**
+- `repair_actions.rs` was not switched to the timeout-aware `run_powershell_blocking` helper because that would silently introduce a new timeout policy where none existed before.
+- `network.rs` was safe to move onto `process_exec` because the helper implementations and timeout constants were effectively duplicated already.
+- This slice stayed backend-only and touched just three files so the review stays easy to reason about.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep going on command-helper cleanup, the next low-risk seam is deciding whether `cache_cleanup.rs` service stop/start calls deserve their own small shared wrapper.
+- The larger future question is whether `network.rs` should keep owning command-result shaping or whether more of that can move into a typed shared layer without obscuring behavior.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 3 (NIC Cache Invalidation + Hidden Command Helper Cleanup)
+
+**Done**
+- Executed a thin follow-up slice from `NeedToDo.md` focused on two concrete seams:
+  - stale NIC adapter cache invalidation for manual refresh
+  - duplicated hidden-command helpers outside `process_exec`
+- Coordinated two short sub-agent audits before editing:
+  - one reviewed the safest invalidation contract for manual refresh without hurting startup performance
+  - one reviewed the smallest useful helper-centralization scope
+- Added shared hidden-command helpers in `src-tauri/src/process_exec.rs`:
+  - `run_hidden_output_blocking`
+  - `run_hidden_stdout_blocking`
+- Migrated duplicate `CREATE_NO_WINDOW + output()` helpers onto the shared process layer:
+  - `src-tauri/src/win32_net.rs`
+  - `src-tauri/src/persist_startup.rs`
+  - `src-tauri/src/repair_commands.rs`
+- Added explicit NIC cache invalidation in `src-tauri/src/win32_net.rs`:
+  - new `invalidate_adapter_cache()`
+  - expired cache entries now clear themselves instead of lingering invisibly
+  - added unit coverage proving invalidation clears a recent snapshot
+- Added a dedicated Tauri command in `src-tauri/src/network_snapshot.rs` and registered it in `src-tauri/src/lib.rs`:
+  - `invalidate_network_adapter_cache`
+- Wired the UI/API to use the new invalidation path selectively:
+  - `src/api.ts` now exposes `invalidateNetworkAdapterCache()`
+  - `src/App.tsx` `loadData()` now accepts an `invalidateNicCache` option
+  - manual NIC refresh now invalidates adapter cache before pulling a fresh snapshot
+  - `RenewDhcpLease` and `RestartActiveAdapters` now also request NIC cache invalidation before their post-action refresh
+- Kept route-only refresh flows cache-friendly:
+  - add/delete/flush route
+  - set default gateway
+  - `activeOnly` toggles
+  - initial app load
+
+**Notes And Decisions**
+- This slice intentionally did not change the default snapshot path; `get_network_snapshot` and `get_network_interfaces` still stay cache-friendly unless the caller explicitly invalidates first.
+- The helper centralization stopped at the duplicated hidden `.output()` pattern only. Timeout-aware process helpers in `network.rs` and the distinct PowerShell cleanup wrapper in `repair_actions.rs` were left alone for later slices.
+- The UI invalidation path is explicit and selective so startup stays fast while manual refresh and NIC-changing repair actions can force a true adapter re-read.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- Continue later with the remaining `NeedToDo.md` backend cleanup around `win32_net` behavior and any further command-helper dedupe that does not widen review risk too far.
+- Consider a later thin pass to decide whether some post-repair refresh paths beyond DHCP/adapter restart also deserve forced NIC invalidation.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 2 (lib.rs Split + Command/Bootstrap Wiring)
+
+**Done**
+- Executed the second thin maintenance slice from `NeedToDo.md`, focused on making `src-tauri/src/lib.rs` a real composition root without changing shipped behavior.
+- Coordinated two sub-agent audits before editing:
+  - one reviewed the lowest-risk extraction boundaries for `lib.rs`
+  - one reviewed the smallest useful regression net so the slice stayed small and testable
+- Extracted startup/runtime validation plus WebView bootstrap logic into `src-tauri/src/app_bootstrap.rs`:
+  - runtime environment validation
+  - startup block/error dialog path
+  - main window setup
+  - WebView2 data-directory recovery helpers
+  - existing startup/bootstrap unit tests moved with the bootstrap code
+- Extracted persist-facing Tauri commands into `src-tauri/src/persist_commands.rs`:
+  - `persist_save_config`
+  - `persist_load_config`
+  - `persist_get_nic_stable_id`
+  - `persist_get_nic_stable_ids`
+- Extracted repair-facing Tauri commands into `src-tauri/src/repair_commands.rs`:
+  - repair session/status commands
+  - unlock/lock commands
+  - all `repair_*` command wrappers
+  - broker elevation launch helper
+  - main-window close handler used to relock repair mode
+- Reduced `src-tauri/src/lib.rs` down to module declarations, imports, the Tauri builder chain, and the `generate_handler!` registration list.
+
+**Notes And Decisions**
+- This slice intentionally did not move `tauri::generate_handler!()` or `tauri::generate_context!()` out of `lib.rs`; keeping them there avoids extra macro/type indirection while still achieving the composition-root goal.
+- No new behavior was introduced in the command handlers. This was a move-only refactor for ownership and maintainability.
+- The refactor was kept to four runtime files (`lib.rs` plus three new modules) to make review and rollback straightforward.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test route_service_behavior --test repair_broker_flow --test speed_test_targets_contract`
+
+**Next Steps**
+- Continue the remaining `NeedToDo.md` backend cleanup by splitting the remaining bootstrap/invoke concerns only if there is a clear ownership seam beyond this composition-root slice.
+- Revisit `win32_net` cache invalidation and any remaining command-helper centralization in a later thin pass.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - NeedToDo Slice 1 (Startup Unification + Repair Hardening + AU/UI/Test Pass)
+
+**Done**
+- Read through `NeedToDo.md` again and executed the first broad delivery slice across backend, Speed Test UI, AU target groundwork, and regression coverage.
+- Consolidated startup persistence onto the persisted-config path:
+  - the app no longer calls the legacy WAN-only startup task APIs
+  - `src-tauri/src/persist_startup.rs` now owns startup task registration plus cleanup of obsolete WAN-only artifacts
+  - `src/App.tsx`, `src/api.ts`, `src/persistStartupModel.ts`, `tests/persistStartupModel.test.ts`, and `tests/persistFlow.test.ts` were updated so the checkbox now resolves from persisted config state instead of the split legacy/new task model
+- Replaced generic repair shell-string usage with typed helpers in `src-tauri/src/network.rs` and wired them through `src-tauri/src/repair_actions.rs`:
+  - `FlushDns`
+  - `RenewDhcpLease`
+  - `ClearArpCache`
+  - `ResetTcpIp`
+  - `ResetWinsock`
+  - `ResetFirewall`
+  - `ResetWinHttpProxy`
+  - `RestartActiveAdapters` now routes through typed adapter enable/disable helpers instead of shell-building `netsh` commands
+- Deduplicated backend catalog / result glue:
+  - moved the Windows Appx allowlist into `src-tauri/src/bloatware_catalog.rs`
+  - both `network.rs` and `repair_actions.rs` now use the shared catalog
+  - `RepairCommandResult` in `src-tauri/src/repair_protocol.rs` now has shared constructors plus `From<network::CommandResult>` so the repair layer no longer hand-rolls the same conversion repeatedly
+- Clarified repair architecture in shipped code:
+  - removed the dead-end `SuperRouteRepairService` binary entry from `src-tauri/Cargo.toml`
+  - deleted `src-tauri/src/repair_service_main.rs`
+  - the runtime path is now explicitly broker-based (`SuperRouteRepairBroker`) plus the route replay sidecar (`SuperRouteService`)
+- Added Speed Test AU groundwork in backend:
+  - `src-tauri/src/speed_test_targets.rs` now exposes `Auto Australia` (`auto_au`) with preferred Cloudflare AU colos `SYD`, `MEL`, `BNE`, `PER`, `ADL`
+  - `src-tauri/src/speed_test.rs` no longer hardcodes Asia-only route-fit wording for Cloudflare auto-edge labels and messages
+- Integrated the frontend Speed Test redesign from the `frontend_phase2` subagent:
+  - `src/SpeedTestModalView.tsx` and `src/SpeedTestModal.css` now use live metric cards during active runs instead of a progress-bar-first presentation
+  - the target copy is neutralized so multi-region catalogs like `Auto Australia` fit without UI copy regressions
+- Integrated the backend regression coverage from the `integration_flow_tests` subagent:
+  - `src-tauri/tests/persist_config_roundtrip.rs`
+  - `src-tauri/tests/route_service_behavior.rs`
+  - `src-tauri/tests/repair_broker_flow.rs`
+  - `src-tauri/tests/speed_test_targets_contract.rs`
+  - plus small test-only seams in `src-tauri/src/route_service_main.rs` and `src-tauri/src/repair_broker_main.rs`
+- Tightened one smaller backend cleanup item from the list:
+  - `check_internet()` in `src-tauri/src/network.rs` no longer uses `unwrap()` on the probe socket address
+
+**Notes And Decisions**
+- This slice intentionally stopped short of the deeper `lib.rs` modular split because the runtime correctness / architectural cleanup items above were higher value and easier to verify without widening blast radius too far in one pass.
+- `Auto Australia` is implemented as a Cloudflare preferred-region profile only. True city-pinned AU targets remain pending until compatible LibreSpeed-style AU backends are confirmed live.
+- The route replay service (`SuperRouteService`) stays in place because it is the actual shipped startup replay worker; only the unused repair service skeleton was removed.
+- A later rerun of `cargo test` hit an environmental `os error 32` lock on the `SuperRouteRepairBroker` test binary, but the full suite had already completed successfully once earlier in this same session before that lock reappeared.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- Continue the remaining backend maintainability work from `NeedToDo.md`, especially the deeper `lib.rs` split and any remaining command-helper centralization.
+- Decide whether to rename `RepairService*` protocol types/messages toward `RepairHost*` in a later cleanup pass so naming fully matches the now-explicit broker architecture.
+- If product still wants true AU city targets beyond `Auto Australia`, source and validate real AU backends before hardcoding any city-pinned endpoints.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - Released v10.1.6 With Repair Command Hardening
+
+**Done**
+- Confirmed the remote fix branch is up to date: `origin/fix-nic-active-filter` now points at `e9174b9`, which contains the post-review DHCP renew semantics patch.
+- Cherry-picked the DHCP semantics hardening into the active release branch as `3354f33` so `feature/speed-test-modal-v1` includes the same repair-command fixes before cutting the next release.
+- Fixed `src-tauri/src/network.rs` so DHCP renew now:
+  - derives success from the actual child process exit status
+  - stops before `/renew` when `/release` fails, matching the earlier `&&` behavior
+  - preserves the existing 90-second end-to-end timeout budget instead of silently shrinking the operation to 30 seconds per step
+  - keeps user-facing timeout text aligned with the original combined command flow
+- Bumped the app from `10.1.5` to `10.1.6` across `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Updated `CHANGELOG.md` so the `v10.1.6` release line records the repair-command hardening, runtime polish already on the branch, and the exact local artifact path used for this release build.
+- Re-ran the full release gate successfully with `npm run check`.
+- Built fresh local release artifacts successfully at `D:\SuperRoutePro\release-artifacts\v10.1.6`:
+  - `Super Route Pro_10.1.6_x64-setup.exe`
+  - `SuperRoute.exe`
+  - `SHA256SUMS.txt`
+
+**Notes And Decisions**
+- `feature/speed-test-modal-v1` had already carried the earlier validator fix (`f35db38`) but not the follow-up semantics patch from the dedicated fix branch, so the release line needed one more cherry-pick before the version bump.
+- The full project gate is now green on the `10.1.6` tree, including frontend build, Node tests, Rust tests, repair/session protocol tests, and installer packaging checks.
+- The release artifacts are intentionally kept out of git; the repo only tracks the version/doc updates, while the built installer and portable binary live under `release-artifacts\v10.1.6`.
+
+**Next Steps**
+- Push the `10.1.6` release commit on `feature/speed-test-modal-v1` so the remote branch matches the local artifact build.
+- If this should become the outward-facing release, create and push the `v10.1.6` tag after final human smoke acceptance.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-26 - Tauri Dev Runner Cargo PATH Fallback
 
 **Done**
