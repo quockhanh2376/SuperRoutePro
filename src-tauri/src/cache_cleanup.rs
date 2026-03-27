@@ -1,7 +1,10 @@
+use crate::process_exec::run_hidden_output_blocking;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+fn run_service_control_command(args: &[&str]) {
+    let _ = run_hidden_output_blocking("net", args);
+}
 
 pub fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
@@ -95,27 +98,15 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
         "windows_update_cache" => {
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("net")
-                    .args(["stop", "wuauserv", "/y"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
-                let _ = std::process::Command::new("net")
-                    .args(["stop", "bits", "/y"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
+                run_service_control_command(&["stop", "wuauserv", "/y"]);
+                run_service_control_command(&["stop", "bits", "/y"]);
             }
             let path = Path::new(r"C:\Windows\SoftwareDistribution\Download");
             let (deleted, failed) = clean_directory_contents(path);
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("net")
-                    .args(["start", "wuauserv"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
-                let _ = std::process::Command::new("net")
-                    .args(["start", "bits"])
-                    .creation_flags(crate::win32_consts::CREATE_NO_WINDOW)
-                    .output();
+                run_service_control_command(&["start", "wuauserv"]);
+                run_service_control_command(&["start", "bits"]);
             }
             Some((
                 failed == 0,

@@ -5,6 +5,32 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 5 (Cache Cleanup Service Helper Dedup)
+
+**Done**
+- Executed a very small backend-only follow-up slice on top of the shared process-helper work already on the branch.
+- Centralized the remaining fire-and-forget hidden service-control calls in `src-tauri/src/cache_cleanup.rs`:
+  - added a small local `run_service_control_command()` wrapper
+  - routed that wrapper through `process_exec::run_hidden_output_blocking`
+  - replaced the duplicated `net stop/start` `CREATE_NO_WINDOW` blocks used around `windows_update_cache` cleanup
+- Kept the cleanup behavior intentionally unchanged:
+  - service stop/start remains fire-and-forget
+  - cleanup success still depends on filesystem deletion results, not on parsing `net` command output
+
+**Notes And Decisions**
+- This slice stayed deliberately narrow because slice 4 had already consolidated the more important shared process helpers.
+- I did not widen this pass into timeout-policy or result-shaping changes for cache cleanup commands; the goal here was dedupe only.
+- With this pass, the obvious hidden `net` service-control duplication is gone from the cache cleanup flow without widening review risk.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- Decide whether the next thin backend slice should revisit `check_internet()` probe semantics or stop the helper cleanup track here.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 4 (Process Helper Consolidation Follow-Up)
 
 **Done**
