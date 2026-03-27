@@ -4,8 +4,8 @@ use crate::cache_cleanup::{
 use crate::bloatware_catalog::{canonical_bloatware_package, BLOATWARE_CANDIDATES};
 use crate::connectivity_probe;
 use crate::process_exec::{
-    run_cmd_blocking, run_powershell, run_process_blocking, DEFAULT_CMD_TIMEOUT_SECS,
-    NETWORK_COMMAND_TIMEOUT_SECS,
+    ps_escape_single_quoted, run_cmd_blocking, run_powershell, run_process_blocking,
+    DEFAULT_CMD_TIMEOUT_SECS, NETWORK_COMMAND_TIMEOUT_SECS,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -88,10 +88,6 @@ fn normalize_dhcp_timeout_error(err: String, total_timeout: Duration) -> String 
     } else {
         err
     }
-}
-
-fn ps_escape_single_quoted(input: &str) -> String {
-    input.replace('\'', "''")
 }
 
 fn cleanup_default_routes_blocking() -> String {

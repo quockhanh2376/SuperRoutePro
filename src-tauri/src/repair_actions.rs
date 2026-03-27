@@ -4,7 +4,9 @@ use crate::cache_cleanup::{
 use crate::bloatware_catalog::canonical_bloatware_package;
 use crate::network;
 use crate::persist_startup;
-use crate::process_exec::{run_powershell_blocking, DEFAULT_POWERSHELL_TIMEOUT_SECS};
+use crate::process_exec::{
+    ps_escape_single_quoted, run_powershell_blocking, DEFAULT_POWERSHELL_TIMEOUT_SECS,
+};
 use crate::repair_protocol::{
     AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
     RepairSessionStatus,
@@ -14,8 +16,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
-fn ps_escape_single_quoted(input: &str) -> String {
-    input.replace('\'', "''")
+fn locked_result_if_needed(session_status: &RepairSessionStatus) -> Option<RepairCommandResult> {
+    session_status.locked.then(RepairCommandResult::locked)
 }
 
 pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
@@ -82,8 +84,8 @@ pub fn run_machine_action_blocking(
     session_status: &RepairSessionStatus,
     action: RepairMachineAction,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     let result = match action {
@@ -185,8 +187,8 @@ pub async fn add_route(
     metric: String,
     interface_index: Option<String>,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     let result = network::add_route(destination, mask, gateway, metric, interface_index).await?;
@@ -198,8 +200,8 @@ pub async fn delete_route(
     destination: String,
     mask: String,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     let result = network::delete_route(destination, mask).await?;
@@ -209,8 +211,8 @@ pub async fn delete_route(
 pub async fn flush_routes(
     session_status: &RepairSessionStatus,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     let result = network::flush_routes().await?;
@@ -222,8 +224,8 @@ pub async fn set_default_gateway(
     gateway: String,
     interface_index: String,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     let result = network::set_default_gateway(gateway, interface_index).await?;
@@ -244,8 +246,8 @@ pub fn clear_profile_caches_blocking(
     session_status: &RepairSessionStatus,
     request: ProfileCleanupRequest,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     validate_profile_cleanup_request(&request)?;
@@ -310,8 +312,8 @@ pub fn remove_appx_for_target_blocking(
     session_status: &RepairSessionStatus,
     request: AppxRemovalRequest,
 ) -> Result<RepairCommandResult, String> {
-    if session_status.locked {
-        return Ok(RepairCommandResult::locked());
+    if let Some(result) = locked_result_if_needed(session_status) {
+        return Ok(result);
     }
 
     validate_appx_removal_request(&request)?;

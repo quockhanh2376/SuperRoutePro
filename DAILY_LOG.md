@@ -5,6 +5,33 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 8 (Repair Helper Dedup Follow-Up)
+
+**Done**
+- Applied another thin backend cleanup slice around `src-tauri/src/repair_actions.rs` and the shared process helper module.
+- Moved the single-quoted PowerShell string escaping helper into `src-tauri/src/process_exec.rs` so repair and network code now share one escaping rule instead of carrying local copies.
+- Replaced the repeated `session_status.locked` guard blocks in `src-tauri/src/repair_actions.rs` with one small local helper that returns the standard `RepairCommandResult::locked()` payload.
+- Kept behavior intentionally unchanged:
+  - no machine action routing changed
+  - no PowerShell payload text changed
+  - no repair unlock semantics changed
+- Added a focused unit test in `src-tauri/src/process_exec.rs` so the shared PowerShell single-quote escaping contract stays protected.
+
+**Notes And Decisions**
+- This is deliberately a helper-hygiene slice, not a machine-action behavior slice.
+- The goal was to remove small but high-churn duplication from the repair path so future fixes do not have to remember multiple local escape helpers or manually keep the locked-state payload in sync.
+- `repair_actions.rs` still owns the higher-level repair orchestration; this pass only trims repeated plumbing.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin backend slice should either add a focused NIC-resolution integration seam, or continue shrinking the remaining repair orchestration hotspots.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 7 (Extract Connectivity Probe Module)
 
 **Done**
