@@ -5,6 +5,41 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 4 (Process Helper Consolidation Follow-Up)
+
+**Done**
+- Executed another thin backend-only cleanup slice to reduce the remaining duplicated command execution wrappers.
+- Consolidated `src-tauri/src/network.rs` onto the shared `src-tauri/src/process_exec.rs` process helpers:
+  - removed the local copies of `run_process_blocking`
+  - removed the local copies of `run_cmd_blocking`
+  - removed the local copies of `run_powershell_blocking`
+  - removed the local copies of the async `run_powershell`
+  - switched the module to the shared timeout constants from `process_exec`
+- Tightened the remaining wrapper duplication without changing behavior policy:
+  - `src-tauri/src/repair_actions.rs` still keeps its own PowerShell result-shaping semantics, but now reuses the shared hidden output helper for the low-level spawn/output step
+  - `src-tauri/src/route_service_main.rs` now also reuses the shared hidden output helper for `route` execution while preserving its own stdout/stderr shaping
+- Left intentionally out of scope for this slice:
+  - `cache_cleanup.rs` fire-and-forget `net stop/start` calls
+  - any larger redesign of `network.rs` command-result shaping
+  - any timeout-policy changes for repair cleanup PowerShell scripts
+
+**Notes And Decisions**
+- `repair_actions.rs` was not switched to the timeout-aware `run_powershell_blocking` helper because that would silently introduce a new timeout policy where none existed before.
+- `network.rs` was safe to move onto `process_exec` because the helper implementations and timeout constants were effectively duplicated already.
+- This slice stayed backend-only and touched just three files so the review stays easy to reason about.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep going on command-helper cleanup, the next low-risk seam is deciding whether `cache_cleanup.rs` service stop/start calls deserve their own small shared wrapper.
+- The larger future question is whether `network.rs` should keep owning command-result shaping or whether more of that can move into a typed shared layer without obscuring behavior.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 3 (NIC Cache Invalidation + Hidden Command Helper Cleanup)
 
 **Done**

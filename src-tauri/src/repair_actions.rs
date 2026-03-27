@@ -4,49 +4,18 @@ use crate::cache_cleanup::{
 use crate::bloatware_catalog::canonical_bloatware_package;
 use crate::network;
 use crate::persist_startup;
+use crate::process_exec::{run_powershell_blocking, DEFAULT_POWERSHELL_TIMEOUT_SECS};
 use crate::repair_protocol::{
     AppxRemovalRequest, ProfileCleanupRequest, RepairCommandResult, RepairMachineAction,
     RepairSessionStatus,
 };
 use crate::repair_targets::{resolve_repair_target_by_sid, validate_target_sid, RepairTargetUser};
-#[cfg(target_os = "windows")]
-use crate::win32_consts::CREATE_NO_WINDOW;
 use std::collections::HashSet;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use std::path::Path;
-#[cfg(target_os = "windows")]
-use std::process::{Command, Stdio};
+use std::time::Duration;
 
 fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
-}
-
-#[cfg(target_os = "windows")]
-fn run_powershell_script_blocking(script: String) -> Result<String, String> {
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script.as_str()])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|err| format!("Failed to run PowerShell cleanup command: {err}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(stdout)
-    } else if !stdout.trim().is_empty() {
-        Ok(stdout)
-    } else {
-        Err(stderr)
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn run_powershell_script_blocking(_script: String) -> Result<String, String> {
-    Err("Repair actions are only available on Windows.".to_string())
 }
 
 pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
@@ -435,7 +404,10 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
 "#
         );
 
-        match run_powershell_script_blocking(script) {
+        match run_powershell_blocking(
+            &script,
+            Duration::from_secs(DEFAULT_POWERSHELL_TIMEOUT_SECS),
+        ) {
             Ok(script_output) => {
                 let clean_output = script_output.trim();
                 if clean_output.is_empty() {
