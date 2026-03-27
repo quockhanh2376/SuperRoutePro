@@ -5,6 +5,33 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 12 (Env-Driven Cleanup System Paths)
+
+**Done**
+- Landed another low-risk backend maintenance slice in `src-tauri/src/cache_cleanup.rs`.
+- Replaced the remaining hardcoded system cleanup roots with small helpers that resolve from the environment first:
+  - `SystemRoot` for `Windows\\Temp`, `SoftwareDistribution\\Download`, and `Prefetch`
+  - `ProgramData` for the machine-level `Microsoft\\Windows\\WER` path
+- Kept the runtime behavior intact:
+  - target tokens did not change
+  - cleanup labels did not change
+  - cleanup execution still flows through the existing helper paths
+- Added pure unit coverage for the new path-resolution helpers so this stays deterministic without mutating process-global environment variables during tests.
+
+**Notes And Decisions**
+- This is one of the cleaner `NeedToDo.md` quick wins because it reduces hardcoded Windows assumptions without widening any privileged behavior.
+- I kept the slice inside `cache_cleanup.rs` instead of creating a new shared path module yet; the helper count is still small enough that a wider extraction would have been more churn than value.
+- The environment-aware helpers now line up better with the existing `ProgramData` handling already used by `route_persist.rs`.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml cache_cleanup::tests --lib`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- The next thin slice can keep shaving backend debt by removing more low-risk duplication, or pivot to one of the remaining `NeedToDo.md` runtime items once the current regression net is strong enough.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 11 (Repair Target Pure-Logic Coverage)
 
 **Done**

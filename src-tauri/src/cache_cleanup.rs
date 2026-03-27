@@ -6,6 +6,46 @@ fn run_service_control_command(args: &[&str]) {
     let _ = run_hidden_output_blocking("net", args);
 }
 
+fn system_root_dir() -> PathBuf {
+    system_root_dir_from_value(std::env::var("SystemRoot").ok().as_deref())
+}
+
+fn system_root_dir_from_value(system_root: Option<&str>) -> PathBuf {
+    let value = system_root
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(r"C:\Windows");
+    PathBuf::from(value)
+}
+
+fn program_data_dir() -> PathBuf {
+    program_data_dir_from_value(std::env::var("ProgramData").ok().as_deref())
+}
+
+fn program_data_dir_from_value(program_data: Option<&str>) -> PathBuf {
+    let value = program_data
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(r"C:\ProgramData");
+    PathBuf::from(value)
+}
+
+fn windows_temp_dir() -> PathBuf {
+    system_root_dir().join("Temp")
+}
+
+fn windows_update_download_dir() -> PathBuf {
+    system_root_dir().join(r"SoftwareDistribution\Download")
+}
+
+fn windows_prefetch_dir() -> PathBuf {
+    system_root_dir().join("Prefetch")
+}
+
+fn windows_wer_reports_dir() -> PathBuf {
+    program_data_dir().join(r"Microsoft\Windows\WER")
+}
+
 pub fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut selected = Vec::new();
@@ -37,11 +77,9 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
 
     match target {
         "user_temp" => Some(vec![PathBuf::from(format!(r"{local}\Temp"))]),
-        "windows_temp" => Some(vec![PathBuf::from(r"C:\Windows\Temp")]),
-        "windows_update_cache" => Some(vec![PathBuf::from(
-            r"C:\Windows\SoftwareDistribution\Download",
-        )]),
-        "prefetch" => Some(vec![PathBuf::from(r"C:\Windows\Prefetch")]),
+        "windows_temp" => Some(vec![windows_temp_dir()]),
+        "windows_update_cache" => Some(vec![windows_update_download_dir()]),
+        "prefetch" => Some(vec![windows_prefetch_dir()]),
         "explorer_cache" => Some(vec![PathBuf::from(format!(
             r"{local}\Microsoft\Windows\Explorer"
         ))]),
@@ -66,7 +104,7 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
         ))]),
         "crash_dumps" => Some(vec![PathBuf::from(format!(r"{local}\CrashDumps"))]),
         "wer_reports" => Some(vec![
-            PathBuf::from(r"C:\ProgramData\Microsoft\Windows\WER"),
+            windows_wer_reports_dir(),
             PathBuf::from(format!(r"{local}\Microsoft\Windows\WER")),
         ]),
         "d3d_shader_cache" => Some(vec![PathBuf::from(format!(r"{local}\D3DSCache"))]),
@@ -88,8 +126,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "windows_temp" => {
-            let path = Path::new(r"C:\Windows\Temp");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_temp_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             Some((
                 failed == 0,
                 format!("[OK] Windows Temp cleaned ({deleted} items, {failed} failed)."),
@@ -101,8 +139,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
                 run_service_control_command(&["stop", "wuauserv", "/y"]);
                 run_service_control_command(&["stop", "bits", "/y"]);
             }
-            let path = Path::new(r"C:\Windows\SoftwareDistribution\Download");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_update_download_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             #[cfg(target_os = "windows")]
             {
                 run_service_control_command(&["start", "wuauserv"]);
@@ -114,8 +152,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "prefetch" => {
-            let path = Path::new(r"C:\Windows\Prefetch");
-            let (deleted, failed) = clean_directory_contents(path);
+            let path = windows_prefetch_dir();
+            let (deleted, failed) = clean_directory_contents(&path);
             Some((
                 failed == 0,
                 format!("[OK] Prefetch cleaned ({deleted} items, {failed} failed)."),
@@ -189,7 +227,7 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
             ))
         }
         "wer_reports" => {
-            let (d1, f1) = clean_directory_contents(Path::new(r"C:\ProgramData\Microsoft\Windows\WER"));
+            let (d1, f1) = clean_directory_contents(&windows_wer_reports_dir());
             let (d2, f2) = clean_directory_contents(&Path::new(&local).join(r"Microsoft\Windows\WER"));
             let deleted = d1 + d2;
             let failed = f1 + f2;
@@ -299,7 +337,10 @@ pub fn clean_files_with_prefix(dir: &Path, prefix: &str, suffix: &str) -> (u64, 
 
 #[cfg(test)]
 mod tests {
-    use super::{cleanup_paths_for_profile_root, label_for_target, sanitize_cleanup_targets};
+    use super::{
+        cleanup_paths_for_profile_root, label_for_target, program_data_dir_from_value,
+        sanitize_cleanup_targets, system_root_dir_from_value,
+    };
     use std::path::Path;
 
     #[test]
@@ -328,5 +369,29 @@ mod tests {
     fn labels_exist_for_known_targets() {
         assert_eq!(label_for_target("user_temp"), Some("User Temp"));
         assert_eq!(label_for_target("unknown"), None);
+    }
+
+    #[test]
+    fn system_path_helpers_honor_configured_roots() {
+        assert_eq!(
+            system_root_dir_from_value(Some(r"D:\WindowsAlt")),
+            Path::new(r"D:\WindowsAlt")
+        );
+        assert_eq!(
+            program_data_dir_from_value(Some(r"E:\ProgramDataAlt")),
+            Path::new(r"E:\ProgramDataAlt")
+        );
+    }
+
+    #[test]
+    fn system_path_helpers_fall_back_to_defaults() {
+        assert_eq!(
+            system_root_dir_from_value(Some("  ")),
+            Path::new(r"C:\Windows")
+        );
+        assert_eq!(
+            program_data_dir_from_value(None),
+            Path::new(r"C:\ProgramData")
+        );
     }
 }
