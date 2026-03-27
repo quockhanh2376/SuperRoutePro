@@ -5,6 +5,45 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 6 (Explicit Internet Probe Model)
+
+**Done**
+- Executed the next thin backend slice from `NeedToDo.md` by replacing the ambiguous raw TCP internet check in `src-tauri/src/network.rs`.
+- Reworked `check_internet()` away from `8.8.8.8:53` and onto an explicit HTTP probe model with two small endpoints:
+  - `http://www.msftconnecttest.com/connecttest.txt`
+  - `https://speed.cloudflare.com/cdn-cgi/trace`
+- Added explicit probe classification helpers so connectivity is judged by both HTTP status and expected response body shape:
+  - Microsoft probe must return `200 OK` plus exact body `Microsoft Connect Test`
+  - Cloudflare fallback must return `200 OK` plus expected trace fields (`h=speed.cloudflare.com` and `ip=...`)
+- Added a dedicated reqwest client builder for the connectivity probe path with:
+  - explicit per-probe timeout kept short so the sequential fallback stays close to the old online/offline polling feel
+  - explicit user agent
+  - redirect disabled so redirected captive-portal-like responses do not get treated as success
+- Added pure unit coverage for the new response-classification helpers instead of introducing any live-network tests into the suite.
+- Tightened the matcher coverage further so later refactors do not accidentally relax:
+  - non-`200` status rejection
+  - trimmed Microsoft payload acceptance
+  - Cloudflare trace acceptance with whitespace and case variation
+- Live-validated the two probe endpoints from the current dev machine before landing the change:
+  - Microsoft endpoint returned `200` with `Microsoft Connect Test`
+  - Cloudflare endpoint returned `200` with trace output including `h=speed.cloudflare.com` and `ip=...`
+
+**Notes And Decisions**
+- This slice stayed backend-only and intentionally did not change the frontend polling cadence in `App.tsx`.
+- The per-target timeout was kept at `2s` so the sequential fallback does not noticeably slow the existing online monitor compared with the old raw socket probe.
+- The goal was clarity and maintainability, not captive-portal detection. The new model is still a simple online/offline signal, but it now checks explicit HTTP semantics instead of inferring internet access from a single TCP socket.
+- Keeping a Cloudflare fallback means environments that block one probe path still have a second lightweight check before the app reports offline.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep going on this track, the next thin slice could decide whether the online monitor should surface probe source/failure reason for debugging, or whether the current boolean signal is enough.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 5 (Cache Cleanup Service Helper Dedup)
 
 **Done**
