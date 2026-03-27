@@ -13,7 +13,7 @@ import {
   getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSavePersistConfig, repairClearPersistConfig,
-  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds,
+  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
@@ -599,12 +599,18 @@ export default function App() {
 
   // ======================== DATA LOADING ========================
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (options?: { invalidateNicCache?: boolean }) => {
     const requestId = latestLoadRequestRef.current + 1;
     latestLoadRequestRef.current = requestId;
     setLoading(true);
     setStatusMsg("Loading data...");
     try {
+      if (options?.invalidateNicCache) {
+        await invalidateNetworkAdapterCache();
+        if (requestId !== latestLoadRequestRef.current) {
+          return;
+        }
+      }
       const snapshot = await getNetworkSnapshot(activeOnly);
       if (requestId !== latestLoadRequestRef.current) {
         return;
@@ -671,7 +677,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   // Internet monitor with adaptive polling and cancellation-safe updates.
@@ -958,7 +964,13 @@ export default function App() {
   async function handleRepairCommandResult(
     title: string,
     result: { success: boolean; output: string; requires_unlock: boolean },
-    options?: { refresh?: boolean; appendOutput?: boolean; successMessage?: string; failureMessage?: string },
+    options?: {
+      refresh?: boolean;
+      invalidateNicCache?: boolean;
+      appendOutput?: boolean;
+      successMessage?: string;
+      failureMessage?: string;
+    },
   ) {
     if (options?.appendOutput !== false) {
       appendCommandOutput(title, result.output);
@@ -978,7 +990,7 @@ export default function App() {
     );
 
     if (result.success && options?.refresh) {
-      await loadData();
+      await loadData({ invalidateNicCache: options.invalidateNicCache });
     }
     return result.success;
   }
@@ -986,13 +998,17 @@ export default function App() {
   async function executeRepairAction(
     action: RepairMachineAction,
     title: string,
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; invalidateNicCache?: boolean }
   ) {
     setDiagnosticView("command");
     setStatusMsg(`Running ${title}...`);
     try {
       const result = await runRepairMachineAction(action);
-      await handleRepairCommandResult(title, result, { appendOutput: true, refresh: options?.refresh });
+      await handleRepairCommandResult(title, result, {
+        appendOutput: true,
+        refresh: options?.refresh,
+        invalidateNicCache: options?.invalidateNicCache,
+      });
     } catch (err) {
       appendCommandOutput(title, `Error: ${err}`);
       setStatusMsg(`Error: ${err}`);
@@ -1002,7 +1018,7 @@ export default function App() {
   const executeNetCmd = useCallback(async (
     cmd: string,
     title: string,
-    options?: { refresh?: boolean }
+    options?: { refresh?: boolean; invalidateNicCache?: boolean }
   ) => {
     setDiagnosticView("command");
     setStatusMsg(`Running ${title}...`);
@@ -1017,7 +1033,7 @@ export default function App() {
         setStatusMsg(result.success ? `${title} - Success!` : `${title} - Failed`);
       }
       if (options?.refresh) {
-        loadData();
+        void loadData({ invalidateNicCache: options?.invalidateNicCache });
       }
     } catch (err) {
       appendCommandOutput(title, `Error: ${err}`);
@@ -1121,7 +1137,10 @@ export default function App() {
     openConfirm(
       "Restart Active Adapters",
       "Restart active physical network adapters now?",
-      () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", { refresh: true })
+      () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", {
+        refresh: true,
+        invalidateNicCache: true,
+      })
     );
   };
 
@@ -1894,7 +1913,9 @@ export default function App() {
                   <span className="text-[0.65rem] text-slate-500">Active only</span>
                 </label>
                 <button
-                  onClick={loadData}
+                  onClick={() => {
+                    void loadData({ invalidateNicCache: true });
+                  }}
                   disabled={loading}
                   className="capsule-btn p-1.5 hover:bg-slate-700/50 text-slate-400 hover:text-white transition disabled:opacity-50"
                   title="Refresh"
@@ -2029,7 +2050,7 @@ export default function App() {
               <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
                 onClick={() => executeRepairAction("FlushDns", "Flush DNS")} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={RefreshCw} label="Renew IP" desc="Release and renew DHCP"
-                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true })} tone="safe" disabled={!machineRepairEnabled} />
+                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true, invalidateNicCache: true })} tone="safe" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Wifi} label="Wi-Fi Info" desc="Show WLAN interface details"
                 onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} tone="system" />
               <ToolBtn icon={Trash2} label="Clear ARP" desc="Flush ARP cache"

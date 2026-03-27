@@ -220,6 +220,11 @@ pub async fn get_routing_table() -> Result<Vec<RouteEntry>, String> {
     ))
 }
 
+#[tauri::command]
+pub fn invalidate_network_adapter_cache() {
+    crate::win32_net::invalidate_adapter_cache();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

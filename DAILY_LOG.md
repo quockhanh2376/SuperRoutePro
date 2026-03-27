@@ -5,6 +5,56 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 3 (NIC Cache Invalidation + Hidden Command Helper Cleanup)
+
+**Done**
+- Executed a thin follow-up slice from `NeedToDo.md` focused on two concrete seams:
+  - stale NIC adapter cache invalidation for manual refresh
+  - duplicated hidden-command helpers outside `process_exec`
+- Coordinated two short sub-agent audits before editing:
+  - one reviewed the safest invalidation contract for manual refresh without hurting startup performance
+  - one reviewed the smallest useful helper-centralization scope
+- Added shared hidden-command helpers in `src-tauri/src/process_exec.rs`:
+  - `run_hidden_output_blocking`
+  - `run_hidden_stdout_blocking`
+- Migrated duplicate `CREATE_NO_WINDOW + output()` helpers onto the shared process layer:
+  - `src-tauri/src/win32_net.rs`
+  - `src-tauri/src/persist_startup.rs`
+  - `src-tauri/src/repair_commands.rs`
+- Added explicit NIC cache invalidation in `src-tauri/src/win32_net.rs`:
+  - new `invalidate_adapter_cache()`
+  - expired cache entries now clear themselves instead of lingering invisibly
+  - added unit coverage proving invalidation clears a recent snapshot
+- Added a dedicated Tauri command in `src-tauri/src/network_snapshot.rs` and registered it in `src-tauri/src/lib.rs`:
+  - `invalidate_network_adapter_cache`
+- Wired the UI/API to use the new invalidation path selectively:
+  - `src/api.ts` now exposes `invalidateNetworkAdapterCache()`
+  - `src/App.tsx` `loadData()` now accepts an `invalidateNicCache` option
+  - manual NIC refresh now invalidates adapter cache before pulling a fresh snapshot
+  - `RenewDhcpLease` and `RestartActiveAdapters` now also request NIC cache invalidation before their post-action refresh
+- Kept route-only refresh flows cache-friendly:
+  - add/delete/flush route
+  - set default gateway
+  - `activeOnly` toggles
+  - initial app load
+
+**Notes And Decisions**
+- This slice intentionally did not change the default snapshot path; `get_network_snapshot` and `get_network_interfaces` still stay cache-friendly unless the caller explicitly invalidates first.
+- The helper centralization stopped at the duplicated hidden `.output()` pattern only. Timeout-aware process helpers in `network.rs` and the distinct PowerShell cleanup wrapper in `repair_actions.rs` were left alone for later slices.
+- The UI invalidation path is explicit and selective so startup stays fast while manual refresh and NIC-changing repair actions can force a true adapter re-read.
+
+**Verification**
+- `npm run test:node`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- Continue later with the remaining `NeedToDo.md` backend cleanup around `win32_net` behavior and any further command-helper dedupe that does not widen review risk too far.
+- Consider a later thin pass to decide whether some post-repair refresh paths beyond DHCP/adapter restart also deserve forced NIC invalidation.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 2 (lib.rs Split + Command/Bootstrap Wiring)
 
 **Done**

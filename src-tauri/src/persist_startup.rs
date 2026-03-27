@@ -1,10 +1,6 @@
 use crate::route_persist::{self, PersistConfig};
 #[cfg(target_os = "windows")]
-use crate::win32_consts::CREATE_NO_WINDOW;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-#[cfg(target_os = "windows")]
-use std::process::Command;
+use crate::process_exec::run_hidden_output_blocking;
 
 #[cfg(target_os = "windows")]
 const STARTUP_TASK_NAME: &str = "SuperRouteProPersist";
@@ -83,7 +79,7 @@ fn register_startup_task() -> Result<(), String> {
 
     let _ = delete_task_if_exists(STARTUP_TASK_NAME);
 
-    let output = run_hidden(
+    let output = run_hidden_output_blocking(
         "schtasks",
         &[
             "/Create",
@@ -97,8 +93,7 @@ fn register_startup_task() -> Result<(), String> {
             "HIGHEST",
             "/F",
         ],
-    )
-    .ok_or_else(|| "Failed to run schtasks for task registration".to_string())?;
+    )?;
 
     if !output.status.success() {
         return Err(format!(
@@ -116,18 +111,8 @@ fn unregister_startup_task() -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn run_hidden(program: &str, args: &[&str]) -> Option<std::process::Output> {
-    Command::new(program)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()
-}
-
-#[cfg(target_os = "windows")]
 fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
-    let output = run_hidden("schtasks", &["/Delete", "/TN", task_name, "/F"])
-        .ok_or_else(|| "Failed to run schtasks for task removal".to_string())?;
+    let output = run_hidden_output_blocking("schtasks", &["/Delete", "/TN", task_name, "/F"])?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -141,8 +126,7 @@ fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn query_task_exists(task_name: &str) -> Result<bool, String> {
-    let output = run_hidden("schtasks", &["/Query", "/TN", task_name])
-        .ok_or_else(|| "Failed to run schtasks for task query".to_string())?;
+    let output = run_hidden_output_blocking("schtasks", &["/Query", "/TN", task_name])?;
 
     if output.status.success() {
         return Ok(true);

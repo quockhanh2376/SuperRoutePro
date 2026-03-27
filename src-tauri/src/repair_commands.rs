@@ -11,11 +11,7 @@ use crate::repair_protocol::{
 };
 use crate::repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
 #[cfg(target_os = "windows")]
-use crate::win32_consts::CREATE_NO_WINDOW;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-#[cfg(target_os = "windows")]
-use std::process::Command;
+use crate::process_exec::run_hidden_output_blocking;
 
 pub(crate) fn handle_main_window_event<R: tauri::Runtime>(
     window: &tauri::Window<R>,
@@ -185,11 +181,10 @@ fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), Stri
         "Start-Process -FilePath '{broker_escaped}' -Verb RunAs -WindowStyle Hidden -ArgumentList @('--serve','{port}','{nonce}','{app_id}','{connection_id}','{parent_process_id}')",
         port = request.port
     );
-    let output = run_hidden(
+    let output = run_hidden_output_blocking(
         "powershell",
         &["-NoProfile", "-NonInteractive", "-Command", script.as_str()],
-    )
-    .ok_or_else(|| "Unable to invoke the repair broker elevation command.".to_string())?;
+    )?;
 
     if output.status.success() {
         Ok(())
@@ -209,13 +204,4 @@ fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), Stri
 #[cfg(not(target_os = "windows"))]
 fn launch_repair_broker(_request: &UnlockRepairSessionRequest) -> Result<(), String> {
     Err("Repair mode unlock is only available on Windows.".to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn run_hidden(program: &str, args: &[&str]) -> Option<std::process::Output> {
-    Command::new(program)
-        .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()
 }

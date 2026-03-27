@@ -147,6 +147,10 @@ export async function getNetworkSnapshot(activeOnly: boolean): Promise<NetworkSn
   return invoke<NetworkSnapshot>("get_network_snapshot", { activeOnly });
 }
 
+export async function invalidateNetworkAdapterCache(): Promise<void> {
+  return invoke<void>("invalidate_network_adapter_cache");
+}
+
 export async function getRoutingTable(): Promise<RouteEntry[]> {
   return invoke<RouteEntry[]>("get_routing_table");
 }

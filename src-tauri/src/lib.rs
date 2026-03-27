@@ -26,7 +26,10 @@ use network::{
     get_bloatware_candidates, remove_bloatware, run_network_command, set_default_gateway,
     test_tcp_port,
 };
-use network_snapshot::{get_network_interfaces, get_network_snapshot, get_routing_table};
+use network_snapshot::{
+    get_network_interfaces, get_network_snapshot, get_routing_table,
+    invalidate_network_adapter_cache,
+};
 use persist_commands::{
     persist_get_nic_stable_id, persist_get_nic_stable_ids, persist_load_config, persist_save_config,
 };
@@ -52,6 +55,7 @@ pub fn run() {
             get_network_interfaces,
             get_network_snapshot,
             get_routing_table,
+            invalidate_network_adapter_cache,
             add_route,
             delete_route,
             flush_routes,
