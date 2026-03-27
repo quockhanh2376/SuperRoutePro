@@ -14,7 +14,8 @@ struct ConnectivityProbeTarget {
 }
 
 const CONNECTIVITY_PROBE_TIMEOUT_SECS: u64 = 2;
-const CONNECTIVITY_PROBE_USER_AGENT: &str = "SuperRoutePro/10.1.6 ConnectivityProbe";
+const CONNECTIVITY_PROBE_USER_AGENT: &str =
+    concat!("SuperRoutePro/", env!("CARGO_PKG_VERSION"), " ConnectivityProbe");
 const CONNECTIVITY_PROBE_TARGETS: [ConnectivityProbeTarget; 2] = [
     ConnectivityProbeTarget {
         url: "http://www.msftconnecttest.com/connecttest.txt",
@@ -100,7 +101,8 @@ pub(crate) async fn check_connectivity() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        connectivity_probe_body_matches, connectivity_probe_status_matches, ConnectivityProbeKind,
+        connectivity_probe_body_matches, connectivity_probe_status_matches,
+        CONNECTIVITY_PROBE_USER_AGENT, ConnectivityProbeKind,
     };
     use reqwest::StatusCode;
 
@@ -173,5 +175,12 @@ mod tests {
             ConnectivityProbeKind::CloudflareTrace,
             "ok"
         ));
+    }
+
+    #[test]
+    fn connectivity_probe_user_agent_tracks_package_version() {
+        assert!(CONNECTIVITY_PROBE_USER_AGENT.starts_with("SuperRoutePro/"));
+        assert!(CONNECTIVITY_PROBE_USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
+        assert!(CONNECTIVITY_PROBE_USER_AGENT.ends_with(" ConnectivityProbe"));
     }
 }

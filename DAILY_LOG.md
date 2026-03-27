@@ -5,6 +5,35 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Review Follow-Up (Startup Task Detection + Probe Version Metadata)
+
+**Done**
+- Tightened `src-tauri/src/persist_startup.rs` so missing-task detection now inspects combined `stdout + stderr` instead of only `stderr`.
+- The same startup-task detection now normalizes message casing before checking the known `schtasks` missing-task markers, so `Cannot Find` / `cannot find` no longer split behavior.
+- Added small unit coverage in `persist_startup.rs` for:
+  - mixed-case missing-task text from `stdout`
+  - missing-task text from `stderr`
+  - unrelated hard errors that must still surface as `Err`
+  - combined output formatting
+- Replaced the hardcoded connectivity probe user-agent in `src-tauri/src/connectivity_probe.rs` with a compile-time string derived from `env!("CARGO_PKG_VERSION")`.
+- Added probe coverage to assert the user-agent always tracks the package version and retains the expected prefix/suffix.
+- Re-verified that the `ProgramData` panic-safety review item remains covered by the existing drop-based guard in `src-tauri/tests/persist_config_roundtrip.rs`, so no extra patch was needed there.
+
+**Notes And Decisions**
+- This patch stays deliberately narrow: no behavior changes to startup registration itself, only the error classification path around `schtasks`.
+- The task-missing heuristic is now more robust for case and output stream placement, but it is still English-string based because `schtasks` does not expose a better structured contract here.
+- The connectivity probe version source is now tied directly to Cargo package metadata, so future release bumps do not need a second manual string edit.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml persist_startup --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml connectivity_probe --lib`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
+**Next Steps**
+- Keep pushing review fixes as isolated slices like this so the branch stays easy to audit and cherry-pick.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - Review Follow-Up (Test Guard + Stage-Aware Speed Status)
 
 **Done**
