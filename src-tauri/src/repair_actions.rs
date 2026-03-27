@@ -466,3 +466,105 @@ pub async fn remove_appx_for_target(
         .await
         .map_err(|err| format!("Appx removal task join error: {err}"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_profile_cleanup_plan_for_target, validate_appx_removal_request,
+        validate_profile_cleanup_request,
+    };
+    use crate::repair_protocol::{AppxRemovalRequest, ProfileCleanupRequest};
+    use crate::repair_targets::RepairTargetUser;
+
+    fn sample_target_user() -> RepairTargetUser {
+        RepairTargetUser {
+            sid: "S-1-5-21-123456789-234567890-345678901-1001".to_string(),
+            account_name: "demo".to_string(),
+            profile_path: r"C:\Users\demo".to_string(),
+            is_loaded: true,
+        }
+    }
+
+    #[test]
+    fn profile_cleanup_request_requires_valid_sid_and_known_targets() {
+        let invalid_sid = ProfileCleanupRequest {
+            target_sid: "demo".to_string(),
+            targets: vec!["user_temp".to_string()],
+        };
+        assert_eq!(
+            validate_profile_cleanup_request(&invalid_sid).unwrap_err(),
+            "Missing or invalid target SID for profile cleanup."
+        );
+
+        let no_valid_targets = ProfileCleanupRequest {
+            target_sid: sample_target_user().sid,
+            targets: vec!["../oops".to_string()],
+        };
+        assert_eq!(
+            validate_profile_cleanup_request(&no_valid_targets).unwrap_err(),
+            "No valid cleanup targets selected."
+        );
+    }
+
+    #[test]
+    fn profile_cleanup_plan_expands_known_targets_under_target_profile() {
+        let request = ProfileCleanupRequest {
+            target_sid: sample_target_user().sid.clone(),
+            targets: vec!["user_temp".to_string(), "chrome_cache".to_string()],
+        };
+
+        let plan = build_profile_cleanup_plan_for_target(&sample_target_user(), &request)
+            .expect("known cleanup targets should resolve");
+
+        assert_eq!(plan.len(), 4);
+        assert!(plan.iter().any(|path| path.ends_with(r"demo\AppData\Local\Temp")));
+        assert!(plan.iter().any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Cache")));
+        assert!(
+            plan.iter()
+                .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\Code Cache"))
+        );
+        assert!(
+            plan.iter()
+                .any(|path| path.ends_with(r"Google\Chrome\User Data\Default\GPUCache"))
+        );
+    }
+
+    #[test]
+    fn profile_cleanup_plan_rejects_mismatched_target_sid() {
+        let request = ProfileCleanupRequest {
+            target_sid: "S-1-5-21-000-111-222-1001".to_string(),
+            targets: vec!["user_temp".to_string()],
+        };
+
+        assert_eq!(
+            build_profile_cleanup_plan_for_target(&sample_target_user(), &request).unwrap_err(),
+            "Cleanup request target SID does not match resolved target user."
+        );
+    }
+
+    #[test]
+    fn appx_removal_request_accepts_known_packages_case_insensitively() {
+        let request = AppxRemovalRequest {
+            target_sid: sample_target_user().sid,
+            packages: vec!["microsoft.skypeapp".to_string()],
+            remove_provisioned: false,
+        };
+
+        validate_appx_removal_request(&request)
+            .expect("known package names should validate case-insensitively");
+    }
+
+    #[test]
+    fn appx_removal_request_rejects_empty_or_unknown_package_selection() {
+        let request = AppxRemovalRequest {
+            target_sid: sample_target_user().sid,
+            packages: vec!["Contoso.UnknownApp".to_string()],
+            remove_provisioned: false,
+        };
+
+        assert_eq!(
+            validate_appx_removal_request(&request).unwrap_err(),
+            "No valid Appx packages selected."
+        );
+    }
+}

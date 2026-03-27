@@ -5,6 +5,36 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 10 (Repair Action Validation Coverage)
+
+**Done**
+- Added a thin Rust-only regression slice around `src-tauri/src/repair_actions.rs`, which still carried important validation and planning logic without direct test coverage.
+- Added unit coverage for:
+  - profile cleanup request validation rejecting invalid SIDs
+  - profile cleanup request validation rejecting unknown cleanup targets
+  - profile cleanup plan expansion for a real target profile root
+  - profile cleanup plan rejection when the resolved target user does not match the request SID
+  - Appx removal request validation accepting known package names case-insensitively
+  - Appx removal request validation rejecting empty/unknown package selections
+- Kept this slice test-only:
+  - no runtime behavior changed
+  - no PowerShell command text changed
+  - no broker/session wiring changed
+
+**Notes And Decisions**
+- `repair_actions.rs` is still one of the higher-risk backend modules because it combines request validation, privileged action orchestration, and user-facing error shaping.
+- I chose coverage over another refactor here because the current code paths are already sensitive and the missing regression net was the bigger quality gap.
+- These tests protect the inputs and plan-shaping layers without trying to mock privileged PowerShell execution.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can return to refactoring `repair_actions.rs` with more confidence now that its validation seams are covered, or pivot to another NeedToDo area.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 9 (NIC Snapshot Resolution Test Seam)
 
 **Done**
