@@ -5,6 +5,58 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Release Finalization For v10.1.6
+
+**Done**
+- Realigned `CHANGELOG.md` so the `v10.1.6` entry now reflects the actual branch head being shipped, including the NeedToDo backend cleanup slices, `Auto Australia`, the live Speed Test metric cards, NIC/DHCP hardening, and the latest review follow-up fixes.
+- Merged `feature/speed-test-modal-v1` into `main` locally as the release candidate path for `v10.1.6`, instead of tagging an outdated pre-follow-up release commit.
+- Reconfirmed the release head against the same practical gates used to decide ship readiness:
+  - GitHub PR CI had already passed on the current release head
+  - local `npm run tauri -- build` produced the `10.1.6` NSIS installer successfully
+  - full Rust tests passed again when re-run against a clean `CARGO_TARGET_DIR`
+
+**Notes And Decisions**
+- The long-lived local workspace still shows intermittent Windows target-dir linker locks during `npm run check`, but the clean-target rerun and remote CI both passed, so the release decision is based on clean-run behavior rather than stale local build state.
+- `main` is being treated as the source of truth for the public `v10.1.6` tag, even though the release workflow technically allows tagging a feature branch.
+
+**Verification**
+- `npm run tauri -- build`
+- `cargo test --manifest-path src-tauri/Cargo.toml` with a clean `CARGO_TARGET_DIR`
+- GitHub PR CI `validate-windows-build`
+
+**Next Steps**
+- Push the merged `main` branch, tag `v10.1.6` from the merge line, and let the GitHub release workflow publish the installer, portable binary, and checksums.
+
+--------------------------------------------------------------------------------
+
+## 2026-03-27 - Released v10.1.6 From Main
+
+**Done**
+- Re-checked the remote release state before publish: GitHub still stopped at `v10.1.5`, so `10.1.6` had not been cut yet.
+- Confirmed the `10.1.6` release head on `feature/speed-test-modal-v1` already carried the expected shipped scope:
+  - startup/persist + repair wiring cleanup
+  - `Auto Australia` Speed Test support
+  - live Speed Test metric-card UI polish
+  - NIC description stabilization and cache invalidation
+  - review follow-up fixes around startup-task detection and connectivity probe versioning
+- Promoted the branch cleanly onto `main` with merge commit `67b5b24358a49c94d7f2d0c95a279287d003a402`.
+- Pushed annotated tag `v10.1.6` from that merge commit so the GitHub release workflow can build and publish from the same state now living on `main`.
+
+**Notes And Decisions**
+- I used a clean temporary worktree from `origin/main` for the promotion because the long-lived local worktree had a noisy `Cargo.lock` version diff from older branch state.
+- The merge/tag now reflect the release-ready branch head without carrying that local worktree noise into `main`.
+- `DAILY_LOG.md` is intentionally logged after the tag push as a docs-only follow-up, so `main` stays current even though the release tag itself points at the merge commit immediately before this note.
+
+**Verification**
+- `git push origin HEAD:main`
+- `git tag -a v10.1.6 -m "v10.1.6"`
+- `git push origin v10.1.6`
+
+**Next Steps**
+- Watch the GitHub `Release Windows Installer` workflow for the new `v10.1.6` tag and confirm the release assets publish cleanly.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - Review Follow-Up (Startup Task Detection + Probe Version Metadata)
 
 **Done**
