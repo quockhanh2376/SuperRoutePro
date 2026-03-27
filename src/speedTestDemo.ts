@@ -50,6 +50,7 @@ export function buildMockSpeedTestResult(now = new Date()): SpeedTestResult {
     target_id: "browser_preview",
     target_label: "Browser Preview",
     provider: "Browser Demo",
+    region_label: "Preview",
     server_label: "Local Preview",
     download_mbps: 226.8,
     upload_mbps: 81.3,

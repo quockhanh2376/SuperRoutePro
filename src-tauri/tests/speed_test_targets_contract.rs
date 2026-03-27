@@ -1,7 +1,9 @@
 #[path = "../src/speed_test_targets.rs"]
 mod speed_test_targets;
 
-use speed_test_targets::{list_speed_test_targets, resolve_speed_test_target, SpeedTestBackendKind};
+use speed_test_targets::{
+    list_speed_test_targets, resolve_speed_test_target, SpeedTestBackendKind,
+};
 
 #[test]
 fn speed_test_catalog_exposes_the_expected_labels_and_providers() {
@@ -10,14 +12,39 @@ fn speed_test_catalog_exposes_the_expected_labels_and_providers() {
     assert_eq!(
         targets
             .iter()
-            .map(|target| (target.id.as_str(), target.label.as_str(), target.provider.as_str()))
+            .map(|target| (
+                target.id.as_str(),
+                target.label.as_str(),
+                target.provider.as_str(),
+                target.region_label.as_str(),
+            ))
             .collect::<Vec<_>>(),
         vec![
-            ("auto_asia", "Auto Asia", "Cloudflare (Asia auto-edge)"),
-            ("auto_au", "Auto Australia", "Cloudflare (Australia auto-edge)"),
-            ("jp_kr", "JP/KR", "LibreSpeed (regional fixed backend)"),
-            ("us_west", "US West", "LibreSpeed (regional fixed backend)"),
-            ("eu", "EU", "LibreSpeed (regional fixed backend)"),
+            (
+                "auto_asia",
+                "Auto Asia",
+                "Cloudflare (Asia auto-edge)",
+                "Asia"
+            ),
+            (
+                "auto_au",
+                "Auto Australia",
+                "Cloudflare (Australia auto-edge)",
+                "Australia",
+            ),
+            (
+                "jp_kr",
+                "JP/KR",
+                "LibreSpeed (regional fixed backend)",
+                "JP/KR"
+            ),
+            (
+                "us_west",
+                "US West",
+                "LibreSpeed (regional fixed backend)",
+                "US West",
+            ),
+            ("eu", "EU", "LibreSpeed (regional fixed backend)", "EU"),
         ]
     );
     assert!(targets[0].description.contains("Cloudflare auto-selects"));
@@ -40,7 +67,10 @@ fn speed_test_target_resolution_preserves_region_specific_server_labels() {
 
     let auto_au = resolve_speed_test_target(Some("auto_au")).expect("auto_au should resolve");
     assert_eq!(auto_au.target_label, "Auto Australia");
-    assert_eq!(auto_au.backend_kind, SpeedTestBackendKind::CloudflareAutoEdge);
+    assert_eq!(
+        auto_au.backend_kind,
+        SpeedTestBackendKind::CloudflareAutoEdge
+    );
 
     let us_west = resolve_speed_test_target(Some("us_west")).expect("us_west should resolve");
     assert_eq!(us_west.target_label, "US West");

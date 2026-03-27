@@ -5,6 +5,30 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Speed Test Final Summary Metadata Clarified
+
+**Done**
+- Added an explicit `region_label` to the Speed Test target catalog and runtime result model so the frontend no longer has to infer region identity from server text.
+- Updated the Speed Test modal result view to surface a dedicated `Target / Provider / Region` identity strip above the final throughput summary cards.
+- Kept lower-level run metadata (`Server`, `Public IP`, `Timestamp`) in the secondary details grid instead of mixing identity and diagnostic fields together.
+- Brought the frontend fallback catalog back in line with the shipped runtime catalog by restoring `Auto Australia` and attaching region labels to all fallback/demo entries.
+- Extended regression coverage across the frontend demo/tests and the Rust target-catalog contract to keep the new metadata path stable.
+
+**Notes And Decisions**
+- This slice stays product-facing and intentionally does not add an Australia city selector yet; it only makes the currently shipped regional routing metadata clearer to the user.
+- `region_label` is now part of the public frontend/backend contract, which is cleaner than overloading `server_label` for both identity and server-detail display.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --test speed_test_targets_contract`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `tsx --test tests/SpeedTestModal.test.tsx`
+- `npm run build`
+
+**Next Steps**
+- If Zon wants another product-facing pass here, the next logical slice is deciding whether `Auto Australia` remains the only AU option or expands into city-pinned targets.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - Release Finalization For v10.1.6
 
 **Done**

@@ -81,6 +81,7 @@ export function SpeedTestModalDialog({
     ?? null;
   const targetLabel = result?.target_label ?? activeTarget?.label ?? "Auto";
   const providerLabel = result?.provider ?? activeTarget?.provider ?? "Auto";
+  const regionLabel = result?.region_label ?? activeTarget?.region_label ?? targetLabel;
   const progressPercent = Math.min(100, Math.max(0, progress.percent));
   const progressStageLabel = getStageLabel(progress.stage);
   const liveStatusLabel = getLiveStatusLabel(progress.stage);
@@ -210,6 +211,24 @@ export function SpeedTestModalDialog({
 
         {result && (
           <>
+            <div className="speed-test-identity-grid">
+              <div className="speed-test-identity-card">
+                <span className="speed-test-identity-label">Target</span>
+                <span className="speed-test-identity-value">{targetLabel}</span>
+                <span className="speed-test-identity-copy">Selected test profile</span>
+              </div>
+              <div className="speed-test-identity-card">
+                <span className="speed-test-identity-label">Provider</span>
+                <span className="speed-test-identity-value">{providerLabel}</span>
+                <span className="speed-test-identity-copy">Backend policy</span>
+              </div>
+              <div className="speed-test-identity-card speed-test-identity-card-region">
+                <span className="speed-test-identity-label">Region</span>
+                <span className="speed-test-identity-value">{regionLabel}</span>
+                <span className="speed-test-identity-copy">{result.server_label}</span>
+              </div>
+            </div>
+
             <div className="speed-test-summary-grid">
               <div className="speed-test-summary-card">
                 <div className="speed-test-summary-label">Download</div>
@@ -238,14 +257,6 @@ export function SpeedTestModalDialog({
             </div>
 
             <div className="speed-test-meta-grid">
-              <div className="speed-test-meta-row">
-                <span className="speed-test-meta-label">Target</span>
-                <span className="speed-test-meta-value">{targetLabel}</span>
-              </div>
-              <div className="speed-test-meta-row">
-                <span className="speed-test-meta-label">Provider</span>
-                <span className="speed-test-meta-value">{providerLabel}</span>
-              </div>
               <div className="speed-test-meta-row">
                 <span className="speed-test-meta-label">Server</span>
                 <span className="speed-test-meta-value">{result.server_label}</span>

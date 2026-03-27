@@ -27,24 +27,35 @@ const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
     label: "Auto",
     description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
     provider: "Cloudflare (auto-selected edge)",
+    region_label: "Asia",
+  },
+  {
+    id: "auto_au",
+    label: "Auto Australia",
+    description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
+    provider: "Cloudflare (Australia auto-edge)",
+    region_label: "Australia",
   },
   {
     id: "jp_kr",
     label: "JP/KR",
     description: "Fixed regional backend pinned to Tokyo, Japan. Use this to compare against the auto-selected route without Cloudflare auto-edge routing.",
     provider: "LibreSpeed (regional fixed backend)",
+    region_label: "JP/KR",
   },
   {
     id: "us_west",
     label: "US West",
     description: "Fixed trans-Pacific backend pinned to Los Angeles, United States. Use this to compare long-haul performance against a stable US West endpoint.",
     provider: "LibreSpeed (regional fixed backend)",
+    region_label: "US West",
   },
   {
     id: "eu",
     label: "EU",
     description: "Fixed Europe backend pinned to London, England. Payload sizes stay smaller here so long-haul runs from any distant region remain stable.",
     provider: "LibreSpeed (regional fixed backend)",
+    region_label: "EU",
   },
 ];
 
@@ -54,6 +65,7 @@ const BROWSER_DEMO_TARGETS: SpeedTestTargetOption[] = [
     label: "Browser Preview",
     description: "Browser-safe preview flow for the speed test modal. Native desktop runtime will replace this with real target catalog entries.",
     provider: "Browser Demo",
+    region_label: "Preview",
   },
 ];
 

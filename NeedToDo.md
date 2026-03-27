@@ -32,6 +32,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 - [x] Extract connectivity probing into a dedicated module and clean up repair-action helper duplication.
 - [x] Add integration and regression coverage for persist config, route service behavior, repair broker flow, speed test target contracts, NIC snapshot seams, repair-action validation, startup task detection, and related helper seams.
 - [x] Route `npm run test:rust` through a clean-target runner on Windows so local Rust verification avoids long-lived target-dir file-lock noise.
+- [x] Expose final Speed Test identity metadata clearly in the UI with dedicated Target / Provider / Region summary cards.
 
 ### Still Worth Reviewing
 
@@ -63,7 +64,6 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 ### Pending
 
 - [ ] Decide whether the current live metric cards need another visual polish pass for spacing, hierarchy, or motion.
-- [ ] Decide whether the final run summary should expose more per-target metadata, especially when regional routing is involved.
 
 ## Notes
 

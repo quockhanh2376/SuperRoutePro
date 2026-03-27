@@ -17,6 +17,7 @@ const result: SpeedTestResult = {
   target_id: "us_west",
   target_label: "US West",
   provider: "LibreSpeed (regional fixed backend)",
+  region_label: "US West",
   server_label: "Los Angeles, United States (Clouvider)",
   download_mbps: 226.8,
   upload_mbps: 81.3,
@@ -44,18 +45,21 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
           label: "Auto",
           description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
           provider: "Cloudflare (auto-selected edge)",
+          region_label: "Asia",
         },
         {
           id: "auto_au",
           label: "Auto Australia",
           description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
           provider: "Cloudflare (auto-selected edge)",
+          region_label: "Australia",
         },
         {
           id: "us_west",
           label: "US West",
           description: "Fixed trans-Pacific backend pinned to Los Angeles, United States. Use this to compare long-haul performance against a stable US West endpoint.",
           provider: "LibreSpeed (regional fixed backend)",
+          region_label: "US West",
         },
       ]}
     />,
@@ -63,6 +67,7 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
 
   assert.match(html, /Target/);
   assert.match(html, /US West/);
+  assert.match(html, /Region/);
   assert.match(html, /Server/);
   assert.match(html, /Los Angeles, United States \(Clouvider\)/);
   assert.match(html, /LibreSpeed \(regional fixed backend\)/);
@@ -94,12 +99,14 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
           label: "Auto",
           description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
           provider: "Cloudflare (auto-selected edge)",
+          region_label: "Asia",
         },
         {
           id: "auto_au",
           label: "Auto Australia",
           description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
           provider: "Cloudflare (auto-selected edge)",
+          region_label: "Australia",
         },
       ]}
     />,
@@ -136,6 +143,7 @@ test("SpeedTestModalDialog derives a stage-aware live status label", () => {
           label: "Auto",
           description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
           provider: "Cloudflare (auto-selected edge)",
+          region_label: "Asia",
         },
       ]}
     />,

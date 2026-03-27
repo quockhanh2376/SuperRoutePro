@@ -1,4 +1,7 @@
-use crate::speed_test_targets::{resolve_speed_test_target, SpeedTestBackendKind, SpeedTestTarget};
+use crate::speed_test_targets::{
+    resolve_speed_test_region_label, resolve_speed_test_target, SpeedTestBackendKind,
+    SpeedTestTarget,
+};
 use chrono::Utc;
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -53,6 +56,7 @@ pub struct SpeedTestResult {
     pub target_id: String,
     pub target_label: String,
     pub provider: String,
+    pub region_label: String,
     pub server_label: String,
     pub download_mbps: f64,
     pub upload_mbps: f64,
@@ -74,6 +78,7 @@ pub async fn run_speed_test(
     let client = build_client()?;
     let target_context = fetch_target_context(&client, target).await.ok();
     let provider_label = resolve_speed_test_provider_label(target);
+    let region_label = resolve_speed_test_region_label(target).to_string();
     let server_label = resolve_speed_test_server_label(target, target_context.as_ref());
     let ip = target_context
         .as_ref()
@@ -119,6 +124,7 @@ pub async fn run_speed_test(
         target_id: target.id.to_string(),
         target_label: target.target_label.to_string(),
         provider: provider_label,
+        region_label,
         server_label,
         download_mbps,
         upload_mbps,
@@ -830,7 +836,8 @@ mod tests {
         assert!(is_preferred_colo(target, "NRT"));
         assert!(!is_preferred_colo(target, "LAX"));
 
-        let auto_au = resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
+        let auto_au =
+            resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
         assert!(is_preferred_colo(auto_au, "SYD"));
         assert!(is_preferred_colo(auto_au, "MEL"));
         assert!(!is_preferred_colo(auto_au, "NRT"));

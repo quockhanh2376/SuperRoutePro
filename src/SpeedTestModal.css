@@ -398,6 +398,50 @@
   gap: 0.8rem;
 }
 
+.speed-test-identity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.speed-test-identity-card {
+  border: 1px solid rgba(51, 65, 85, 0.72);
+  border-radius: 0.95rem;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 34%),
+    rgba(12, 18, 32, 0.92);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.speed-test-identity-card-region {
+  background:
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.13), transparent 36%),
+    rgba(12, 18, 32, 0.92);
+}
+
+.speed-test-identity-label {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+}
+
+.speed-test-identity-value {
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.speed-test-identity-copy {
+  color: #cbd5e1;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .speed-test-summary-card {
   border: 1px solid rgba(51, 65, 85, 0.72);
   border-radius: 0.9rem;
@@ -505,6 +549,7 @@
 
 .theme-light .speed-test-launch-placeholder,
 .theme-light .speed-test-progress-shell,
+.theme-light .speed-test-identity-card,
 .theme-light .speed-test-summary-card,
 .theme-light .speed-test-meta-grid,
 .theme-light .speed-test-target-shell {
@@ -580,6 +625,7 @@
 }
 
 .theme-light .speed-test-target-title,
+.theme-light .speed-test-identity-value,
 .theme-light .speed-test-progress-percent,
 .theme-light .speed-test-summary-value {
   color: #0f172a;
@@ -587,6 +633,7 @@
 
 .theme-light .speed-test-live-speed,
 .theme-light .speed-test-launch-label,
+.theme-light .speed-test-identity-label,
 .theme-light .speed-test-summary-label,
 .theme-light .speed-test-meta-label,
 .theme-light .speed-test-target-label {
@@ -594,9 +641,16 @@
 }
 
 .theme-light .speed-test-live-speed strong,
+.theme-light .speed-test-identity-copy,
 .theme-light .speed-test-meta-value,
 .theme-light .speed-test-launch-value {
   color: #0f172a;
+}
+
+.theme-light .speed-test-identity-card-region {
+  background:
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 34%),
+    rgba(255, 255, 255, 0.98);
 }
 
 .theme-light .speed-test-target-subtitle,
@@ -636,6 +690,7 @@
 }
 
 @media (max-width: 1180px) {
+  .speed-test-identity-grid,
   .speed-test-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -658,6 +713,7 @@
   }
 
   .speed-test-launch-metrics,
+  .speed-test-identity-grid,
   .speed-test-summary-grid,
   .speed-test-meta-grid {
     grid-template-columns: 1fr;

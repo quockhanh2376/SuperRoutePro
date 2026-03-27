@@ -46,6 +46,7 @@ pub struct SpeedTestCatalogEntry {
     pub label: String,
     pub description: String,
     pub provider: String,
+    pub region_label: String,
 }
 
 const AUTO_ASIA_TARGET: SpeedTestTarget = SpeedTestTarget {
@@ -162,7 +163,12 @@ fn build_speed_test_catalog_entry(target: SpeedTestTarget) -> SpeedTestCatalogEn
         label: target.target_label.to_string(),
         description: target.description.to_string(),
         provider: target.provider_label.to_string(),
+        region_label: resolve_speed_test_region_label(target).to_string(),
     }
+}
+
+pub fn resolve_speed_test_region_label(target: SpeedTestTarget) -> &'static str {
+    target.preferred_region_label.unwrap_or(target.target_label)
 }
 
 #[tauri::command]
@@ -185,7 +191,10 @@ pub fn resolve_speed_test_target(target_id: Option<&str>) -> Result<SpeedTestTar
 
 #[cfg(test)]
 mod tests {
-    use super::{list_speed_test_targets, resolve_speed_test_target, SpeedTestBackendKind};
+    use super::{
+        list_speed_test_targets, resolve_speed_test_region_label, resolve_speed_test_target,
+        SpeedTestBackendKind,
+    };
 
     #[test]
     fn list_speed_test_targets_exposes_real_regional_entries() {
@@ -198,6 +207,9 @@ mod tests {
         assert_eq!(ids, vec!["auto_asia", "auto_au", "jp_kr", "us_west", "eu"]);
         assert_eq!(targets[0].provider, "Cloudflare (Asia auto-edge)");
         assert_eq!(targets[1].provider, "Cloudflare (Australia auto-edge)");
+        assert_eq!(targets[0].region_label, "Asia");
+        assert_eq!(targets[1].region_label, "Australia");
+        assert_eq!(targets[2].region_label, "JP/KR");
         assert!(targets[2].description.contains("Tokyo"));
         assert!(targets[3].description.contains("Los Angeles"));
         assert!(targets[4].description.contains("London"));
@@ -229,5 +241,14 @@ mod tests {
         let error =
             resolve_speed_test_target(Some("invalid")).expect_err("unknown target should fail");
         assert_eq!(error, "Unknown speed test target: invalid");
+    }
+
+    #[test]
+    fn resolve_speed_test_region_label_uses_preferred_region_when_available() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let eu_target = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+
+        assert_eq!(resolve_speed_test_region_label(auto_asia), "Asia");
+        assert_eq!(resolve_speed_test_region_label(eu_target), "EU");
     }
 }

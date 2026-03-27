@@ -57,12 +57,14 @@ export interface SpeedTestTargetOption {
   label: string;
   description: string;
   provider: string;
+  region_label?: string;
 }
 
 export interface SpeedTestResult {
   target_id: string;
   target_label: string;
   provider: string;
+  region_label: string;
   server_label: string;
   download_mbps: number;
   upload_mbps: number;
