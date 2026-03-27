@@ -20,6 +20,7 @@ mod speed_test;
 mod speed_test_targets;
 pub mod win32_consts;
 pub mod win32_net;
+mod windows_paths;
 
 use battery::{get_battery_report, get_battery_summary};
 use network::{

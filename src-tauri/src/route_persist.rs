@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::windows_paths::program_data_dir;
+
 const CONFIG_DIR_NAME: &str = "SuperRoutePro";
 const CONFIG_FILE_NAME: &str = "persist.json";
 const SCHEMA_VERSION: u32 = 1;
@@ -61,10 +63,7 @@ impl PersistConfig {
 
 /// Resolve the config directory: `%ProgramData%\SuperRoutePro\`.
 pub fn config_dir() -> Result<PathBuf, String> {
-    let program_data =
-        std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".to_string());
-    let dir = PathBuf::from(program_data).join(CONFIG_DIR_NAME);
-    Ok(dir)
+    Ok(program_data_dir().join(CONFIG_DIR_NAME))
 }
 
 /// Full path to `persist.json`.

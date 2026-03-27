@@ -1,33 +1,10 @@
 use crate::process_exec::run_hidden_output_blocking;
+use crate::windows_paths::{current_user_profile_root, program_data_dir, system_root_dir};
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
 fn run_service_control_command(args: &[&str]) {
     let _ = run_hidden_output_blocking("net", args);
-}
-
-fn system_root_dir() -> PathBuf {
-    system_root_dir_from_value(std::env::var("SystemRoot").ok().as_deref())
-}
-
-fn system_root_dir_from_value(system_root: Option<&str>) -> PathBuf {
-    let value = system_root
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(r"C:\Windows");
-    PathBuf::from(value)
-}
-
-fn program_data_dir() -> PathBuf {
-    program_data_dir_from_value(std::env::var("ProgramData").ok().as_deref())
-}
-
-fn program_data_dir_from_value(program_data: Option<&str>) -> PathBuf {
-    let value = program_data
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(r"C:\ProgramData");
-    PathBuf::from(value)
 }
 
 fn windows_temp_dir() -> PathBuf {
@@ -72,7 +49,10 @@ pub fn sanitize_cleanup_targets(targets: &[String]) -> Vec<String> {
 }
 
 pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Option<Vec<PathBuf>> {
-    let profile_root = profile_root.to_string_lossy().trim_end_matches(['\\', '/']).to_string();
+    let profile_root = profile_root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
     let local = format!(r"{profile_root}\AppData\Local");
 
     match target {
@@ -85,12 +65,18 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
         ))]),
         "edge_cache" => Some(vec![
             PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\Cache")),
-            PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\Code Cache")),
-            PathBuf::from(format!(r"{local}\Microsoft\Edge\User Data\Default\GPUCache")),
+            PathBuf::from(format!(
+                r"{local}\Microsoft\Edge\User Data\Default\Code Cache"
+            )),
+            PathBuf::from(format!(
+                r"{local}\Microsoft\Edge\User Data\Default\GPUCache"
+            )),
         ]),
         "chrome_cache" => Some(vec![
             PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\Cache")),
-            PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\Code Cache")),
+            PathBuf::from(format!(
+                r"{local}\Google\Chrome\User Data\Default\Code Cache"
+            )),
             PathBuf::from(format!(r"{local}\Google\Chrome\User Data\Default\GPUCache")),
         ]),
         "firefox_cache" => Some(vec![PathBuf::from(format!(
@@ -113,7 +99,10 @@ pub fn cleanup_paths_for_profile_root(profile_root: &Path, target: &str) -> Opti
 }
 
 pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option<(bool, String)> {
-    let profile_root = profile_root.to_string_lossy().trim_end_matches(['\\', '/']).to_string();
+    let profile_root = profile_root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .to_string();
     let local = format!(r"{profile_root}\AppData\Local");
 
     match target {
@@ -228,7 +217,8 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
         }
         "wer_reports" => {
             let (d1, f1) = clean_directory_contents(&windows_wer_reports_dir());
-            let (d2, f2) = clean_directory_contents(&Path::new(&local).join(r"Microsoft\Windows\WER"));
+            let (d2, f2) =
+                clean_directory_contents(&Path::new(&local).join(r"Microsoft\Windows\WER"));
             let deleted = d1 + d2;
             let failed = f1 + f2;
             Some((
@@ -249,18 +239,9 @@ pub fn run_cleanup_for_profile_root(profile_root: &Path, target: &str) -> Option
 }
 
 pub fn run_cleanup_for_current_user(target: &str) -> Option<(&'static str, bool, String)> {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
-        let user_profile =
-            std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\Users\Default".to_string());
-        format!(r"{}\AppData\Local", user_profile)
-    });
-    let profile_root = Path::new(&local)
-        .parent()
-        .and_then(|path| path.parent())
-        .unwrap_or_else(|| Path::new(r"C:\Users\Default"));
-
+    let profile_root = current_user_profile_root();
     let label = label_for_target(target)?;
-    let result = run_cleanup_for_profile_root(profile_root, target)?;
+    let result = run_cleanup_for_profile_root(&profile_root, target)?;
     Some((label, result.0, result.1))
 }
 
@@ -337,10 +318,7 @@ pub fn clean_files_with_prefix(dir: &Path, prefix: &str, suffix: &str) -> (u64, 
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        cleanup_paths_for_profile_root, label_for_target, program_data_dir_from_value,
-        sanitize_cleanup_targets, system_root_dir_from_value,
-    };
+    use super::{cleanup_paths_for_profile_root, label_for_target, sanitize_cleanup_targets};
     use std::path::Path;
 
     #[test]
@@ -360,38 +338,14 @@ mod tests {
         let paths = cleanup_paths_for_profile_root(Path::new(r"C:\Users\demo"), "chrome_cache")
             .expect("chrome cache should resolve");
 
-        assert!(paths
-            .iter()
-            .any(|path| path.to_string_lossy().contains(r"C:\Users\demo\AppData\Local\Google\Chrome")));
+        assert!(paths.iter().any(|path| path
+            .to_string_lossy()
+            .contains(r"C:\Users\demo\AppData\Local\Google\Chrome")));
     }
 
     #[test]
     fn labels_exist_for_known_targets() {
         assert_eq!(label_for_target("user_temp"), Some("User Temp"));
         assert_eq!(label_for_target("unknown"), None);
-    }
-
-    #[test]
-    fn system_path_helpers_honor_configured_roots() {
-        assert_eq!(
-            system_root_dir_from_value(Some(r"D:\WindowsAlt")),
-            Path::new(r"D:\WindowsAlt")
-        );
-        assert_eq!(
-            program_data_dir_from_value(Some(r"E:\ProgramDataAlt")),
-            Path::new(r"E:\ProgramDataAlt")
-        );
-    }
-
-    #[test]
-    fn system_path_helpers_fall_back_to_defaults() {
-        assert_eq!(
-            system_root_dir_from_value(Some("  ")),
-            Path::new(r"C:\Windows")
-        );
-        assert_eq!(
-            program_data_dir_from_value(None),
-            Path::new(r"C:\ProgramData")
-        );
     }
 }

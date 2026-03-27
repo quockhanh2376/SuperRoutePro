@@ -5,6 +5,36 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 14 (Shared Windows Path Helpers)
+
+**Done**
+- Added a small internal `src-tauri/src/windows_paths.rs` module so Windows path resolution now lives in one place instead of being split across multiple files.
+- Moved the shared `%SystemRoot%` and `%ProgramData%` resolution logic into that module with the same fallback behavior as before:
+  - `C:\\Windows`
+  - `C:\\ProgramData`
+- Added one more helper there for current-user profile root resolution so the cleanup path can derive the profile consistently from:
+  - `LOCALAPPDATA`
+  - or `USERPROFILE`
+  - with the same `C:\\Users\\Default` fallback
+- Switched `src-tauri/src/cache_cleanup.rs` to use the shared helper module instead of keeping its own local env/path resolution functions.
+- Switched `src-tauri/src/route_persist.rs` to use the same shared `%ProgramData%` helper for `persist.json` location resolution.
+
+**Notes And Decisions**
+- This slice keeps the scope intentionally narrow: only Windows path resolution moved, with no command, cleanup target, or persist schema behavior changes.
+- `CREATE_NO_WINDOW` was already centralized earlier, so path helpers were the cleanest remaining Windows-specific maintenance seam.
+- I kept the new module internal (`mod windows_paths`) to avoid widening the public crate surface before there is a real need.
+
+**Verification**
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml windows_paths::tests --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml cache_cleanup::tests --lib`
+- `cargo test --manifest-path src-tauri/Cargo.toml route_persist::tests --lib`
+
+**Next Steps**
+- The next thin slice can continue shaving Windows-specific duplication, or pivot back to another low-risk backend seam now that command surface and path resolution are both cleaner.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 13 (Remove Dead Non-Repair Command Surface)
 
 **Done**
