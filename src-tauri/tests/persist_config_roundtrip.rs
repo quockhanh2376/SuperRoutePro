@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super_route_pro_lib::route_persist::{
@@ -14,12 +15,40 @@ fn unique_program_data_dir() -> std::path::PathBuf {
     env::temp_dir().join(format!("super-route-pro-programdata-{stamp}-{}", std::process::id()))
 }
 
+struct ProgramDataGuard {
+    original_program_data: Option<String>,
+    temp_dir: PathBuf,
+}
+
+impl ProgramDataGuard {
+    fn new(temp_dir: PathBuf) -> Self {
+        let original_program_data = env::var("ProgramData").ok();
+        fs::create_dir_all(&temp_dir).expect("temp ProgramData root should be creatable");
+        env::set_var("ProgramData", &temp_dir);
+        Self {
+            original_program_data,
+            temp_dir,
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.temp_dir
+    }
+}
+
+impl Drop for ProgramDataGuard {
+    fn drop(&mut self) {
+        match self.original_program_data.take() {
+            Some(value) => env::set_var("ProgramData", value),
+            None => env::remove_var("ProgramData"),
+        }
+        let _ = fs::remove_dir_all(&self.temp_dir);
+    }
+}
+
 #[test]
 fn persist_config_save_load_and_clear_roundtrip() {
-    let original_program_data = env::var("ProgramData").ok();
-    let program_data = unique_program_data_dir();
-    fs::create_dir_all(&program_data).expect("temp ProgramData root should be creatable");
-    env::set_var("ProgramData", &program_data);
+    let guard = ProgramDataGuard::new(unique_program_data_dir());
 
     let config = PersistConfig {
         schema_version: 1,
@@ -47,7 +76,7 @@ fn persist_config_save_load_and_clear_roundtrip() {
 
     let path = route_persist::config_path().expect("config path should resolve");
     assert!(
-        !path.exists(),
+        !path.exists() && path.starts_with(guard.path()),
         "test config should start absent before saving"
     );
 
@@ -65,9 +94,4 @@ fn persist_config_save_load_and_clear_roundtrip() {
     );
 
     route_persist::delete_config().expect("delete should be idempotent");
-
-    match original_program_data {
-        Some(value) => env::set_var("ProgramData", value),
-        None => env::remove_var("ProgramData"),
-    }
 }

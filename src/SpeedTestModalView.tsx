@@ -26,6 +26,30 @@ const getStageLabel = (stage: string) => {
   }
 };
 
+const getLiveStatusLabel = (stage: string) => {
+  switch (stage) {
+    case "preflight":
+      return "Preparing";
+    case "latency":
+      return "Measuring latency";
+    case "download":
+      return "Download in progress";
+    case "upload":
+      return "Upload in progress";
+    case "finalize":
+      return "Finalizing";
+    default:
+      return "Running";
+  }
+};
+
+const getLiveThroughputValue = (stage: string, currentSpeedMbps: number | null | undefined) => {
+  if (stage !== "download" && stage !== "upload" && stage !== "finalize") {
+    return "-- Mbps";
+  }
+  return formatMetric(currentSpeedMbps, "Mbps");
+};
+
 export type SpeedTestModalDialogProps = {
   error: string;
   isTesting: boolean;
@@ -59,6 +83,8 @@ export function SpeedTestModalDialog({
   const providerLabel = result?.provider ?? activeTarget?.provider ?? "Auto";
   const progressPercent = Math.min(100, Math.max(0, progress.percent));
   const progressStageLabel = getStageLabel(progress.stage);
+  const liveStatusLabel = getLiveStatusLabel(progress.stage);
+  const liveThroughputValue = getLiveThroughputValue(progress.stage, progress.current_speed_mbps);
 
   return (
     <div
@@ -129,8 +155,8 @@ export function SpeedTestModalDialog({
             <div className="speed-test-live-grid">
               <div className="speed-test-live-card speed-test-live-card-primary">
                 <span className="speed-test-live-label">Live Throughput</span>
-                <span className="speed-test-live-value">{formatMetric(progress.current_speed_mbps, "Mbps")}</span>
-                <span className="speed-test-live-copy">{progress.message}</span>
+                <span className="speed-test-live-value">{liveThroughputValue}</span>
+                <span className="speed-test-live-copy">Current transfer rate</span>
               </div>
               <div className="speed-test-live-card">
                 <span className="speed-test-live-label">Stage</span>
@@ -139,12 +165,12 @@ export function SpeedTestModalDialog({
               </div>
               <div className="speed-test-live-card">
                 <span className="speed-test-live-label">Target</span>
-                <span className="speed-test-live-value">{activeTarget?.label ?? "Auto"}</span>
-                <span className="speed-test-live-copy">{activeTarget?.provider ?? "Loading catalog"}</span>
+                <span className="speed-test-live-value">{targetLabel}</span>
+                <span className="speed-test-live-copy">{providerLabel}</span>
               </div>
               <div className="speed-test-live-card">
                 <span className="speed-test-live-label">Status</span>
-                <span className="speed-test-live-value">Streaming</span>
+                <span className="speed-test-live-value">{liveStatusLabel}</span>
                 <span className="speed-test-live-copy">{progress.message}</span>
               </div>
             </div>

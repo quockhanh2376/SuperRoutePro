@@ -108,7 +108,40 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
   assert.match(html, /Live Throughput/);
   assert.match(html, /Stage/);
   assert.match(html, /Auto Australia/);
-  assert.match(html, /Streaming/);
+  assert.match(html, /Download in progress/);
   assert.match(html, /Measuring download throughput/);
   assert.match(html, /download throughput/i);
+});
+
+test("SpeedTestModalDialog derives a stage-aware live status label", () => {
+  const html = renderToStaticMarkup(
+    <SpeedTestModalDialog
+      error=""
+      isTesting
+      onClose={() => {}}
+      onStart={() => {}}
+      onTargetChange={() => {}}
+      progress={{
+        stage: "latency",
+        percent: 18,
+        current_speed_mbps: 0,
+        message: "Checking latency before throughput run...",
+      }}
+      result={null}
+      selectedTargetId="auto_asia"
+      tauriRuntime
+      targetOptions={[
+        {
+          id: "auto_asia",
+          label: "Auto",
+          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (auto-selected edge)",
+        },
+      ]}
+    />,
+  );
+
+  assert.match(html, /Measuring latency/);
+  assert.match(html, /-- Mbps/);
+  assert.doesNotMatch(html, />Streaming</);
 });

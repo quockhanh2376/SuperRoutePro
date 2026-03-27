@@ -5,6 +5,30 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - Review Follow-Up (Test Guard + Stage-Aware Speed Status)
+
+**Done**
+- Tightened `src-tauri/tests/persist_config_roundtrip.rs` so the `ProgramData` override now restores reliably via a small RAII guard instead of relying on the last lines of the test body.
+- The same guard also cleans up the temporary test directory on drop so the roundtrip test stops leaving temp artifacts behind.
+- Updated `src/SpeedTestModalView.tsx` so the live Speed Test status card is stage-aware instead of always showing `Streaming`.
+- The live target/provider card now reuses the resolved display labels that already back the rest of the modal.
+- Added frontend coverage in `tests/SpeedTestModal.test.tsx` for the stage-aware live status wording.
+
+**Notes And Decisions**
+- The env-var review was a real test-hygiene issue because a panic before the restore block could leak `ProgramData` into later tests in the same process.
+- The Speed Test tweak is intentionally copy-only and keeps the same layout; it just stops showing a misleading status during `preflight`, `latency`, and `finalize`.
+- A separate review note about PR scope is workflow-related rather than a runtime/code bug, so I did not force unrelated code churn into this patch.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --test persist_config_roundtrip`
+- `npm run test:node`
+- `npm run build`
+
+**Next Steps**
+- Keep resolving review feedback this way: patch real code/test issues directly, and handle scope-only PR comments through branch/PR hygiene rather than mixing them into runtime files.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 14 (Shared Windows Path Helpers)
 
 **Done**
