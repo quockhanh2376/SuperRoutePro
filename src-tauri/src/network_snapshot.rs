@@ -335,3 +335,12 @@ Persistent Routes:
         assert!(build_network_interfaces(&[tailscale, hyper_v], true).is_empty());
     }
 }
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn test_build_network_interfaces(
+    adapters: &[crate::win32_net::NativeNic],
+    active_only: bool,
+) -> Vec<NetworkInterface> {
+    build_network_interfaces(adapters, active_only)
+}

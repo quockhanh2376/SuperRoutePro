@@ -5,6 +5,34 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 9 (NIC Snapshot Resolution Test Seam)
+
+**Done**
+- Added a focused integration-style regression seam for the NIC description path that has been a real source of churn in this codebase.
+- Exposed a tiny test-only helper from `src-tauri/src/network_snapshot.rs` so integration tests can exercise the snapshot interface shaping without widening the production API.
+- Added `src-tauri/tests/nic_snapshot_resolution.rs` to lock two behaviors together:
+  - active snapshot rows surface the enriched adapter description instead of generic friendly aliases like `Ethernet 2`
+  - the snapshot-derived NIC identifier still resolves cleanly through the startup route service lookup path
+- Kept the slice intentionally narrow and test-first:
+  - no runtime behavior changed
+  - no frontend code changed
+  - no new production command surface was added
+
+**Notes And Decisions**
+- This slice targets the exact seam called out in `NeedToDo.md`: protecting the network snapshot + stable NIC resolution behavior with a regression test that crosses module boundaries.
+- I kept the helper test-only so production code does not gain extra surface area just to satisfy integration coverage.
+- The test data intentionally mirrors the kind of enriched-vs-generic adapter naming that previously caused the UI to bounce between `Ethernet N` and richer vendor descriptions.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test nic_snapshot_resolution --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- The next thin slice can stay backend-only and focus on the remaining repair orchestration hot path, or switch to a small AU speed-test validation slice if product wants that track resumed.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 8 (Repair Helper Dedup Follow-Up)
 
 **Done**
