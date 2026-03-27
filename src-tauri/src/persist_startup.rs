@@ -1,6 +1,6 @@
-use crate::route_persist::{self, PersistConfig};
 #[cfg(target_os = "windows")]
 use crate::process_exec::run_hidden_output_blocking;
+use crate::route_persist::{self, PersistConfig};
 
 #[cfg(target_os = "windows")]
 const STARTUP_TASK_NAME: &str = "SuperRouteProPersist";
@@ -79,7 +79,7 @@ fn register_startup_task() -> Result<(), String> {
 
     let _ = delete_task_if_exists(STARTUP_TASK_NAME);
 
-    let output = run_hidden_output_blocking(
+    let output = run_task_command(
         "schtasks",
         &[
             "/Create",
@@ -95,11 +95,8 @@ fn register_startup_task() -> Result<(), String> {
         ],
     )?;
 
-    if !output.status.success() {
-        return Err(format!(
-            "Task registration failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+    if let TaskCommandStatus::Failed(detail) = task_command_status(&output) {
+        return Err(format!("Task registration failed: {detail}"));
     }
 
     Ok(())
@@ -108,6 +105,18 @@ fn register_startup_task() -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn unregister_startup_task() -> Result<(), String> {
     delete_task_if_exists(STARTUP_TASK_NAME)
+}
+
+#[cfg(target_os = "windows")]
+enum TaskCommandStatus {
+    Success,
+    Missing,
+    Failed(String),
+}
+
+#[cfg(target_os = "windows")]
+fn run_task_command(program: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    run_hidden_output_blocking(program, args)
 }
 
 #[cfg(target_os = "windows")]
@@ -130,14 +139,22 @@ fn task_missing_marker_present(output: &std::process::Output) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
-    let output = run_hidden_output_blocking("schtasks", &["/Delete", "/TN", task_name, "/F"])?;
+fn task_command_status(output: &std::process::Output) -> TaskCommandStatus {
+    if output.status.success() {
+        TaskCommandStatus::Success
+    } else if task_missing_marker_present(output) {
+        TaskCommandStatus::Missing
+    } else {
+        TaskCommandStatus::Failed(task_command_output(output))
+    }
+}
 
-    if !output.status.success() && !task_missing_marker_present(&output) {
-        return Err(format!(
-            "Task removal failed: {}",
-            task_command_output(&output)
-        ));
+#[cfg(target_os = "windows")]
+fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
+    let output = run_task_command("schtasks", &["/Delete", "/TN", task_name, "/F"])?;
+
+    if let TaskCommandStatus::Failed(detail) = task_command_status(&output) {
+        return Err(format!("Task removal failed: {detail}"));
     }
 
     Ok(())
@@ -145,22 +162,20 @@ fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn query_task_exists(task_name: &str) -> Result<bool, String> {
-    let output = run_hidden_output_blocking("schtasks", &["/Query", "/TN", task_name])?;
+    let output = run_task_command("schtasks", &["/Query", "/TN", task_name])?;
 
-    if output.status.success() {
-        return Ok(true);
-    }
-
-    if task_missing_marker_present(&output) {
-        Ok(false)
-    } else {
-        Err(format!("Task query failed: {}", task_command_output(&output)))
+    match task_command_status(&output) {
+        TaskCommandStatus::Success => Ok(true),
+        TaskCommandStatus::Missing => Ok(false),
+        TaskCommandStatus::Failed(detail) => Err(format!("Task query failed: {detail}")),
     }
 }
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::{task_command_output, task_missing_marker_present};
+    use super::{
+        task_command_output, task_command_status, task_missing_marker_present, TaskCommandStatus,
+    };
     use std::os::windows::process::ExitStatusExt;
 
     fn output(status: u32, stdout: &str, stderr: &str) -> std::process::Output {
@@ -193,5 +208,26 @@ mod tests {
     fn task_command_output_combines_stdout_and_stderr() {
         let output = output(1, "stdout line", "stderr line");
         assert_eq!(task_command_output(&output), "stdout line\nstderr line");
+    }
+
+    #[test]
+    fn task_command_status_distinguishes_success_missing_and_failure() {
+        let success = output(0, "ok", "");
+        assert!(matches!(
+            task_command_status(&success),
+            TaskCommandStatus::Success
+        ));
+
+        let missing = output(1, "", "WARNING: The task does not exist.");
+        assert!(matches!(
+            task_command_status(&missing),
+            TaskCommandStatus::Missing
+        ));
+
+        let failed = output(1, "", "Access is denied.");
+        assert!(matches!(
+            task_command_status(&failed),
+            TaskCommandStatus::Failed(message) if message == "Access is denied."
+        ));
     }
 }
