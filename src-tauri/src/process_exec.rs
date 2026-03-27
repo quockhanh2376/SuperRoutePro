@@ -1,5 +1,7 @@
 #[cfg(target_os = "windows")]
 use crate::win32_consts::CREATE_NO_WINDOW;
+#[cfg(target_os = "windows")]
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
@@ -9,6 +11,26 @@ pub const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+pub(crate) fn command_exists_on_path(name: &str) -> bool {
+    command_exists_on_path_value(name, std::env::var("PATH").ok().as_deref())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn command_exists_on_path_value(name: &str, path_var: Option<&str>) -> bool {
+    let exe_name = if name.contains('.') {
+        name.to_string()
+    } else {
+        format!("{name}.exe")
+    };
+
+    path_var
+        .unwrap_or_default()
+        .split(';')
+        .filter(|entry| !entry.trim().is_empty())
+        .any(|dir| Path::new(dir.trim()).join(&exe_name).is_file())
+}
 
 pub fn run_process_blocking(
     program: &str,
@@ -149,14 +171,38 @@ pub async fn run_process(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "windows")]
+    use super::command_exists_on_path_value;
     use super::ps_escape_single_quoted;
+    #[cfg(target_os = "windows")]
+    use std::fs;
 
     #[test]
     fn single_quote_escaping_doubles_embedded_quotes() {
-        assert_eq!(
-            ps_escape_single_quoted("Contoso's App"),
-            "Contoso''s App"
-        );
+        assert_eq!(ps_escape_single_quoted("Contoso's App"), "Contoso''s App");
         assert_eq!(ps_escape_single_quoted("plain"), "plain");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn command_exists_on_path_value_honors_semicolon_entries_and_appends_exe() {
+        let temp_root = std::env::temp_dir().join("srp-process-exec-path-test");
+        let tool_dir = temp_root.join("bin");
+        fs::create_dir_all(&tool_dir).expect("temp tool dir should be creatable");
+        fs::write(tool_dir.join("demo-tool.exe"), b"stub")
+            .expect("temp exe stub should be creatable");
+
+        let path_value = tool_dir.to_string_lossy().to_string();
+        assert!(command_exists_on_path_value("demo-tool", Some(&path_value)));
+        assert!(command_exists_on_path_value(
+            "demo-tool.exe",
+            Some(&path_value)
+        ));
+        assert!(!command_exists_on_path_value(
+            "demo-tool",
+            Some(r"D:\missing-dir")
+        ));
+
+        fs::remove_dir_all(&temp_root).expect("temp tool dir should be removable");
     }
 }

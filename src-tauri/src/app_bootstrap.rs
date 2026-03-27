@@ -1,4 +1,6 @@
 #[cfg(target_os = "windows")]
+use crate::process_exec::command_exists_on_path;
+#[cfg(target_os = "windows")]
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime, WebviewWindowBuilder};
 
@@ -80,7 +82,7 @@ fn validate_runtime_environment() -> Result<(), String> {
     }
 
     for command in REQUIRED_COMMANDS {
-        if !command_exists(command) {
+        if !command_exists_on_path(command) {
             failures.push(format!("Required system command is missing: {command}"));
         }
     }
@@ -140,24 +142,6 @@ fn detect_windows_build_number() -> Option<u32> {
         "CurrentBuildNumber",
     )
     .and_then(|value| value.trim().parse::<u32>().ok())
-}
-
-#[cfg(target_os = "windows")]
-fn command_exists(name: &str) -> bool {
-    if let Ok(path_var) = std::env::var("PATH") {
-        let exe_name = if name.contains('.') {
-            name.to_string()
-        } else {
-            format!("{name}.exe")
-        };
-        for dir in path_var.split(';') {
-            let candidate = Path::new(dir).join(&exe_name);
-            if candidate.is_file() {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 #[cfg(target_os = "windows")]
