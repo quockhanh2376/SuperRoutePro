@@ -2,6 +2,7 @@ mod app_bootstrap;
 mod battery;
 mod bloatware_catalog;
 pub mod cache_cleanup;
+mod connectivity_probe;
 mod network;
 mod network_snapshot;
 mod persist_commands;

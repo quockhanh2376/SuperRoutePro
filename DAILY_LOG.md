@@ -5,6 +5,33 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-27 - NeedToDo Slice 7 (Extract Connectivity Probe Module)
+
+**Done**
+- Continued the backend cleanup track with another thin slice focused on reducing the size and responsibility of `src-tauri/src/network.rs`.
+- Moved the new internet connectivity probe implementation out of `src-tauri/src/network.rs` into a dedicated `src-tauri/src/connectivity_probe.rs` module.
+- Kept the shipped behavior intact:
+  - `check_internet()` still returns the same `Result<bool, String>` contract to the frontend
+  - the sequential `Microsoft Connect Test -> Cloudflare trace` fallback model is unchanged
+  - the short per-probe timeout and captive-portal-resistant response classification remain unchanged
+- Moved the probe-specific matcher tests with the code so future changes to the connectivity path stay isolated from route/DHCP/cache-cleanup tests in `network.rs`.
+- Added the new module to `src-tauri/src/lib.rs` so the composition root owns the probe slice explicitly instead of leaving it buried inside the larger network command module.
+
+**Notes And Decisions**
+- This slice intentionally did not widen scope into richer UI diagnostics or probe-source reporting. The goal here was module boundary cleanup only.
+- Keeping probe tests beside the probe module makes the remaining `network.rs` test block easier to scan because it now focuses on command shaping, DHCP semantics, and validator behavior.
+- This is a maintainability slice rather than a behavior slice, but it continues the broader NeedToDo goal of shrinking backend hotspots into more legible feature modules.
+
+**Verification**
+- `npm run test:node`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test persist_config_roundtrip --test repair_broker_flow --test route_service_behavior --test speed_test_targets_contract`
+
+**Next Steps**
+- If we keep slicing the backend hotspot down, the next good candidate is the remaining repair helper cleanup path in `repair_actions.rs`, or a focused NIC-resolution integration test slice.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - NeedToDo Slice 6 (Explicit Internet Probe Model)
 
 **Done**
