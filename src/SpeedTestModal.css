@@ -349,24 +349,25 @@
 
 .speed-test-live-label {
   color: #94a3b8;
-  font-size: 0.68rem;
+  font-size: 0.58rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .speed-test-live-value {
   color: #f8fafc;
-  font-size: 1.5rem;
+  font-size: 1.28rem;
   line-height: 1.1;
-  font-weight: 900;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .speed-test-live-copy {
   color: #cbd5e1;
-  font-size: 0.76rem;
+  font-size: 0.65rem;
   line-height: 1.45;
+  font-weight: 500;
 }
 
 .speed-test-live-meter {
