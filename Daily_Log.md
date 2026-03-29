@@ -5,6 +5,23 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Thin Repair Actions Cleanup
+
+**Done**
+- Reduced duplicate request-validation flow in `src-tauri/src/repair_actions.rs` by centralizing the validated cleanup-target and Appx-package selection steps.
+- Kept the behavior unchanged while removing repeated sanitize/selection work from:
+  - profile cleanup validation + execution
+  - Appx removal validation + execution
+- Simplified `cleanup_plan_for_profile_root(...)` by removing an unnecessary intermediate `Vec` allocation during path flattening.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test repair_protocol --test repair_targets`
+
+**Next Steps**
+- Continue the thin `10.1.7` cleanup line by reviewing remaining bootstrap/path helpers for similarly low-risk reductions.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Daily Log Consolidation
 
 **Done**

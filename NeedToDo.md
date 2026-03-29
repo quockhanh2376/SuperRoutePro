@@ -22,6 +22,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 ### Completed
 
+- [x] Reduce duplicated request-validation / selection flow inside `repair_actions.rs` so cleanup/Appx execution paths reuse validated target/package selections instead of re-sanitizing after validation.
 - [x] Unify startup persistence onto the current persisted-startup path and remove the legacy split startup behavior.
 - [x] Replace generic DHCP renew shell chaining with typed execution that preserves success semantics and timeout behavior.
 - [x] Harden network command validation so quoted adapter names with parentheses are allowed, while dangerous shell chaining remains blocked.

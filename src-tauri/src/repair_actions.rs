@@ -28,12 +28,7 @@ fn cleanup_plan_for_profile_root(profile_root: &Path, targets: &[String]) -> Vec
     targets
         .iter()
         .filter_map(|target| cleanup_paths_for_profile_root(profile_root, target))
-        .flat_map(|paths| {
-            paths
-                .into_iter()
-                .map(|path| path.to_string_lossy().to_string())
-                .collect::<Vec<_>>()
-        })
+        .flat_map(|paths| paths.into_iter().map(|path| path.to_string_lossy().to_string()))
         .collect()
 }
 
@@ -51,32 +46,47 @@ fn selected_appx_packages(request: &AppxRemovalRequest) -> Vec<String> {
         .collect()
 }
 
-pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
+fn validated_cleanup_targets(request: &ProfileCleanupRequest) -> Result<Vec<String>, String> {
     if !validate_target_sid(&request.target_sid) {
         return Err("Missing or invalid target SID for profile cleanup.".to_string());
     }
 
-    if selected_cleanup_targets(request).is_empty() {
+    let selected = selected_cleanup_targets(request);
+    if selected.is_empty() {
         return Err("No valid cleanup targets selected.".to_string());
     }
 
-    Ok(())
+    Ok(selected)
+}
+
+fn validated_appx_packages(request: &AppxRemovalRequest) -> Result<Vec<String>, String> {
+    if !validate_target_sid(&request.target_sid) {
+        return Err("Missing or invalid target SID for Appx removal.".to_string());
+    }
+
+    let selected = selected_appx_packages(request);
+    if selected.is_empty() {
+        return Err("No valid Appx packages selected.".to_string());
+    }
+
+    Ok(selected)
+}
+
+pub fn validate_profile_cleanup_request(request: &ProfileCleanupRequest) -> Result<(), String> {
+    validated_cleanup_targets(request).map(|_| ())
 }
 
 pub fn build_profile_cleanup_plan_for_target(
     target_user: &RepairTargetUser,
     request: &ProfileCleanupRequest,
 ) -> Result<Vec<String>, String> {
-    validate_profile_cleanup_request(request)?;
+    let selected_targets = validated_cleanup_targets(request)?;
 
     if target_user.sid != request.target_sid {
         return Err("Cleanup request target SID does not match resolved target user.".to_string());
     }
 
-    let plan = cleanup_plan_for_profile_root(
-        Path::new(&target_user.profile_path),
-        &selected_cleanup_targets(request),
-    );
+    let plan = cleanup_plan_for_profile_root(Path::new(&target_user.profile_path), &selected_targets);
 
     if plan.is_empty() {
         return Err("No profile cleanup paths resolved for the selected target.".to_string());
@@ -86,15 +96,7 @@ pub fn build_profile_cleanup_plan_for_target(
 }
 
 pub fn validate_appx_removal_request(request: &AppxRemovalRequest) -> Result<(), String> {
-    if !validate_target_sid(&request.target_sid) {
-        return Err("Missing or invalid target SID for Appx removal.".to_string());
-    }
-
-    if selected_appx_packages(request).is_empty() {
-        return Err("No valid Appx packages selected.".to_string());
-    }
-
-    Ok(())
+    validated_appx_packages(request).map(|_| ())
 }
 
 pub fn run_machine_action_blocking(
@@ -267,9 +269,8 @@ pub fn clear_profile_caches_blocking(
         return Ok(result);
     }
 
-    validate_profile_cleanup_request(&request)?;
+    let selected_targets = validated_cleanup_targets(&request)?;
     let target_user = resolve_repair_target_by_sid(&request.target_sid)?;
-    let selected_targets = selected_cleanup_targets(&request);
 
     let mut output_lines = vec![
         format!(
@@ -333,10 +334,8 @@ pub fn remove_appx_for_target_blocking(
         return Ok(result);
     }
 
-    validate_appx_removal_request(&request)?;
+    let selected = validated_appx_packages(&request)?;
     let target_user = resolve_repair_target_by_sid(&request.target_sid)?;
-
-    let selected = selected_appx_packages(&request);
 
     let mut output_lines = vec![
         format!(
