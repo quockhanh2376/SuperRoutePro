@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Thin Network Helper Cleanup
+
+**Done**
+- Reduced repeated small helper state in `src-tauri/src/network.rs` by centralizing:
+  - the DHCP timeout label builder
+  - adapter enable/disable fallback copy
+  - the allowed diagnostic command prefix catalog
+- Kept runtime behavior unchanged; this slice only moved repeated constants/strings into shared helpers.
+- Refreshed local dependencies with `npm ci` after discovering the local `tsx` binary was missing from `node_modules`, then re-ran the full repo validation gate successfully.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib network`
+- `npm run check`
+
+**Next Steps**
+- If we keep pushing `10.1.7` as a thin cleanup release, the next pass should still stay helper-only and avoid changing command/runtime behavior in `network.rs`.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Thin Bootstrap And Windows Path Cleanup
 
 **Done**

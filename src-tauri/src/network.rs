@@ -9,6 +9,23 @@ use std::collections::HashSet;
 use std::process::Output;
 use std::time::{Duration, Instant};
 
+const ALLOWED_NETWORK_COMMAND_PREFIXES: [&str; 12] = [
+    "ipconfig",
+    "ipconfig /displaydns",
+    "powercfg /batteryreport",
+    "tracert",
+    "nslookup",
+    "netsh wlan show interface",
+    "netsh winhttp reset proxy",
+    "netsh int ip reset",
+    "netsh winsock reset",
+    "netsh interface ip delete arpcache",
+    "netsh interface set interface",
+    "netsh advfirewall reset",
+];
+
+const DHCP_RENEW_COMMAND_LABEL: &str = "ipconfig /release && ipconfig /renew";
+
 // ======================== DATA TYPES ========================
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,26 +81,34 @@ fn command_result_from_outputs(
     }
 }
 
+fn dhcp_timeout_message(total_timeout: Duration) -> String {
+    format!(
+        "Command timed out after {}s: {}",
+        total_timeout.as_secs(),
+        DHCP_RENEW_COMMAND_LABEL
+    )
+}
+
 fn remaining_dhcp_timeout(started: Instant, total_timeout: Duration) -> Result<Duration, String> {
     total_timeout
         .checked_sub(started.elapsed())
         .filter(|timeout| !timeout.is_zero())
-        .ok_or_else(|| {
-            format!(
-                "Command timed out after {}s: ipconfig /release && ipconfig /renew",
-                total_timeout.as_secs()
-            )
-        })
+        .ok_or_else(|| dhcp_timeout_message(total_timeout))
 }
 
 fn normalize_dhcp_timeout_error(err: String, total_timeout: Duration) -> String {
     if err.starts_with("Command timed out after") {
-        format!(
-            "Command timed out after {}s: ipconfig /release && ipconfig /renew",
-            total_timeout.as_secs()
-        )
+        dhcp_timeout_message(total_timeout)
     } else {
         err
+    }
+}
+
+fn adapter_enable_fallbacks(enabled: bool) -> (&'static str, &'static str) {
+    if enabled {
+        ("Adapter enabled.", "Adapter enable failed.")
+    } else {
+        ("Adapter disabled.", "Adapter disable failed.")
     }
 }
 
@@ -355,6 +380,7 @@ pub fn set_adapter_enabled_blocking(
     enabled: bool,
 ) -> Result<CommandResult, String> {
     let name_arg = format!(r#"name="{}""#, interface_name);
+    let (success_fallback, failure_fallback) = adapter_enable_fallbacks(enabled);
     let admin_arg = if enabled {
         "admin=enabled"
     } else {
@@ -365,35 +391,12 @@ pub fn set_adapter_enabled_blocking(
         "netsh",
         &["interface", "set", "interface", &name_arg, admin_arg],
         Duration::from_secs(NETWORK_COMMAND_TIMEOUT_SECS),
-        if enabled {
-            "Adapter enabled."
-        } else {
-            "Adapter disabled."
-        },
-        if enabled {
-            "Adapter enable failed."
-        } else {
-            "Adapter disable failed."
-        },
+        success_fallback,
+        failure_fallback,
     )
 }
 
 fn validate_network_command(command: &str) -> Result<(), String> {
-    let allowed_prefixes = [
-        "ipconfig",
-        "ipconfig /displaydns",
-        "powercfg /batteryreport",
-        "tracert",
-        "nslookup",
-        "netsh wlan show interface",
-        "netsh winhttp reset proxy",
-        "netsh int ip reset",
-        "netsh winsock reset",
-        "netsh interface ip delete arpcache",
-        "netsh interface set interface",
-        "netsh advfirewall reset",
-    ];
-
     let trimmed = command.trim();
     let cmd_lower = trimmed.to_ascii_lowercase();
     let has_shell_metacharacters = contains_disallowed_shell_metacharacters(trimmed);
@@ -402,7 +405,7 @@ fn validate_network_command(command: &str) -> Result<(), String> {
         return Err("Command not allowed".to_string());
     }
 
-    if allowed_prefixes
+    if ALLOWED_NETWORK_COMMAND_PREFIXES
         .iter()
         .any(|prefix| cmd_lower.starts_with(prefix))
     {
