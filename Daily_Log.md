@@ -5,6 +5,24 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Speed Test Modal Polish And AU Scope Decision
+
+**Done**
+- Tightened the live metric-card layout by reducing the desktop width of the `Live Throughput` card so the in-run dashboard feels less visually top-heavy.
+- Reviewed the shipped AU target catalog and confirmed the current backend only supports `Auto Australia` as a Cloudflare preferred-region profile.
+- Chose to keep `Auto Australia` as the current product scope because there are still no validated city-pinned AU backends wired into `speed_test_targets.rs`.
+- Kept the current final summary identity baseline (`Target / Provider / Region`) as the default post-run metadata set; revisit only if product wants more detail.
+
+**Notes And Decisions**
+- If product later wants city-pinned AU targets, the next step is sourcing and validating real backend endpoints first, then adding catalog entries only after runtime verification succeeds.
+- This pass is UI/product-direction polish only; it does not change Speed Test backend behavior.
+
+**Verification**
+- `npm exec -- tsx --test tests/SpeedTestModal.test.tsx`
+- `npm run build`
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Thin Network Helper Cleanup
 
 **Done**

@@ -324,7 +324,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(200px, 1.08fr) repeat(3, minmax(0, 0.97fr));
   gap: 0.75rem;
 }
 
@@ -341,7 +341,7 @@
 }
 
 .speed-test-live-card-primary {
-  grid-column: span 2;
+  grid-column: span 1;
   background:
     radial-gradient(circle at top right, rgba(56, 189, 248, 0.2), transparent 30%),
     linear-gradient(180deg, rgba(8, 47, 73, 0.82), rgba(12, 18, 32, 0.92));

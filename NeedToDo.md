@@ -22,6 +22,8 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 ### Completed
 
+- [x] Keep `Auto Australia` as the current AU scope until validated city-pinned AU backends are available and runtime-tested.
+- [x] Tighten the live Speed Test metric-card balance by shrinking the desktop width of the `Live Throughput` card.
 - [x] Reduce repeated DHCP timeout text, adapter state fallback text, and allowed-prefix catalog setup inside `network.rs` without changing command behavior.
 - [x] Reduce duplicated WebView directory creation and env-path normalization helper code across `app_bootstrap.rs` and `windows_paths.rs` without changing runtime behavior.
 - [x] Reduce duplicated request-validation / selection flow inside `repair_actions.rs` so cleanup/Appx execution paths reuse validated target/package selections instead of re-sanitizing after validation.
@@ -54,7 +56,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 - [ ] Evaluate true city-pinned Australia targets if product wants explicit Sydney / Melbourne / Brisbane / Perth selection instead of only `Auto Australia`.
 - [ ] Validate which public or owned backends are reliable enough for AU city pinning and compatible with the current engine.
-- [ ] Decide whether AU support should remain auto-region only or expand into a city selector in the modal.
+- [ ] Revisit the AU target decision only after at least one real city-pinned AU backend has been proven stable in runtime.
 
 ## Speed Test UI Direction
 
@@ -67,6 +69,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 ### Pending
 
 - [ ] Decide whether the current live metric cards need another visual polish pass for spacing, hierarchy, or motion.
+- [ ] Decide whether the final run summary needs metadata beyond the current `Target / Provider / Region` identity cards.
 
 ## Notes
 
