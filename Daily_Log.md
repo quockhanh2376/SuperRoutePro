@@ -5,6 +5,19 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Daily Log Consolidation
+
+**Done**
+- Reviewed both daily log files before cleanup.
+- Confirmed `Daily_Log2.md` was empty and did not contain any newer project history.
+- Consolidated the running project narrative into this single canonical file: `Daily_Log.md`.
+- Kept the richer, newer history already present in the main log so the latest release and planning context remain preserved.
+
+**Next Steps**
+- Continue updating only `Daily_Log.md` going forward.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-27 - Speed Test Final Summary Metadata Clarified
 
 **Done**
@@ -69,7 +82,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - I used a clean temporary worktree from `origin/main` for the promotion because the long-lived local worktree had a noisy `Cargo.lock` version diff from older branch state.
 - The merge/tag now reflect the release-ready branch head without carrying that local worktree noise into `main`.
-- `DAILY_LOG.md` is intentionally logged after the tag push as a docs-only follow-up, so `main` stays current even though the release tag itself points at the merge commit immediately before this note.
+- `Daily_Log.md` is intentionally logged after the tag push as a docs-only follow-up, so `main` stays current even though the release tag itself points at the merge commit immediately before this note.
 
 **Verification**
 - `git push origin HEAD:main`
@@ -719,12 +732,12 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - The `getmac` pass remains the expensive part of NIC enrichment on this machine, so the optimization keeps startup on `enumerate_adapters_basic()` and reuses cached basic adapter data for later stable-ID enrichment instead of re-running the full `netsh + netsh + getmac` chain.
 - The ping/IP-scan redesign is now split into a dedicated backend module, but the frontend orchestration flow still has room for a deeper hook split if we want to keep shrinking `App.tsx`.
 - `network.rs` is no longer the single home for snapshot read, battery, ping/fping, and cleanup helpers; route mutation, diagnostics, and bloatware remain there for now.
-- NotebookLM could not be updated directly from this session because local NotebookLM MCP health is currently `authenticated=false` and the library is empty. `DAILY_LOG.md` remains the source-of-truth file for the next notebook sync.
+- NotebookLM could not be updated directly from this session because local NotebookLM MCP health is currently `authenticated=false` and the library is empty. `Daily_Log.md` remains the source-of-truth file for the next notebook sync.
 
 **Next Steps**
 - Continue the `network.rs` split by extracting route mutation / diagnostics / bloatware catalog if we want the file to stop acting as the remaining Rust façade.
 - Consider a deeper frontend hook split for ping/IP-scan orchestration after the modal/UI extraction settles.
-- When NotebookLM auth/library is restored locally, sync this `DAILY_LOG.md` entry into the notebook source set.
+- When NotebookLM auth/library is restored locally, sync this `Daily_Log.md` entry into the notebook source set.
 
 --------------------------------------------------------------------------------
 
@@ -741,7 +754,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - The extraction stayed on the frontend only, per scope, and did not touch Rust, package metadata, or test files.
 - IP scan rendering now owns its own row sorting and counters inside the modal component, while `App.tsx` keeps only the orchestration state and handlers.
-- NotebookLM still consumes this `DAILY_LOG.md` file as the source-of-truth for session sync.
+- NotebookLM still consumes this `Daily_Log.md` file as the source-of-truth for session sync.
 
 **Next Steps**
 - Continue decomposing `App.tsx` if more low-risk UI clusters remain.
@@ -760,7 +773,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - `v10.1.5` is the first release where the Speed Test selector is backed by real non-Cloudflare regional endpoints instead of only the `Auto Asia` catalog foundation.
 - The release still keeps the scope intentionally curated: only the regional backends that were live-probed successfully from the current environment made it into the shipped catalog.
-- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` update remains the source file for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this `Daily_Log.md` update remains the source file for notebook refresh/re-sync.
 
 **Next Steps**
 - Monitor the `v10.1.5` tag workflow and verify the GitHub release assets publish cleanly.
@@ -796,7 +809,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
   - the Speed Test card is visible in desktop runtime,
   - the modal opens with the new regional selector/copy,
   - a live regional run completed and flowed back into the runtime card/status message.
-- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` remains the source update for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `Daily_Log.md` remains the source update for notebook refresh/re-sync.
 
 **Next Steps**
 - Ship the regional-target slice as `v10.1.5`.
@@ -816,7 +829,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - The NIC fix stays on the low-risk path: startup still uses the fast snapshot flow, while richer adapter names are restored immediately after load through the stable-ID enrichment pass.
 - The Speed Test release scope remains intentionally narrow: `Auto Asia` is the only real catalog entry in `v10.1.4`, and the UI keeps the selector disabled until more than one real target exists.
 - Rust/release verification had to move to `E:\\` target directories because `D:\\` ran out of space during local build work; the repo also had an untracked `.cargo-target-speedtest-catalog` temp directory removed to recover local disk space before the final release run.
-- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` is the release-side source update for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `Daily_Log.md` is the release-side source update for notebook refresh/re-sync.
 
 **Next Steps**
 - Push the release commit and tag so `v10.1.4` is available on the remote branch/release flow.
@@ -839,7 +852,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - `persistGetNicStableIds(interfaceIndexes)` is sufficient for the NIC enrichment pass because it resolves the requested interface indexes against the full enriched adapter enumeration and returns the richer adapter `description` plus MAC-backed stable ID data.
 - The Speed Test UI is now structurally ready for multi-target growth, but product behavior is still single-target in this build. That keeps the release truthful while reducing the amount of rework when real region-pinned targets are added later.
 - The target selector is disabled when only one catalog entry exists, so this slice does not imply user-selectable countries before the backend supports them.
-- NotebookLM still cannot be written directly from the current toolset, so this entry in `DAILY_LOG.md` remains the source update for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this entry in `Daily_Log.md` remains the source update for notebook refresh/re-sync.
 
 **Next Steps**
 - Commit the Speed Test target-catalog foundation as its own slice before touching version files.
@@ -871,7 +884,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - This slice is intentionally a catalog/contract slice, not a fake country-picker slice. The product still only supports the real `Auto Asia` target until backend endpoints exist for region-pinned tests.
 - Earlier native smoke work already confirmed the finalized runtime provider/server labels for the Cloudflare Asia auto-edge policy; this smoke pass focused on the new target selector shell and native modal plumbing.
-- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` entry remains the source file for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this `Daily_Log.md` entry remains the source file for notebook refresh/re-sync.
 
 **Next Steps**
 - Add real region-pinned targets only when the backend has concrete endpoints or provider strategy for them.
@@ -891,7 +904,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - This fix preserves the startup performance win from the basic snapshot path instead of reverting to the slower `getmac`-heavy load path.
 - The enrichment step is keyed by interface index so the UI can recover vendor/model naming without expanding backend surface area or delaying the first render.
-- NotebookLM still cannot be written directly from the current toolset, so this `DAILY_LOG.md` entry remains the source file for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this `Daily_Log.md` entry remains the source file for notebook refresh/re-sync.
 
 **Next Steps**
 - If the brief alias-first render is still noticeable on slower machines, add a small UI hint or skeleton state for description enrichment.
@@ -912,7 +925,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Notes And Decisions**
 - The previously shipped `v10.1.3` release artifact still showed the older wording because it was built before this Speed Test policy patch; that behavior is expected and not a regression in the new code.
 - For runtime verification of the new wording, the correct artifact was the freshly rebuilt native binary from the current branch, not the already-tagged `v10.1.3` installer.
-- NotebookLM still cannot be written directly from the current toolset, so this smoke-test note is recorded here in `DAILY_LOG.md` as the source file for notebook refresh/re-sync.
+- NotebookLM still cannot be written directly from the current toolset, so this smoke-test note is recorded here in `Daily_Log.md` as the source file for notebook refresh/re-sync.
 
 **Next Steps**
 - If we want this native smoke-tested policy to ship outside the branch, cut a new release/build from the updated commit rather than reusing the older `v10.1.3` installer.
@@ -936,7 +949,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - This change intentionally does **not** pretend to pin a specific Asia city or POP because the current provider path still uses Cloudflare's auto-routed public speed-test endpoints.
 - The product decision is now explicit: with the current backend, the supported behavior is `Asia auto-edge`, not `manual Asia server selection`.
 - If we later need a truly hard-pinned Asia test server, that will likely require a different provider strategy or a more opinionated multi-target backend rather than another label-only tweak.
-- NotebookLM cannot be written directly from the current toolset, so updating `DAILY_LOG.md` remains the source-of-truth path for the notebook to ingest on refresh/re-sync.
+- NotebookLM cannot be written directly from the current toolset, so updating `Daily_Log.md` remains the source-of-truth path for the notebook to ingest on refresh/re-sync.
 
 **Next Steps**
 - Do one native desktop smoke test and confirm the modal now reads `Cloudflare (Asia auto-edge)` plus the resolved policy-aware edge label in the metadata block.
@@ -969,7 +982,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
   - added frontend/model tests for persisted-route shaping and Speed Test modal rendering.
 - Startup persistence has been improved and the new per-route-NIC replay path is in place, but the roadmap's bigger goal of one clean source of truth is not finished yet because the legacy `SuperRoutePro-PersistWAN` path still exists beside the newer `SuperRouteProPersist` service flow.
 - Backend deduplication has started only at the small/shared-constant level; the larger duplicate cleanup across cache/bloatware/file helpers is still outstanding.
-- Documentation/logging are in much better shape through `DAILY_LOG.md` and `CHANGELOG.md`, but the broader stale-doc cleanup noted in the roadmap has not been fully completed.
+- Documentation/logging are in much better shape through `Daily_Log.md` and `CHANGELOG.md`, but the broader stale-doc cleanup noted in the roadmap has not been fully completed.
 
 **Not Done Yet**
 - Break up the `App.tsx` god component into smaller hooks/components/modules.
@@ -1232,17 +1245,17 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 ## 2026-03-22 - Post-Release Workflow Cleanup
 
 **Done**
-- Retired Beads from the tracked Super Route Pro workflow and kept `DAILY_LOG.md` as the single running narrative for NotebookLM follow-ups.
+- Retired Beads from the tracked Super Route Pro workflow and kept `Daily_Log.md` as the single running narrative for NotebookLM follow-ups.
 - Removed the local `.beads/` workspace and local `AGENTS.md` after migrating the remaining post-release follow-up and startup-persistence debt into this log.
 - Scrubbed tracked repo references to Beads so the shipped project no longer points contributors at a retired issue-tracking layer.
 - Confirmed the dedicated GitHub repo `quockhanh2376/SuperRoutePro-beads` has been deleted; `gh repo view quockhanh2376/SuperRoutePro-beads` now fails with repository not found.
 
 **Notes And Decisions**
-- Super Route Pro now treats `DAILY_LOG.md`, OpenSpec artifacts, and GitHub releases/issues as the maintained delivery trail instead of Beads/Dolt.
+- Super Route Pro now treats `Daily_Log.md`, OpenSpec artifacts, and GitHub releases/issues as the maintained delivery trail instead of Beads/Dolt.
 - Beads retirement is now complete both locally and on GitHub; there is no remaining Dolt/beads remote attached to the active SRP workflow.
 
 **Next Steps**
-- Continue tracking post-release follow-ups directly in `DAILY_LOG.md` and the existing release/docs workflow.
+- Continue tracking post-release follow-ups directly in `Daily_Log.md` and the existing release/docs workflow.
 
 --------------------------------------------------------------------------------
 
@@ -1324,7 +1337,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Moved the zoom controls into the primary header and updated their visual style to match the main action buttons.
 - Removed the divider between the zoom and Repair Mode controls for a cleaner unified header group.
 - Improved the light-mode `Command` chip so its blue color and label contrast are easier to read.
-- Updated `DAILY_LOG.md` so NotebookLM can stay aligned with the current release work.
+- Updated `Daily_Log.md` so NotebookLM can stay aligned with the current release work.
 
 **Next Steps**
 - Run End-to-End testing of the standard user UI with local admin credentials.
@@ -1367,7 +1380,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 - Establish a standalone daily log to track development
 
 **Done**
-- Created `DAILY_LOG.md` to track progress and decisions for Super Route Pro.
+- Created `Daily_Log.md` to track progress and decisions for Super Route Pro.
 
 **Notes And Decisions**
 - The project just completed the "Repair Service Migration" for standard user UI access.
