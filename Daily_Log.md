@@ -5,6 +5,22 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Thin Bootstrap And Windows Path Cleanup
+
+**Done**
+- Reduced repeated WebView directory creation logic in `src-tauri/src/app_bootstrap.rs` by centralizing the directory-create error formatting into one helper.
+- Reduced repeated environment-path trimming logic in `src-tauri/src/windows_paths.rs` by centralizing normalized env-value handling.
+- Kept behavior unchanged: this slice only removes duplication in low-risk helper code.
+
+**Verification**
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib app_bootstrap`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib windows_paths`
+
+**Next Steps**
+- Re-check whether any remaining bootstrap/path cleanup is still worth extracting, but keep the next pass equally thin.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Thin Repair Actions Cleanup
 
 **Done**

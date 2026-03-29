@@ -257,20 +257,10 @@ fn show_windows_error_dialog(title: &str, message: &str) {
 
 #[cfg(target_os = "windows")]
 fn prepare_webview_data_directory(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|err| {
-        format!(
-            "Unable to create WebView data directory {}: {err}",
-            path.display()
-        )
-    })?;
+    create_webview_directory(path, "WebView data directory")?;
 
     let webview_runtime_root = path.join("EBWebView");
-    std::fs::create_dir_all(&webview_runtime_root).map_err(|err| {
-        format!(
-            "Unable to create WebView runtime directory {}: {err}",
-            webview_runtime_root.display()
-        )
-    })?;
+    create_webview_directory(&webview_runtime_root, "WebView runtime directory")?;
 
     let probe_path = webview_runtime_root.join(".srp-write-probe");
     std::fs::write(&probe_path, b"probe").map_err(|err| {
@@ -282,6 +272,12 @@ fn prepare_webview_data_directory(path: &Path) -> Result<(), String> {
     let _ = std::fs::remove_file(&probe_path);
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn create_webview_directory(path: &Path, label: &str) -> Result<(), String> {
+    std::fs::create_dir_all(path)
+        .map_err(|err| format!("Unable to create {label} {}: {err}", path.display()))
 }
 
 #[cfg(target_os = "windows")]
@@ -324,12 +320,7 @@ fn reset_webview_data_directory(primary: &Path) -> Result<PathBuf, String> {
         })?;
     }
 
-    std::fs::create_dir_all(primary).map_err(|err| {
-        format!(
-            "Unable to recreate fresh WebView data directory {}: {err}",
-            primary.display()
-        )
-    })?;
+    create_webview_directory(primary, "fresh WebView data directory")?;
 
     Ok(reset_path)
 }
@@ -337,12 +328,7 @@ fn reset_webview_data_directory(primary: &Path) -> Result<PathBuf, String> {
 #[cfg(target_os = "windows")]
 fn create_fallback_webview_data_directory(primary: &Path) -> Result<PathBuf, String> {
     let fallback_path = next_webview_recovery_path(primary, "recovery");
-    std::fs::create_dir_all(&fallback_path).map_err(|err| {
-        format!(
-            "Unable to create fallback WebView data directory {}: {err}",
-            fallback_path.display()
-        )
-    })?;
+    create_webview_directory(&fallback_path, "fallback WebView data directory")?;
     Ok(fallback_path)
 }
 

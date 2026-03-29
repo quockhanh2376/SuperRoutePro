@@ -4,11 +4,12 @@ const DEFAULT_SYSTEM_ROOT: &str = r"C:\Windows";
 const DEFAULT_PROGRAM_DATA: &str = r"C:\ProgramData";
 const DEFAULT_USER_PROFILE: &str = r"C:\Users\Default";
 
+fn normalized_env_value(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 fn env_path_or_default(value: Option<&str>, fallback: &str) -> PathBuf {
-    let value = value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(fallback);
+    let value = normalized_env_value(value).unwrap_or(fallback);
     PathBuf::from(value)
 }
 
@@ -43,9 +44,7 @@ pub(crate) fn current_user_profile_root_from_values(
     local_app_data: Option<&str>,
     user_profile: Option<&str>,
 ) -> PathBuf {
-    let local_app_data = local_app_data
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    let local_app_data = normalized_env_value(local_app_data)
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             env_path_or_default(user_profile, DEFAULT_USER_PROFILE)
