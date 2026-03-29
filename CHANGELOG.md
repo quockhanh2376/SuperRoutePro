@@ -1,5 +1,20 @@
 # Changelog
 
+## Draft v10.1.7
+
+### Highlights
+- Continued the agreed thin-cleanup line after `10.1.6` without widening runtime risk: reduced duplicated request validation inside `repair_actions.rs`, trimmed repeated WebView/bootstrap and Windows path helper code, and centralized small repeated helper state in `network.rs`.
+- Kept the current Speed Test Australia scope at `Auto Australia` because the shipped backend catalog still has no validated city-pinned AU endpoints. The product can only move to city-specific AU targets after real backend candidates are sourced and verified in runtime.
+- Tightened the live Speed Test metric layout by shrinking the desktop width of the `Live Throughput` card so the in-run dashboard feels more balanced while preserving the existing `Target / Provider / Region` final-summary identity baseline.
+
+### Verification
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib --test repair_protocol --test repair_targets`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib app_bootstrap`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib windows_paths`
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib network`
+- `npm exec -- tsx --test tests/SpeedTestModal.test.tsx`
+- `npm run check`
+
 ## v10.1.6 (2026-03-27)
 
 ### Highlights
