@@ -5,6 +5,30 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-29 - Released v10.1.7 Thin Cleanup And Speed Test Stabilization
+
+**Done**
+- Released `v10.1.7` as a thin cleanup/hardening line on top of `v10.1.6`.
+- Shipped the backend maintainability slices in:
+  - `repair_actions.rs`
+  - `app_bootstrap.rs`
+  - `windows_paths.rs`
+  - `network.rs`
+- Kept Australia scoped to `Auto Australia` only because no validated city-pinned AU backends are wired into the shipped catalog yet.
+- Stabilized `Auto Australia` by moving the default Cloudflare download payload away from the `16 MB` path that reproduced `HTTP 403` during local runtime testing.
+- Polished the Speed Test modal by tightening the live metric-card layout, softening the live typography, shrinking the summary-card values, and increasing light-mode error contrast.
+- Updated release-facing docs and version files for `10.1.7`.
+
+**Verification**
+- `npm run check`
+- `npm run release:build`
+
+**Next Steps**
+- Watch the GitHub release workflow for the `v10.1.7` tag and confirm installer/assets publish cleanly.
+- Revisit true city-pinned AU targets only after real backend endpoints are sourced and verified in runtime.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Speed Test Modal Polish And AU Scope Decision
 
 **Done**

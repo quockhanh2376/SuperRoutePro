@@ -1,11 +1,12 @@
 # Changelog
 
-## Draft v10.1.7
+## v10.1.7 (2026-03-29)
 
 ### Highlights
 - Continued the agreed thin-cleanup line after `10.1.6` without widening runtime risk: reduced duplicated request validation inside `repair_actions.rs`, trimmed repeated WebView/bootstrap and Windows path helper code, and centralized small repeated helper state in `network.rs`.
 - Kept the current Speed Test Australia scope at `Auto Australia` because the shipped backend catalog still has no validated city-pinned AU endpoints. The product can only move to city-specific AU targets after real backend candidates are sourced and verified in runtime.
-- Tightened the live Speed Test metric layout by shrinking the desktop width of the `Live Throughput` card and reducing the in-run live typography weight/size so the dashboard feels more balanced while preserving the existing `Target / Provider / Region` final-summary identity baseline.
+- Stabilized `Auto Australia` by moving its default Cloudflare download payload away from the `16 MB` path that reproduced `HTTP 403` on the current runtime path, while keeping the target as an auto-region profile instead of prematurely introducing city-pinned AU endpoints.
+- Tightened the live Speed Test metric layout by shrinking the desktop width of the `Live Throughput` card, reducing the in-run live typography weight/size, and increasing the light-mode error-box contrast so the dashboard feels more balanced while preserving the existing `Target / Provider / Region` final-summary identity baseline.
 
 ### Verification
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib --test repair_protocol --test repair_targets`

@@ -22,6 +22,8 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 ### Completed
 
+- [x] Stabilize the shipped `Auto Australia` runtime path by moving the default Cloudflare download payload away from the locally reproducible `16 MB` -> `HTTP 403` path.
+- [x] Improve Speed Test readability further by shrinking the final summary-card values and increasing light-mode error contrast.
 - [x] Keep `Auto Australia` as the current AU scope until validated city-pinned AU backends are available and runtime-tested.
 - [x] Tighten the live Speed Test metric-card balance by shrinking the desktop width of the `Live Throughput` card.
 - [x] Reduce repeated DHCP timeout text, adapter state fallback text, and allowed-prefix catalog setup inside `network.rs` without changing command behavior.
