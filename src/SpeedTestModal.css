@@ -432,7 +432,7 @@
 
 .speed-test-identity-value {
   color: #f8fafc;
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 800;
   line-height: 1.35;
 }
@@ -461,7 +461,7 @@
 .speed-test-summary-value {
   margin-top: 0.45rem;
   color: #f8fafc;
-  font-size: 1.1rem;
+  font-size: 0.94rem;
   font-weight: 800;
 }
 
@@ -617,6 +617,12 @@
   border-color: rgba(13, 148, 136, 0.24);
   background: rgba(204, 251, 241, 0.92);
   color: #0f766e;
+}
+
+.theme-light .speed-test-error-box {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(254, 226, 226, 0.96);
+  color: #991b1b;
 }
 
 .theme-light .speed-test-stage-chip {

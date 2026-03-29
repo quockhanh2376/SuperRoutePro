@@ -636,12 +636,15 @@ mod tests {
     #[test]
     fn sanitize_download_mb_respects_target_profiles() {
         let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let auto_au =
+            resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
         let jp_kr = resolve_speed_test_target(Some("jp_kr")).expect("jp_kr target should resolve");
         let eu = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
 
         assert_eq!(sanitize_download_mb(None, auto_asia), 24);
         assert_eq!(sanitize_download_mb(Some(2), auto_asia), 8);
         assert_eq!(sanitize_download_mb(Some(48), auto_asia), 32);
+        assert_eq!(sanitize_download_mb(None, auto_au), 20);
         assert_eq!(sanitize_download_mb(None, jp_kr), 4);
         assert_eq!(sanitize_download_mb(Some(32), jp_kr), 8);
         assert_eq!(sanitize_download_mb(None, eu), 1);

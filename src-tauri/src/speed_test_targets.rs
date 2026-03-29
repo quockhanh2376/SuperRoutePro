@@ -82,7 +82,7 @@ const AUTO_AU_TARGET: SpeedTestTarget = SpeedTestTarget {
     download_url: "https://speed.cloudflare.com/__down",
     upload_url: "https://speed.cloudflare.com/__up",
     ip_lookup_url: "https://speed.cloudflare.com/cdn-cgi/trace",
-    default_download_mb: 16,
+    default_download_mb: 20,
     min_download_mb: 8,
     max_download_mb: 24,
     min_upload_bytes: 2 * 1024 * 1024,
