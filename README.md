@@ -74,6 +74,7 @@ This app provides a practical control panel for Windows networking tasks:
 
 - Native Tauri-backed speed test flow with progress events
 - `Auto Asia` and `Auto Australia` profiles plus fixed regional targets like `JP/KR`, `US West`, and `EU`
+- Australia currently ships as `Auto Australia`; city-pinned AU targets are intentionally deferred until real backend endpoints are validated in runtime.
 - Final summary shows dedicated `Target / Provider / Region` identity metadata
 
 ## 3) Tech Stack

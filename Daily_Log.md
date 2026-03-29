@@ -9,6 +9,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 **Done**
 - Tightened the live metric-card layout by reducing the desktop width of the `Live Throughput` card so the in-run dashboard feels less visually top-heavy.
+- Reduced the live in-run typography by roughly 15% and removed the heavier bold treatment so the metric cards read less aggressively in both dark mode and light mode.
 - Reviewed the shipped AU target catalog and confirmed the current backend only supports `Auto Australia` as a Cloudflare preferred-region profile.
 - Chose to keep `Auto Australia` as the current product scope because there are still no validated city-pinned AU backends wired into `speed_test_targets.rs`.
 - Kept the current final summary identity baseline (`Target / Provider / Region`) as the default post-run metadata set; revisit only if product wants more detail.

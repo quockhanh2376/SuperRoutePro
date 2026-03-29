@@ -16,9 +16,9 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 - [ ] Evaluate true city-pinned Australia targets if product wants explicit Sydney / Melbourne / Brisbane / Perth selection instead of only `Auto Australia`.
 - [ ] Validate which public or owned backends are reliable enough for AU city pinning and compatible with the current engine.
-- [ ] Decide whether AU support should remain auto-region only or expand into a city selector in the modal.
-- [ ] Decide whether the current live metric cards need another visual polish pass for spacing, hierarchy, or motion.
-- [ ] Decide whether the final run summary should expose more per-target metadata, especially when regional routing is involved.
+- [ ] Revisit the AU target decision only after at least one real city-pinned AU backend has been proven stable in runtime.
+- [ ] Re-evaluate whether the live metric cards still need another polish pass after the narrower `Live Throughput` card and reduced live typography changes.
+- [ ] Decide whether the final run summary should expose metadata beyond the current `Target / Provider / Region` identity cards.
 
 ### Completed
 
