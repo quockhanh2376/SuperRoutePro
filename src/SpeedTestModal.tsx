@@ -9,6 +9,12 @@ import {
   type SpeedTestTargetOption,
 } from "./api";
 import { formatSpeedTestError } from "./speedTestError";
+import {
+  formatMetricAmount,
+  splitMetricLabelLines,
+  useAnimatedMetricValue,
+  useSpeedTestMetricSnapshot,
+} from "./speedTestMetricDisplay";
 import { isTauriRuntime, runMockSpeedTest } from "./speedTestDemo";
 import { SpeedTestModalDialog } from "./SpeedTestModalView";
 import "./SpeedTestModal.css";
@@ -18,7 +24,7 @@ const DEFAULT_PROGRESS: SpeedTestProgress = {
   stage: "idle",
   percent: 0,
   current_speed_mbps: 0,
-  message: "Ready to measure download, upload, ping, and jitter.",
+  message: "Ready to measure download, upload, ping, and stability.",
 };
 
 const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
@@ -72,17 +78,11 @@ const BROWSER_DEMO_TARGETS: SpeedTestTargetOption[] = [
 const getInitialTargetOptions = (tauriRuntime: boolean): SpeedTestTargetOption[] =>
   tauriRuntime ? TAURI_FALLBACK_TARGETS : BROWSER_DEMO_TARGETS;
 
-const formatMetric = (value: number | null | undefined, suffix: string) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return `-- ${suffix}`;
-  }
-  return `${value.toFixed(1)} ${suffix}`;
-};
-
 type LaunchMetricProps = {
   iconToneClassName: string;
   label: string;
-  value: string;
+  unit: string;
+  value: number | null | undefined;
   Icon: LucideIcon;
 };
 
@@ -90,19 +90,33 @@ function LaunchMetric({
   iconToneClassName,
   label,
   value,
+  unit,
   Icon,
 }: LaunchMetricProps) {
+  const displayValue = useAnimatedMetricValue(value);
+  const amount = formatMetricAmount(displayValue);
+  const labelLines = splitMetricLabelLines(label);
+
   return (
     <div className="speed-test-launch-metric">
       <div className={`speed-test-launch-icon-shell ${iconToneClassName}`}>
         <Icon
           aria-hidden="true"
-          className="w-4 h-4"
+          className="speed-test-launch-icon-glyph"
         />
-      </div>
-      <div className="speed-test-launch-metric-copy">
-        <span className="speed-test-launch-label">{label}</span>
-        <span className="speed-test-launch-value">{value}</span>
+        <div className="speed-test-launch-orb-value">{amount}</div>
+        {unit && <div className="speed-test-launch-orb-unit">{unit}</div>}
+        <div className="speed-test-launch-orb-label" aria-label={label}>
+          {labelLines.map((labelLine, index) => (
+            <span
+              key={`${label}-${labelLine}`}
+              className="speed-test-launch-orb-label-line"
+            >
+              {labelLine}
+              {index === 0 && labelLines.length > 1 ? " /" : ""}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -192,6 +206,11 @@ export function SpeedTestModal({
     targetOptions.find((target) => target.id === selectedTargetId)
     ?? targetOptions[0]
     ?? null;
+  const summaryMetrics = useSpeedTestMetricSnapshot({
+    isTesting,
+    progress,
+    result,
+  });
 
   const handleStart = useCallback(async () => {
     const targetLabel = selectedTarget?.label ?? (tauriRuntime ? "Auto" : "Browser Preview");
@@ -251,52 +270,47 @@ export function SpeedTestModal({
     <>
       <div className="speed-test-launch-card">
         <div className="speed-test-launch-head">
-          <div>
-            <div className="speed-test-launch-title">
-              <Activity className="w-4 h-4" />
-              <span>Speed Test</span>
-            </div>
-            <p className="speed-test-launch-subtitle">
-              {tauriRuntime
-                ? "Open a dedicated modal for download, upload, ping, and jitter."
-                : "Preview the dedicated modal in browser demo mode before the native desktop runtime is available."}
-            </p>
-          </div>
           <button
             onClick={handleOpen}
-            className="speed-test-open-btn capsule-btn"
+            className="speed-test-launch-trigger"
+            title={tauriRuntime ? "Open Speed Test" : "Preview Speed Test"}
           >
-            {tauriRuntime ? "Open" : "Preview"}
+            <Activity className="w-4 h-4" />
+            <span>Speed Test</span>
           </button>
         </div>
 
         <div className="speed-test-launch-body">
-          {result ? (
+          {summaryMetrics.showSummary ? (
             <div className="speed-test-launch-results">
               <div className="speed-test-launch-metrics">
                 <LaunchMetric
                   iconToneClassName="speed-test-launch-icon-download"
                   Icon={ArrowDown}
                   label="Download"
-                  value={formatMetric(result.download_mbps, "Mbps")}
+                  unit="Mbps"
+                  value={summaryMetrics.downloadValue}
                 />
                 <LaunchMetric
                   iconToneClassName="speed-test-launch-icon-upload"
                   Icon={ArrowUp}
                   label="Upload"
-                  value={formatMetric(result.upload_mbps, "Mbps")}
+                  unit="Mbps"
+                  value={summaryMetrics.uploadValue}
                 />
                 <LaunchMetric
                   iconToneClassName="speed-test-launch-icon-ping"
                   Icon={Gauge}
                   label="Ping"
-                  value={formatMetric(result.ping_ms, "ms")}
+                  unit="ms"
+                  value={summaryMetrics.pingValue}
                 />
                 <LaunchMetric
                   iconToneClassName="speed-test-launch-icon-jitter"
                   Icon={Activity}
-                  label="Jitter / Stability"
-                  value={formatMetric(result.jitter_ms, "ms")}
+                  label="Stability"
+                  unit="ms"
+                  value={summaryMetrics.stabilityValue}
                 />
               </div>
 
@@ -304,11 +318,11 @@ export function SpeedTestModal({
                 <div className="speed-test-launch-server-grid">
                   <div className="speed-test-launch-server-row">
                     <span className="speed-test-launch-label">Server</span>
-                    <span className="speed-test-launch-server-value">{result.server_label}</span>
+                    <span className="speed-test-launch-server-value">{summaryMetrics.serverLabel}</span>
                   </div>
                   <div className="speed-test-launch-server-row">
                     <span className="speed-test-launch-label">Public IP</span>
-                    <span className="speed-test-launch-server-value">{result.ip || "--"}</span>
+                    <span className="speed-test-launch-server-value">{summaryMetrics.ipLabel}</span>
                   </div>
                 </div>
               </div>

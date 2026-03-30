@@ -73,6 +73,8 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
   assert.match(html, /LibreSpeed \(regional fixed backend\)/);
   assert.match(html, /Region Target/);
   assert.match(html, /Auto Australia/);
+  assert.match(html, /Stability/);
+  assert.doesNotMatch(html, /Jitter/);
 });
 
 test("SpeedTestModalDialog renders live metric cards while a run is active", () => {
@@ -115,6 +117,9 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
   assert.match(html, /Auto Australia/);
   assert.match(html, /Downloading/);
   assert.match(html, /Downloading 24 MB/);
+  assert.match(html, /Awaiting result/);
+  assert.match(html, /Checking\.\.\./);
+  assert.match(html, /Stability/);
 });
 
 test("SpeedTestModalDialog derives a stage-aware live status label", () => {

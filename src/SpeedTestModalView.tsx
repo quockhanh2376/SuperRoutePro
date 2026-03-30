@@ -1,4 +1,5 @@
-import { RefreshCw, X } from "lucide-react";
+import { useAnimatedMetricValue, formatMetricAmount, splitMetricLabelLines, useSpeedTestMetricSnapshot } from "./speedTestMetricDisplay";
+import { Activity, ArrowDown, ArrowUp, Gauge, RefreshCw, X, type LucideIcon } from "lucide-react";
 
 import type { SpeedTestProgress, SpeedTestResult, SpeedTestTargetOption } from "./api";
 
@@ -77,6 +78,50 @@ export type SpeedTestModalDialogProps = {
   targetOptions: SpeedTestTargetOption[];
 };
 
+type ResultSummaryMetricProps = {
+  iconToneClassName: string;
+  label: string;
+  unit: string;
+  value: number | null | undefined;
+  Icon: LucideIcon;
+};
+
+function ResultSummaryMetric({
+  iconToneClassName,
+  label,
+  value,
+  unit,
+  Icon,
+}: ResultSummaryMetricProps) {
+  const displayValue = useAnimatedMetricValue(value);
+  const amount = formatMetricAmount(displayValue);
+  const labelLines = splitMetricLabelLines(label);
+
+  return (
+    <div className="speed-test-summary-card-rich">
+      <div className={`speed-test-summary-icon-shell ${iconToneClassName}`}>
+        <Icon
+          aria-hidden="true"
+          className="speed-test-summary-icon-glyph"
+        />
+        <div className="speed-test-summary-orb-value">{amount}</div>
+        {unit && <div className="speed-test-summary-orb-unit">{unit}</div>}
+        <div className="speed-test-summary-orb-label" aria-label={label}>
+          {labelLines.map((labelLine, index) => (
+            <span
+              key={`${label}-${labelLine}`}
+              className="speed-test-summary-orb-label-line"
+            >
+              {labelLine}
+              {index === 0 && labelLines.length > 1 ? " /" : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SpeedTestModalDialog({
   error,
   isTesting,
@@ -101,6 +146,11 @@ export function SpeedTestModalDialog({
   const liveStatusLabel = getLiveStatusLabel(progress.stage);
   const liveThroughputValue = getLiveThroughputValue(progress.stage, progress.current_speed_mbps);
   const condensedProgressMessage = getCondensedProgressMessage(progress.stage, progress.message);
+  const summaryMetrics = useSpeedTestMetricSnapshot({
+    isTesting,
+    progress,
+    result,
+  });
 
   return (
     <div
@@ -136,7 +186,7 @@ export function SpeedTestModalDialog({
           </div>
         )}
 
-        <div className={`speed-test-top-layout ${result ? "speed-test-top-layout-with-results" : ""}`}>
+        <div className={`speed-test-top-layout ${summaryMetrics.showSummary ? "speed-test-top-layout-with-results" : ""}`}>
           <div className="speed-test-target-shell">
             <div className="speed-test-target-title-row">
               <div className="speed-test-target-title">Test Target</div>
@@ -159,43 +209,47 @@ export function SpeedTestModalDialog({
             </label>
           </div>
 
-          {result && (
+          {summaryMetrics.showSummary && (
             <div className="speed-test-result-sidebar">
               <div className="speed-test-summary-grid speed-test-summary-grid-top">
-                <div className="speed-test-summary-card">
-                  <div className="speed-test-summary-label">Download</div>
-                  <div className="speed-test-summary-value">
-                    {formatMetric(result.download_mbps, "Mbps")}
-                  </div>
-                </div>
-                <div className="speed-test-summary-card">
-                  <div className="speed-test-summary-label">Upload</div>
-                  <div className="speed-test-summary-value">
-                    {formatMetric(result.upload_mbps, "Mbps")}
-                  </div>
-                </div>
-                <div className="speed-test-summary-card">
-                  <div className="speed-test-summary-label">Ping</div>
-                  <div className="speed-test-summary-value">
-                    {formatMetric(result.ping_ms, "ms")}
-                  </div>
-                </div>
-                <div className="speed-test-summary-card">
-                  <div className="speed-test-summary-label">Jitter / Stability</div>
-                  <div className="speed-test-summary-value">
-                    {formatMetric(result.jitter_ms, "ms")}
-                  </div>
-                </div>
+                <ResultSummaryMetric
+                  iconToneClassName="speed-test-summary-icon-download"
+                  Icon={ArrowDown}
+                  label="Download"
+                  unit="Mbps"
+                  value={summaryMetrics.downloadValue}
+                />
+                <ResultSummaryMetric
+                  iconToneClassName="speed-test-summary-icon-upload"
+                  Icon={ArrowUp}
+                  label="Upload"
+                  unit="Mbps"
+                  value={summaryMetrics.uploadValue}
+                />
+                <ResultSummaryMetric
+                  iconToneClassName="speed-test-summary-icon-ping"
+                  Icon={Gauge}
+                  label="Ping"
+                  unit="ms"
+                  value={summaryMetrics.pingValue}
+                />
+                <ResultSummaryMetric
+                  iconToneClassName="speed-test-summary-icon-jitter"
+                  Icon={Activity}
+                  label="Stability"
+                  unit="ms"
+                  value={summaryMetrics.stabilityValue}
+                />
               </div>
 
               <div className="speed-test-meta-grid speed-test-meta-grid-top">
                 <div className="speed-test-meta-row">
                   <span className="speed-test-meta-label">Server</span>
-                  <span className="speed-test-meta-value">{result.server_label}</span>
+                  <span className="speed-test-meta-value">{summaryMetrics.serverLabel}</span>
                 </div>
                 <div className="speed-test-meta-row">
                   <span className="speed-test-meta-label">Public IP</span>
-                  <span className="speed-test-meta-value">{result.ip || "--"}</span>
+                  <span className="speed-test-meta-value">{summaryMetrics.ipLabel}</span>
                 </div>
               </div>
             </div>
