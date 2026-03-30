@@ -5,6 +5,23 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-30 - Speed Test Launch Metrics Switched To Round Badges
+
+**Done**
+- Reworked the four Speed Test launch summary metrics from rectangular stat cards into round-badge rows so the latest result snapshot now matches the approved direction more closely.
+- Kept the existing launch-card structure from `v10.1.8` intact: the refreshed `Download`, `Upload`, `Ping`, and `Jitter / Stability` badges still sit above the unchanged `Server` / `Public IP` row.
+- Added `release-artifacts/` to `.gitignore` so local release bundles no longer appear as untracked noise during follow-up work after a ship pass.
+- Pushed the UI follow-up to `main` in commit `629bb8c`.
+
+**Verification**
+- `npx tsx --test tests/SpeedTestModal.test.tsx`
+- `npm run build`
+
+**Next Steps**
+- If product wants a tighter match to the lighter mockup, the next UI pass should tune badge diameter, icon stroke weight, and light-theme contrast rather than reworking the layout again.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-30 - Pushed v10.1.8 Release Commit And Tag
 
 **Done**
