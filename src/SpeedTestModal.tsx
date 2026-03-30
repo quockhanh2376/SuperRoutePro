@@ -30,9 +30,9 @@ const DEFAULT_PROGRESS: SpeedTestProgress = {
 const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
   {
     id: "auto_asia",
-    label: "Auto",
-    description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
-    provider: "Cloudflare (auto-selected edge)",
+    label: "Auto Asia",
+    description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
+    provider: "Cloudflare (Asia auto-edge)",
     region_label: "Asia",
   },
   {
@@ -45,7 +45,7 @@ const TAURI_FALLBACK_TARGETS: SpeedTestTargetOption[] = [
   {
     id: "jp_kr",
     label: "JP/KR",
-    description: "Fixed regional backend pinned to Tokyo, Japan. Use this to compare against the auto-selected route without Cloudflare auto-edge routing.",
+    description: "Fixed Northeast Asia backend pinned to Tokyo, Japan. Use this to compare against Auto Asia without Cloudflare auto-edge routing.",
     provider: "LibreSpeed (regional fixed backend)",
     region_label: "JP/KR",
   },

@@ -10,8 +10,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const SPEED_TEST_PROGRESS_EVENT: &str = "speed-test://progress";
-const LATENCY_SAMPLES: usize = 6;
-const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 3;
+const LATENCY_SAMPLES: usize = 8;
+const LATENCY_WARMUP_SAMPLES: usize = 1;
+const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 5;
+const LATENCY_OUTLIER_MAD_MULTIPLIER: f64 = 3.5;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
@@ -41,6 +43,22 @@ enum SpeedTestRouteFit {
     Pending,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct LatencyMeasurement {
+    attempted_samples: usize,
+    successful_samples: usize,
+    stable_samples: usize,
+    ping_ms: f64,
+    jitter_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ThroughputMeasurement {
+    mbps: f64,
+    bytes_transferred: usize,
+    elapsed_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SpeedTestProgress {
@@ -57,11 +75,20 @@ pub struct SpeedTestResult {
     pub target_label: String,
     pub provider: String,
     pub region_label: String,
+    pub route_fit: String,
+    pub resolved_colo: Option<String>,
     pub server_label: String,
     pub download_mbps: f64,
     pub upload_mbps: f64,
     pub ping_ms: f64,
     pub jitter_ms: f64,
+    pub latency_samples: u32,
+    pub successful_latency_samples: u32,
+    pub stable_latency_samples: u32,
+    pub download_bytes: u64,
+    pub upload_bytes: u64,
+    pub download_elapsed_ms: u64,
+    pub upload_elapsed_ms: u64,
     pub ip: String,
     pub timestamp: String,
 }
@@ -77,6 +104,12 @@ pub async fn run_speed_test(
     let upload_bytes = resolve_upload_bytes(target, download_bytes);
     let client = build_client()?;
     let target_context = fetch_target_context(&client, target).await.ok();
+    let route_fit = resolve_speed_test_route_fit(target, target_context.as_ref().and_then(|context| context.trace.as_ref()));
+    let resolved_colo = target_context
+        .as_ref()
+        .and_then(|context| context.trace.as_ref())
+        .and_then(|trace| trace.colo.as_deref())
+        .map(str::to_string);
     let provider_label = resolve_speed_test_provider_label(target);
     let region_label = resolve_speed_test_region_label(target).to_string();
     let server_label = resolve_speed_test_server_label(target, target_context.as_ref());
@@ -94,9 +127,7 @@ pub async fn run_speed_test(
         build_preflight_message(target, &provider_label, target_context.as_ref()),
     )?;
 
-    let latency_points = measure_latency(&client, target).await?;
-    let ping_ms = average(&latency_points);
-    let jitter_ms = calculate_jitter(&latency_points);
+    let latency_measurement = measure_latency(&client, target).await?;
 
     emit_progress(
         &app,
@@ -104,19 +135,21 @@ pub async fn run_speed_test(
         18.0,
         0.0,
         format!(
-            "Latency baseline captured: {:.1} ms ping / {:.1} ms jitter.",
-            ping_ms, jitter_ms
+            "Latency baseline captured: {:.1} ms ping / {:.1} ms jitter across {} stable sample(s).",
+            latency_measurement.ping_ms,
+            latency_measurement.jitter_ms,
+            latency_measurement.stable_samples,
         ),
     )?;
 
-    let download_mbps = measure_download(&client, &app, target, download_bytes).await?;
-    let upload_mbps = measure_upload(&client, &app, target, upload_bytes).await?;
+    let download_measurement = measure_download(&client, &app, target, download_bytes).await?;
+    let upload_measurement = measure_upload(&client, &app, target, upload_bytes).await?;
 
     emit_progress(
         &app,
         "finalize",
         100.0,
-        download_mbps.max(upload_mbps),
+        download_measurement.mbps.max(upload_measurement.mbps),
         "Speed test finished.".to_string(),
     )?;
 
@@ -125,11 +158,20 @@ pub async fn run_speed_test(
         target_label: target.target_label.to_string(),
         provider: provider_label,
         region_label,
+        route_fit: route_fit_label(route_fit).to_string(),
+        resolved_colo,
         server_label,
-        download_mbps,
-        upload_mbps,
-        ping_ms,
-        jitter_ms,
+        download_mbps: download_measurement.mbps,
+        upload_mbps: upload_measurement.mbps,
+        ping_ms: latency_measurement.ping_ms,
+        jitter_ms: latency_measurement.jitter_ms,
+        latency_samples: latency_measurement.attempted_samples as u32,
+        successful_latency_samples: latency_measurement.successful_samples as u32,
+        stable_latency_samples: latency_measurement.stable_samples as u32,
+        download_bytes: download_measurement.bytes_transferred as u64,
+        upload_bytes: upload_measurement.bytes_transferred as u64,
+        download_elapsed_ms: download_measurement.elapsed_ms,
+        upload_elapsed_ms: upload_measurement.elapsed_ms,
         ip,
         timestamp: Utc::now().to_rfc3339(),
     })
@@ -137,6 +179,14 @@ pub async fn run_speed_test(
 
 fn resolve_speed_test_provider_label(target: SpeedTestTarget) -> String {
     target.provider_label.to_string()
+}
+
+fn route_fit_label(route_fit: SpeedTestRouteFit) -> &'static str {
+    match route_fit {
+        SpeedTestRouteFit::PreferredRegion => "preferred_region",
+        SpeedTestRouteFit::GlobalFallback => "global_fallback",
+        SpeedTestRouteFit::Pending => "pending",
+    }
 }
 
 fn build_preflight_message(
@@ -193,7 +243,10 @@ fn build_client() -> Result<Client, String> {
         .map_err(|error| describe_reqwest_error("Speed test client setup", &error))
 }
 
-async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec<f64>, String> {
+async fn measure_latency(
+    client: &Client,
+    target: SpeedTestTarget,
+) -> Result<LatencyMeasurement, String> {
     let mut points = Vec::with_capacity(LATENCY_SAMPLES);
     let mut last_error: Option<String> = None;
 
@@ -223,7 +276,21 @@ async fn measure_latency(client: &Client, target: SpeedTestTarget) -> Result<Vec
         ));
     }
 
-    Ok(points)
+    let stable_points = build_latency_baseline(&points);
+    if stable_points.len() < MIN_SUCCESSFUL_LATENCY_SAMPLES {
+        return Err(describe_latency_probe_failure(
+            stable_points.len(),
+            last_error.as_deref(),
+        ));
+    }
+
+    Ok(LatencyMeasurement {
+        attempted_samples: LATENCY_SAMPLES,
+        successful_samples: points.len(),
+        stable_samples: stable_points.len(),
+        ping_ms: median(&stable_points),
+        jitter_ms: calculate_jitter(&stable_points),
+    })
 }
 
 async fn measure_download(
@@ -231,7 +298,7 @@ async fn measure_download(
     app: &AppHandle,
     target: SpeedTestTarget,
     download_bytes: usize,
-) -> Result<f64, String> {
+) -> Result<ThroughputMeasurement, String> {
     emit_progress(
         app,
         "download",
@@ -282,8 +349,12 @@ async fn measure_download(
     }
 
     ensure_bytes_transferred("Download test", total_bytes)?;
-    let elapsed = started.elapsed().as_secs_f64().max(0.001);
-    Ok(bytes_to_mbps(total_bytes, elapsed))
+    let elapsed = started.elapsed();
+    Ok(ThroughputMeasurement {
+        mbps: bytes_to_mbps(total_bytes, elapsed.as_secs_f64().max(0.001)),
+        bytes_transferred: total_bytes,
+        elapsed_ms: milliseconds_from_duration(elapsed),
+    })
 }
 
 async fn measure_upload(
@@ -291,7 +362,7 @@ async fn measure_upload(
     app: &AppHandle,
     target: SpeedTestTarget,
     upload_bytes: usize,
-) -> Result<f64, String> {
+) -> Result<ThroughputMeasurement, String> {
     emit_progress(
         app,
         "upload",
@@ -312,8 +383,8 @@ async fn measure_upload(
         .error_for_status()
         .map_err(|error| describe_reqwest_error("Upload test", &error))?;
 
-    let elapsed = started.elapsed().as_secs_f64().max(0.001);
-    let upload_mbps = bytes_to_mbps(upload_bytes, elapsed);
+    let elapsed = started.elapsed();
+    let upload_mbps = bytes_to_mbps(upload_bytes, elapsed.as_secs_f64().max(0.001));
 
     emit_progress(
         app,
@@ -323,7 +394,11 @@ async fn measure_upload(
         "Upload stage complete.".to_string(),
     )?;
 
-    Ok(upload_mbps)
+    Ok(ThroughputMeasurement {
+        mbps: upload_mbps,
+        bytes_transferred: upload_bytes,
+        elapsed_ms: milliseconds_from_duration(elapsed),
+    })
 }
 
 fn build_latency_request_url(target: SpeedTestTarget, sample: usize) -> String {
@@ -518,15 +593,79 @@ fn bytes_to_mbps(total_bytes: usize, elapsed_seconds: f64) -> f64 {
     (total_bytes as f64 * 8.0) / elapsed_seconds / 1_000_000.0
 }
 
+fn milliseconds_from_duration(duration: Duration) -> u64 {
+    duration.as_millis().min(u64::MAX as u128) as u64
+}
+
 fn bytes_to_mebibytes(total_bytes: usize) -> usize {
     (total_bytes / 1024 / 1024).max(1)
 }
 
-fn average(points: &[f64]) -> f64 {
+fn median(points: &[f64]) -> f64 {
     if points.is_empty() {
         return 0.0;
     }
-    points.iter().sum::<f64>() / points.len() as f64
+
+    let mut sorted = points.to_vec();
+    sorted.sort_by(|left, right| left.total_cmp(right));
+    let middle = sorted.len() / 2;
+
+    if sorted.len() % 2 == 0 {
+        (sorted[middle - 1] + sorted[middle]) / 2.0
+    } else {
+        sorted[middle]
+    }
+}
+
+fn median_absolute_deviation(points: &[f64], median_value: f64) -> f64 {
+    if points.is_empty() {
+        return 0.0;
+    }
+
+    let deviations = points
+        .iter()
+        .map(|point| (point - median_value).abs())
+        .collect::<Vec<_>>();
+
+    median(&deviations)
+}
+
+fn filter_latency_outliers(points: &[f64]) -> Vec<f64> {
+    if points.len() <= MIN_SUCCESSFUL_LATENCY_SAMPLES {
+        return points.to_vec();
+    }
+
+    let median_value = median(points);
+    let mad = median_absolute_deviation(points, median_value);
+    if mad <= f64::EPSILON {
+        return points.to_vec();
+    }
+
+    let max_deviation = mad * LATENCY_OUTLIER_MAD_MULTIPLIER;
+    points
+        .iter()
+        .copied()
+        .filter(|point| (point - median_value).abs() <= max_deviation)
+        .collect()
+}
+
+fn build_latency_baseline(points: &[f64]) -> Vec<f64> {
+    let candidate_points = if points.len() > MIN_SUCCESSFUL_LATENCY_SAMPLES {
+        points
+            .iter()
+            .skip(LATENCY_WARMUP_SAMPLES)
+            .copied()
+            .collect::<Vec<_>>()
+    } else {
+        points.to_vec()
+    };
+
+    let filtered_points = filter_latency_outliers(&candidate_points);
+    if filtered_points.len() >= MIN_SUCCESSFUL_LATENCY_SAMPLES {
+        filtered_points
+    } else {
+        candidate_points
+    }
 }
 
 fn calculate_jitter(points: &[f64]) -> f64 {
@@ -539,7 +678,7 @@ fn calculate_jitter(points: &[f64]) -> f64 {
         .map(|pair| (pair[1] - pair[0]).abs())
         .collect();
 
-    average(&deltas)
+    median(&deltas)
 }
 
 fn parse_trace_metadata(trace: &str) -> SpeedTestTraceMetadata {
@@ -625,9 +764,10 @@ mod tests {
     use crate::speed_test_targets::resolve_speed_test_target;
 
     use super::{
-        build_download_request_url, build_latency_request_url, calculate_jitter,
-        describe_latency_probe_failure, describe_transport_error, ensure_bytes_transferred,
-        is_preferred_colo, parse_librespeed_public_ip, parse_trace_metadata,
+        build_download_request_url, build_latency_baseline, build_latency_request_url,
+        calculate_jitter, describe_latency_probe_failure, describe_transport_error,
+        ensure_bytes_transferred, is_preferred_colo, parse_librespeed_public_ip,
+        parse_trace_metadata,
         resolve_speed_test_provider_label, resolve_speed_test_route_fit,
         resolve_speed_test_server_label, resolve_upload_bytes, sanitize_download_mb,
         SpeedTestRouteFit, SpeedTestTargetContext, SpeedTestTraceMetadata,
@@ -677,10 +817,18 @@ mod tests {
     }
 
     #[test]
-    fn calculate_jitter_uses_average_gap_between_samples() {
+    fn calculate_jitter_uses_median_gap_between_samples() {
         let points = [10.0, 14.0, 15.0, 21.0];
         let jitter = calculate_jitter(&points);
-        assert!((jitter - 3.6666666667).abs() < 0.0001);
+        assert!((jitter - 4.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn build_latency_baseline_drops_warmup_and_large_outliers() {
+        let points = [58.0, 24.0, 25.0, 24.5, 25.1, 78.0, 24.8];
+        let baseline = build_latency_baseline(&points);
+
+        assert_eq!(baseline, vec![24.0, 25.0, 24.5, 25.1, 24.8]);
     }
 
     #[test]
@@ -851,7 +999,7 @@ mod tests {
         let message = describe_latency_probe_failure(1, Some("Latency probe timed out."));
         assert_eq!(
             message,
-            "Latency check collected only 1 stable sample(s). At least 3 successful probes are required. Latency probe timed out."
+            "Latency check collected only 1 stable sample(s). At least 5 successful probes are required. Latency probe timed out."
         );
     }
 

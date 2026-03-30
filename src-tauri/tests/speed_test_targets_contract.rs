@@ -83,3 +83,39 @@ fn speed_test_target_resolution_preserves_region_specific_server_labels() {
     assert_eq!(eu.target_label, "EU");
     assert_eq!(eu.default_server_label, "London, England (Clouvider)");
 }
+
+#[test]
+fn speed_test_target_payload_profiles_stay_within_guardrails() {
+    for id in ["auto_asia", "auto_au", "jp_kr", "us_west", "eu"] {
+        let target = resolve_speed_test_target(Some(id)).expect("target should resolve");
+        assert!(
+            target.min_download_mb <= target.default_download_mb,
+            "{id} default download size should stay above the minimum"
+        );
+        assert!(
+            target.default_download_mb <= target.max_download_mb,
+            "{id} default download size should stay below the maximum"
+        );
+        assert!(
+            target.min_upload_bytes <= target.max_upload_bytes,
+            "{id} upload bounds should stay ordered"
+        );
+    }
+
+    let auto_asia = resolve_speed_test_target(Some("auto_asia")).expect("auto_asia should resolve");
+    assert_eq!(auto_asia.default_download_mb, 24);
+    assert_eq!(auto_asia.max_download_mb, 32);
+
+    let auto_au = resolve_speed_test_target(Some("auto_au")).expect("auto_au should resolve");
+    assert_eq!(auto_au.default_download_mb, 20);
+    assert!(
+        auto_au.max_download_mb <= 24,
+        "Auto Australia should keep its HTTP-403 safety ceiling"
+    );
+
+    let eu = resolve_speed_test_target(Some("eu")).expect("eu should resolve");
+    assert!(
+        eu.max_download_mb <= 2,
+        "EU should keep its smaller long-haul payload cap"
+    );
+}

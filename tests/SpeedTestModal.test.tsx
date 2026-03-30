@@ -42,9 +42,9 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
       targetOptions={[
         {
           id: "auto_asia",
-          label: "Auto",
-          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
-          provider: "Cloudflare (auto-selected edge)",
+          label: "Auto Asia",
+          description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (Asia auto-edge)",
           region_label: "Asia",
         },
         {
@@ -97,9 +97,9 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
       targetOptions={[
         {
           id: "auto_asia",
-          label: "Auto",
-          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
-          provider: "Cloudflare (auto-selected edge)",
+          label: "Auto Asia",
+          description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (Asia auto-edge)",
           region_label: "Asia",
         },
         {
@@ -142,9 +142,9 @@ test("SpeedTestModalDialog derives a stage-aware live status label", () => {
       targetOptions={[
         {
           id: "auto_asia",
-          label: "Auto",
-          description: "Cloudflare auto-selects the nearest preferred edge. Use this as the route-aware baseline close to the current network path.",
-          provider: "Cloudflare (auto-selected edge)",
+          label: "Auto Asia",
+          description: "Cloudflare auto-selects the nearest preferred Asia edge. Use this as the route-aware baseline close to the current network path.",
+          provider: "Cloudflare (Asia auto-edge)",
           region_label: "Asia",
         },
       ]}

@@ -65,11 +65,20 @@ export interface SpeedTestResult {
   target_label: string;
   provider: string;
   region_label: string;
+  route_fit?: "preferred_region" | "global_fallback" | "pending";
+  resolved_colo?: string | null;
   server_label: string;
   download_mbps: number;
   upload_mbps: number;
   ping_ms: number;
   jitter_ms: number;
+  latency_samples?: number;
+  successful_latency_samples?: number;
+  stable_latency_samples?: number;
+  download_bytes?: number;
+  upload_bytes?: number;
+  download_elapsed_ms?: number;
+  upload_elapsed_ms?: number;
   ip: string;
   timestamp: string;
 }
