@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-30 - Released v10.1.9 Speed Test Orb Dashboard Polish
+
+**Done**
+- Promoted the post-`v10.1.8` Speed Test UI follow-up into the shipped `v10.1.9` line after the full validation gate completed cleanly.
+- Reworked both the launch card and the dedicated modal around circular orb metrics so `Download`, `Upload`, `Ping`, and `Stability` now share the same 2x2 presentation instead of the previous rectangular stat tiles.
+- Added live count-up behavior inside the orb UI during active test runs, then settled the final measurements into the same display model for the end-state snapshot.
+- Refined the visual treatment across both themes with stronger multi-ring borders, theme-specific glow tuning, lighter in-orb numeric weight, simplified launch-card chrome, and a wider `Server` / `Public IP` info box aligned to the orb cluster.
+
+**Verification**
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.9 -SkipInstall`
+- Built the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.9\\Super Route Pro_10.1.9_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.9`.
+
+**Next Steps**
+- Monitor the GitHub release flow for `v10.1.9`, then use the next thin line for any further Speed Test visual tuning rather than widening scope beyond presentation and delivery polish.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-30 - Speed Test Launch Badges Enlarged Slightly
 
 **Done**

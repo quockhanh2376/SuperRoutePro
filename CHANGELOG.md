@@ -1,16 +1,18 @@
 # Changelog
 
-## Planned v10.1.9 (Next Line)
+## v10.1.9 (2026-03-30)
 
-### Draft Highlights
-- Reworked the Speed Test launch summary metrics from compact rectangular stat cards into round-badge rows so the latest `Download`, `Upload`, `Ping`, and `Jitter / Stability` snapshot reads closer to the approved visual direction.
-- Increased the new round badge diameter slightly so the icon treatment reads more clearly while preserving the approved 2x2 launch-card layout and surrounding metric spacing.
-- Kept the richer `v10.1.8` launch surface structure intact while polishing the presentation layer only: the server and public-IP detail row remains unchanged beneath the refreshed metric treatment.
-- Added `release-artifacts/` to `.gitignore` so local installer/output staging no longer keeps the post-release worktree noisy during follow-up UI passes.
+### Highlights
+- Reworked both the Speed Test launch card and the dedicated modal around circular orb metrics so `Download`, `Upload`, `Ping`, and `Stability` now share the approved 2x2 visual language instead of compact rectangular stat tiles.
+- Added live count-up behavior during active tests so throughput values animate inside the orbs while the run progresses, then settle into the final result snapshot without breaking the denser desktop layout.
+- Refined the orb treatment across light and dark themes with stronger multi-ring borders, theme-aware glow tuning, lighter in-orb number weight, and cleaned-up labeling so the final presentation reads more clearly at a glance.
+- Simplified the launch surface around the new orb dashboard by removing the old subtitle and preview/open affordances, tightening the `Server` / `Public IP` box spacing, and keeping the latest result visible directly in the main app card.
 
-### Planned Verification
-- `npx tsx --test tests/SpeedTestModal.test.tsx`
-- `npm run build`
+### Verification
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.9 -SkipInstall`
+- Built the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.9\\Super Route Pro_10.1.9_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.9`.
 
 ## v10.1.8 (2026-03-30)
 
