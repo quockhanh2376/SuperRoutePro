@@ -86,6 +86,11 @@ type LaunchMetricProps = {
   Icon: LucideIcon;
 };
 
+type LaunchMetaRowProps = {
+  label: string;
+  value: string;
+};
+
 function LaunchMetric({
   iconToneClassName,
   label,
@@ -118,6 +123,15 @@ function LaunchMetric({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function LaunchMetaRow({ label, value }: LaunchMetaRowProps) {
+  return (
+    <div className="speed-test-launch-server-row">
+      <span className="speed-test-launch-label">{label}</span>
+      <span className="speed-test-launch-server-value">{value}</span>
     </div>
   );
 }
@@ -316,14 +330,12 @@ export function SpeedTestModal({
 
               <div className="speed-test-launch-server-card">
                 <div className="speed-test-launch-server-grid">
-                  <div className="speed-test-launch-server-row">
-                    <span className="speed-test-launch-label">Server</span>
-                    <span className="speed-test-launch-server-value">{summaryMetrics.serverLabel}</span>
-                  </div>
-                  <div className="speed-test-launch-server-row">
-                    <span className="speed-test-launch-label">Public IP</span>
-                    <span className="speed-test-launch-server-value">{summaryMetrics.ipLabel}</span>
-                  </div>
+                  <LaunchMetaRow label="Server" value={summaryMetrics.serverLabel} />
+                  <LaunchMetaRow label="Public IP" value={summaryMetrics.ipLabel} />
+                  <LaunchMetaRow label="Route Fit" value={summaryMetrics.routeFitLabel} />
+                  <LaunchMetaRow label="Resolved Edge" value={summaryMetrics.resolvedEdgeLabel} />
+                  <LaunchMetaRow label="Latency Baseline" value={summaryMetrics.latencyBaselineLabel} />
+                  <LaunchMetaRow label="Captured" value={summaryMetrics.capturedAtLabel} />
                 </div>
               </div>
             </div>

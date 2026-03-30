@@ -86,6 +86,12 @@ type ResultSummaryMetricProps = {
   Icon: LucideIcon;
 };
 
+type ResultMetaRowProps = {
+  label: string;
+  value: string;
+  valueClassName?: string;
+};
+
 function ResultSummaryMetric({
   iconToneClassName,
   label,
@@ -118,6 +124,19 @@ function ResultSummaryMetric({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ResultMetaRow({
+  label,
+  value,
+  valueClassName,
+}: ResultMetaRowProps) {
+  return (
+    <div className="speed-test-meta-row">
+      <span className="speed-test-meta-label">{label}</span>
+      <span className={`speed-test-meta-value ${valueClassName ?? ""}`.trim()}>{value}</span>
     </div>
   );
 }
@@ -243,14 +262,16 @@ export function SpeedTestModalDialog({
               </div>
 
               <div className="speed-test-meta-grid speed-test-meta-grid-top">
-                <div className="speed-test-meta-row">
-                  <span className="speed-test-meta-label">Server</span>
-                  <span className="speed-test-meta-value">{summaryMetrics.serverLabel}</span>
-                </div>
-                <div className="speed-test-meta-row">
-                  <span className="speed-test-meta-label">Public IP</span>
-                  <span className="speed-test-meta-value">{summaryMetrics.ipLabel}</span>
-                </div>
+                <ResultMetaRow label="Server" value={summaryMetrics.serverLabel} />
+                <ResultMetaRow label="Public IP" value={summaryMetrics.ipLabel} />
+                <ResultMetaRow label="Route Fit" value={summaryMetrics.routeFitLabel} />
+                <ResultMetaRow label="Resolved Edge" value={summaryMetrics.resolvedEdgeLabel} />
+                <ResultMetaRow label="Latency Baseline" value={summaryMetrics.latencyBaselineLabel} />
+                <ResultMetaRow
+                  label="Captured"
+                  value={summaryMetrics.capturedAtLabel}
+                  valueClassName="speed-test-meta-value-timestamp"
+                />
               </div>
             </div>
           )}

@@ -58,6 +58,7 @@ Restored on 2026-03-27 from the latest agreed roadmap and current repo state.
 
 - [ ] Evaluate true city-pinned Australia targets if product wants explicit Sydney / Melbourne / Brisbane / Perth selection instead of only `Auto Australia`.
 - [ ] Validate which public or owned backends are reliable enough for AU city pinning and compatible with the current engine.
+- Validation snapshot 2026-03-30: the public LibreSpeed catalog at `librespeed.org/backend-servers/servers.php` did not expose any Australia city-pinned entries, and common AU candidate patterns like `sydney.speedtest.clouvider.net`, `syd.speedtest.clouvider.net`, or `au1.backend.librespeed.org` did not resolve from runtime probing.
 - [ ] Revisit the AU target decision only after at least one real city-pinned AU backend has been proven stable in runtime.
 
 ## Speed Test UI Direction

@@ -34,6 +34,67 @@ export const formatMetricAmount = (value: number | null | undefined) => {
 export const splitMetricLabelLines = (label: string) =>
   label.includes(" / ") ? label.split(" / ") : [label];
 
+export const formatSpeedTestRouteFit = (
+  routeFit: SpeedTestResult["route_fit"],
+  isTesting: boolean,
+) => {
+  switch (routeFit) {
+    case "preferred_region":
+      return "Preferred region";
+    case "global_fallback":
+      return "Global fallback";
+    case "pending":
+      return "Pending resolution";
+    default:
+      return isTesting ? "Resolving route fit..." : "--";
+  }
+};
+
+export const formatSpeedTestResolvedEdge = (
+  resolvedColo: string | null | undefined,
+  isTesting: boolean,
+) => {
+  const edge = resolvedColo?.trim();
+  if (edge) {
+    return `${edge.toUpperCase()} edge`;
+  }
+
+  return isTesting ? "Awaiting edge trace..." : "--";
+};
+
+export const formatSpeedTestLatencyBaseline = (
+  result: SpeedTestResult | null,
+  isTesting: boolean,
+) => {
+  const stableSamples = result?.stable_latency_samples;
+  const successfulSamples = result?.successful_latency_samples;
+  const totalSamples = result?.latency_samples;
+
+  if (
+    stableSamples !== undefined
+    || successfulSamples !== undefined
+    || totalSamples !== undefined
+  ) {
+    const stable = stableSamples ?? 0;
+    const successful = successfulSamples ?? stable;
+    const total = totalSamples ?? successful;
+    return `${stable} stable / ${successful} ok / ${total} total`;
+  }
+
+  return isTesting ? "Sampling baseline..." : "--";
+};
+
+export const formatSpeedTestCapturedAt = (
+  timestamp: string | undefined,
+  isTesting: boolean,
+) => {
+  if (timestamp) {
+    return timestamp;
+  }
+
+  return isTesting ? "Pending final snapshot..." : "--";
+};
+
 export const useAnimatedMetricValue = (value: number | null | undefined) => {
   const targetValue = sanitizeMetricValue(value);
   const [displayValue, setDisplayValue] = useState<number | null>(() => {
@@ -161,5 +222,9 @@ export const useSpeedTestMetricSnapshot = ({
     stabilityValue: result?.jitter_ms ?? null,
     serverLabel: result?.server_label ?? (isTesting ? "Awaiting result" : "--"),
     ipLabel: result?.ip || (isTesting ? "Checking..." : "--"),
+    routeFitLabel: formatSpeedTestRouteFit(result?.route_fit, isTesting),
+    resolvedEdgeLabel: formatSpeedTestResolvedEdge(result?.resolved_colo, isTesting),
+    latencyBaselineLabel: formatSpeedTestLatencyBaseline(result, isTesting),
+    capturedAtLabel: formatSpeedTestCapturedAt(result?.timestamp, isTesting),
   };
 };

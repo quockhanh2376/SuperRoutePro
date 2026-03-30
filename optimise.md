@@ -29,6 +29,7 @@
 - Gate 1: Thay branching cứng theo backend kind bằng provider adapter. Cloudflare auto-edge và LibreSpeed fixed backend đã khác nhau đáng kể; AU city-based gần như chắc chắn sẽ cần adapter hoặc policy thứ ba.
 - Gate 2: Chuyển catalog từ const array thuần sang catalog có metadata mở rộng và health policy. Vẫn có thể giữ typed Rust struct, nhưng cần một lớp manifest nội bộ để thêm target mới mà không sửa measurement logic.
 - Gate 2: Thêm pipeline qualification cho endpoint AU trước khi expose lên UI: reachability, IP lookup format, payload stability, expected city identity, median latency floor và error rate chấp nhận được.
+- Gate 2: Runtime qualification ngày 2026-03-30 cho thấy LibreSpeed public catalog hiện chưa có entry AU city-pinned; probe trực tiếp các pattern AU phổ biến của Clouvider và `*.backend.librespeed.org` cũng trả lỗi DNS. Điều này nghĩa là phase AU city-based đang thiếu shortlist public khả dụng, nên cần backend owned hoặc đối tác thật trước khi mở selector.
 - Gate 2: Thiết kế contract UI theo các cột Region, City, Provider, Pinning mode, Route fit và Confidence để người dùng phân biệt city-pinned verified với nearest AU edge.
 - Gate 3: Giữ `PREFERRED_AU_COLOS` như heuristic vùng, không coi đây là city pinning. Danh sách `SYD`, `MEL`, `BNE`, `PER`, `ADL` chỉ đủ để xác nhận edge thuộc Australia, không đủ để tuyên bố test đang pin vào một thành phố cố định.
 

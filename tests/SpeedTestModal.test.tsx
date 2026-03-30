@@ -18,11 +18,16 @@ const result: SpeedTestResult = {
   target_label: "US West",
   provider: "LibreSpeed (regional fixed backend)",
   region_label: "US West",
+  route_fit: "global_fallback",
+  resolved_colo: "sjc",
   server_label: "Los Angeles, United States (Clouvider)",
   download_mbps: 226.8,
   upload_mbps: 81.3,
   ping_ms: 146.4,
   jitter_ms: 3.1,
+  latency_samples: 8,
+  successful_latency_samples: 7,
+  stable_latency_samples: 6,
   ip: "203.0.113.7",
   timestamp: "2026-03-26T08:20:00.000Z",
 };
@@ -51,7 +56,7 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
           id: "auto_au",
           label: "Auto Australia",
           description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
-          provider: "Cloudflare (auto-selected edge)",
+          provider: "Cloudflare (Australia auto-edge)",
           region_label: "Australia",
         },
         {
@@ -71,6 +76,14 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
   assert.match(html, /Server/);
   assert.match(html, /Los Angeles, United States \(Clouvider\)/);
   assert.match(html, /LibreSpeed \(regional fixed backend\)/);
+  assert.match(html, /Route Fit/);
+  assert.match(html, /Global fallback/);
+  assert.match(html, /Resolved Edge/);
+  assert.match(html, /SJC edge/);
+  assert.match(html, /Latency Baseline/);
+  assert.match(html, /6 stable \/ 7 ok \/ 8 total/);
+  assert.match(html, /Captured/);
+  assert.match(html, /2026-03-26T08:20:00.000Z/);
   assert.match(html, /Region Target/);
   assert.match(html, /Auto Australia/);
   assert.match(html, /Stability/);
@@ -106,7 +119,7 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
           id: "auto_au",
           label: "Auto Australia",
           description: "Cloudflare auto-selects the nearest preferred Australia edge. Use this to compare a southern hemisphere auto path against fixed regional backends.",
-          provider: "Cloudflare (auto-selected edge)",
+          provider: "Cloudflare (Australia auto-edge)",
           region_label: "Australia",
         },
       ]}
@@ -119,6 +132,9 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
   assert.match(html, /Downloading 24 MB/);
   assert.match(html, /Awaiting result/);
   assert.match(html, /Checking\.\.\./);
+  assert.match(html, /Resolving route fit\.\.\./);
+  assert.match(html, /Awaiting edge trace\.\.\./);
+  assert.match(html, /Sampling baseline\.\.\./);
   assert.match(html, /Stability/);
 });
 

@@ -14,9 +14,21 @@ const LATENCY_SAMPLES: usize = 8;
 const LATENCY_WARMUP_SAMPLES: usize = 1;
 const MIN_SUCCESSFUL_LATENCY_SAMPLES: usize = 5;
 const LATENCY_OUTLIER_MAD_MULTIPLIER: f64 = 3.5;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const EMIT_INTERVAL: Duration = Duration::from_millis(180);
+const PUBLIC_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(6);
+const LATENCY_STAGE_TIMEOUT: Duration = Duration::from_secs(6);
+const MIN_DOWNLOAD_STAGE_TIMEOUT: Duration = Duration::from_secs(25);
+const MAX_DOWNLOAD_STAGE_TIMEOUT: Duration = Duration::from_secs(90);
+const MIN_UPLOAD_STAGE_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_UPLOAD_STAGE_TIMEOUT: Duration = Duration::from_secs(75);
+const ASSUMED_MIN_DOWNLOAD_MBPS: f64 = 3.0;
+const ASSUMED_MIN_UPLOAD_MBPS: f64 = 1.25;
+const TARGET_TRANSFER_DURATION_SECS: f64 = 5.0;
+const TARGET_TRANSFER_DURATION_MIN_SECS: f64 = 4.0;
+const TARGET_TRANSFER_DURATION_MAX_SECS: f64 = 6.0;
+const CALIBRATION_DOWNLOAD_FLOOR_MB: u32 = 2;
+const MEBIBYTE: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct SpeedTestTraceMetadata {
@@ -99,9 +111,22 @@ pub async fn run_speed_test(
     download_mb: Option<u32>,
     target_id: Option<String>,
 ) -> Result<SpeedTestResult, String> {
-    let target = resolve_speed_test_target(target_id.as_deref())?;
-    let download_bytes = sanitize_download_mb(download_mb, target) as usize * 1024 * 1024;
-    let upload_bytes = resolve_upload_bytes(target, download_bytes);
+    run_speed_test_internal(Some(&app), download_mb, target_id.as_deref()).await
+}
+
+pub async fn run_speed_test_snapshot(
+    download_mb: Option<u32>,
+    target_id: Option<&str>,
+) -> Result<SpeedTestResult, String> {
+    run_speed_test_internal(None, download_mb, target_id).await
+}
+
+async fn run_speed_test_internal(
+    app: Option<&AppHandle>,
+    download_mb: Option<u32>,
+    target_id: Option<&str>,
+) -> Result<SpeedTestResult, String> {
+    let target = resolve_speed_test_target(target_id)?;
     let client = build_client()?;
     let target_context = fetch_target_context(&client, target).await.ok();
     let route_fit = resolve_speed_test_route_fit(target, target_context.as_ref().and_then(|context| context.trace.as_ref()));
@@ -120,7 +145,7 @@ pub async fn run_speed_test(
         .to_string();
 
     emit_progress(
-        &app,
+        app,
         "preflight",
         4.0,
         0.0,
@@ -130,7 +155,7 @@ pub async fn run_speed_test(
     let latency_measurement = measure_latency(&client, target).await?;
 
     emit_progress(
-        &app,
+        app,
         "latency",
         18.0,
         0.0,
@@ -142,11 +167,12 @@ pub async fn run_speed_test(
         ),
     )?;
 
-    let download_measurement = measure_download(&client, &app, target, download_bytes).await?;
-    let upload_measurement = measure_upload(&client, &app, target, upload_bytes).await?;
+    let download_measurement = measure_download(&client, app, target, download_mb).await?;
+    let upload_bytes = resolve_upload_bytes(target, download_measurement.bytes_transferred);
+    let upload_measurement = measure_upload(&client, app, target, upload_bytes).await?;
 
     emit_progress(
-        &app,
+        app,
         "finalize",
         100.0,
         download_measurement.mbps.max(upload_measurement.mbps),
@@ -237,7 +263,6 @@ fn build_preflight_message(
 fn build_client() -> Result<Client, String> {
     Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
         .user_agent("SuperRoutePro-SpeedTest/1.0")
         .build()
         .map_err(|error| describe_reqwest_error("Speed test client setup", &error))
@@ -255,6 +280,7 @@ async fn measure_latency(
         let started = Instant::now();
         let response = client
             .get(&url)
+            .timeout(LATENCY_STAGE_TIMEOUT)
             .send()
             .await
             .map_err(|error| describe_reqwest_error("Latency probe", &error));
@@ -295,24 +321,95 @@ async fn measure_latency(
 
 async fn measure_download(
     client: &Client,
-    app: &AppHandle,
+    app: Option<&AppHandle>,
     target: SpeedTestTarget,
-    download_bytes: usize,
+    requested_download_mb: Option<u32>,
 ) -> Result<ThroughputMeasurement, String> {
+    let requested_download_bytes = mebibytes_to_bytes(sanitize_download_mb(requested_download_mb, target));
+
+    if requested_download_mb.is_some() {
+        emit_progress(
+            app,
+            "download",
+            24.0,
+            0.0,
+            format!(
+                "Downloading ~{} MB test payload...",
+                requested_download_bytes / MEBIBYTE,
+            ),
+        )?;
+
+        return run_download_attempt(client, app, target, requested_download_bytes).await;
+    }
+
+    let calibration_bytes = choose_calibration_download_bytes(target);
     emit_progress(
         app,
         "download",
         24.0,
         0.0,
         format!(
-            "Downloading ~{} MB test payload...",
-            download_bytes / 1024 / 1024
+            "Calibrating adaptive download payload with ~{} MB sample...",
+            calibration_bytes / MEBIBYTE,
         ),
     )?;
 
+    let calibration_measurement = run_download_attempt(client, None, target, calibration_bytes).await?;
+    if is_transfer_duration_in_target_window(Duration::from_millis(calibration_measurement.elapsed_ms)) {
+        emit_progress(
+            app,
+            "download",
+            68.0,
+            calibration_measurement.mbps,
+            format!(
+                "Download stage completed within the target accuracy window using {} MB.",
+                bytes_to_mebibytes(calibration_measurement.bytes_transferred),
+            ),
+        )?;
+
+        return Ok(calibration_measurement);
+    }
+
+    let adaptive_download_bytes = estimate_adaptive_download_bytes(target, &calibration_measurement);
+    if adaptive_download_bytes == calibration_bytes {
+        emit_progress(
+            app,
+            "download",
+            68.0,
+            calibration_measurement.mbps,
+            format!(
+                "Download stage used the profile guardrail at {} MB after calibration.",
+                bytes_to_mebibytes(calibration_measurement.bytes_transferred),
+            ),
+        )?;
+
+        return Ok(calibration_measurement);
+    }
+
+    emit_progress(
+        app,
+        "download",
+        24.0,
+        calibration_measurement.mbps,
+        format!(
+            "Refining download payload to ~{} MB for a stable 4-6s accuracy window...",
+            adaptive_download_bytes / MEBIBYTE,
+        ),
+    )?;
+
+    run_download_attempt(client, app, target, adaptive_download_bytes).await
+}
+
+async fn run_download_attempt(
+    client: &Client,
+    app: Option<&AppHandle>,
+    target: SpeedTestTarget,
+    download_bytes: usize,
+) -> Result<ThroughputMeasurement, String> {
     let url = build_download_request_url(target, download_bytes);
     let response = client
         .get(&url)
+        .timeout(download_stage_timeout(download_bytes))
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Download test", &error))?
@@ -328,38 +425,55 @@ async fn measure_download(
         let chunk = chunk.map_err(|error| format!("Download stream failed: {error}"))?;
         total_bytes += chunk.len();
 
-        if last_emit.elapsed() >= EMIT_INTERVAL {
+        if app.is_some() && last_emit.elapsed() >= EMIT_INTERVAL {
             let elapsed = started.elapsed().as_secs_f64().max(0.001);
             let current_speed_mbps = bytes_to_mbps(total_bytes, elapsed);
             let percent =
                 24.0 + ((total_bytes as f64 / download_bytes as f64).clamp(0.0, 1.0) * 44.0);
-            emit_progress(
-                app,
-                "download",
-                percent,
-                current_speed_mbps,
-                format!(
-                    "Downloading test payload... {} / {} MB",
-                    total_bytes / 1024 / 1024,
-                    download_bytes / 1024 / 1024
-                ),
-            )?;
+            if let Some(app_handle) = app {
+                emit_progress(
+                    Some(app_handle),
+                    "download",
+                    percent,
+                    current_speed_mbps,
+                    format!(
+                        "Downloading test payload... {} / {} MB",
+                        total_bytes / MEBIBYTE,
+                        download_bytes / MEBIBYTE,
+                    ),
+                )?;
+            }
             last_emit = Instant::now();
         }
     }
 
     ensure_bytes_transferred("Download test", total_bytes)?;
     let elapsed = started.elapsed();
-    Ok(ThroughputMeasurement {
+    let measurement = ThroughputMeasurement {
         mbps: bytes_to_mbps(total_bytes, elapsed.as_secs_f64().max(0.001)),
         bytes_transferred: total_bytes,
         elapsed_ms: milliseconds_from_duration(elapsed),
-    })
+    };
+
+    if let Some(app_handle) = app {
+        emit_progress(
+            Some(app_handle),
+            "download",
+            68.0,
+            measurement.mbps,
+            format!(
+                "Download stage complete using {} MB payload.",
+                bytes_to_mebibytes(measurement.bytes_transferred),
+            ),
+        )?;
+    }
+
+    Ok(measurement)
 }
 
 async fn measure_upload(
     client: &Client,
-    app: &AppHandle,
+    app: Option<&AppHandle>,
     target: SpeedTestTarget,
     upload_bytes: usize,
 ) -> Result<ThroughputMeasurement, String> {
@@ -376,7 +490,7 @@ async fn measure_upload(
 
     let payload = vec![0u8; upload_bytes];
     let started = Instant::now();
-    build_upload_request(client, target, payload)
+    build_upload_request(client, target, payload, upload_stage_timeout(upload_bytes))
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Upload test", &error))?
@@ -429,13 +543,18 @@ fn build_upload_request(
     client: &Client,
     target: SpeedTestTarget,
     payload: Vec<u8>,
+    stage_timeout: Duration,
 ) -> reqwest::RequestBuilder {
     let payload_len = payload.len();
     match target.backend_kind {
         SpeedTestBackendKind::CloudflareAutoEdge => client
             .post(format!("{}?bytes={payload_len}", target.upload_url))
+            .timeout(stage_timeout)
             .body(payload),
-        SpeedTestBackendKind::LibreSpeedRegional => client.post(target.upload_url).body(payload),
+        SpeedTestBackendKind::LibreSpeedRegional => client
+            .post(target.upload_url)
+            .timeout(stage_timeout)
+            .body(payload),
     }
 }
 
@@ -467,6 +586,7 @@ async fn fetch_trace_metadata(
 ) -> Result<SpeedTestTraceMetadata, String> {
     let trace = client
         .get(trace_api_url)
+        .timeout(PUBLIC_IP_LOOKUP_TIMEOUT)
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
@@ -485,6 +605,7 @@ async fn fetch_librespeed_public_ip(
 ) -> Result<String, String> {
     let body = client
         .get(ip_lookup_url)
+        .timeout(PUBLIC_IP_LOOKUP_TIMEOUT)
         .send()
         .await
         .map_err(|error| describe_reqwest_error("Public IP lookup", &error))?
@@ -499,13 +620,17 @@ async fn fetch_librespeed_public_ip(
 }
 
 fn emit_progress(
-    app: &AppHandle,
+    app: Option<&AppHandle>,
     stage: &str,
     percent: f64,
     current_speed_mbps: f64,
     message: String,
 ) -> Result<(), String> {
-    app.emit(
+    let Some(app_handle) = app else {
+        return Ok(());
+    };
+
+    app_handle.emit(
         SPEED_TEST_PROGRESS_EVENT,
         SpeedTestProgress {
             stage: stage.to_string(),
@@ -523,10 +648,88 @@ fn sanitize_download_mb(value: Option<u32>, target: SpeedTestTarget) -> u32 {
         .clamp(target.min_download_mb, target.max_download_mb)
 }
 
+fn mebibytes_to_bytes(mebibytes: u32) -> usize {
+    mebibytes as usize * MEBIBYTE
+}
+
+fn choose_calibration_download_bytes(target: SpeedTestTarget) -> usize {
+    let calibration_mb = target
+        .default_download_mb
+        .min(target.min_download_mb.max(CALIBRATION_DOWNLOAD_FLOOR_MB));
+    mebibytes_to_bytes(calibration_mb)
+}
+
+fn is_transfer_duration_in_target_window(duration: Duration) -> bool {
+    let elapsed_seconds = duration.as_secs_f64();
+    elapsed_seconds >= TARGET_TRANSFER_DURATION_MIN_SECS
+        && elapsed_seconds <= TARGET_TRANSFER_DURATION_MAX_SECS
+}
+
+fn estimate_adaptive_download_bytes(
+    target: SpeedTestTarget,
+    measurement: &ThroughputMeasurement,
+) -> usize {
+    let min_download_bytes = mebibytes_to_bytes(target.min_download_mb);
+    let max_download_bytes = mebibytes_to_bytes(target.max_download_mb);
+
+    if measurement.mbps <= 0.0 || measurement.elapsed_ms == 0 {
+        return measurement
+            .bytes_transferred
+            .max(min_download_bytes)
+            .min(max_download_bytes);
+    }
+
+    let estimated_bytes = round_bytes_to_mebibytes(bytes_from_mbps_for_duration(
+        measurement.mbps,
+        TARGET_TRANSFER_DURATION_SECS,
+    ));
+
+    estimated_bytes.clamp(min_download_bytes, max_download_bytes)
+}
+
 fn resolve_upload_bytes(target: SpeedTestTarget, download_bytes: usize) -> usize {
     (download_bytes / 2)
         .max(target.min_upload_bytes)
         .min(target.max_upload_bytes)
+}
+
+fn download_stage_timeout(download_bytes: usize) -> Duration {
+    transfer_stage_timeout(
+        download_bytes,
+        ASSUMED_MIN_DOWNLOAD_MBPS,
+        MIN_DOWNLOAD_STAGE_TIMEOUT,
+        MAX_DOWNLOAD_STAGE_TIMEOUT,
+        6.0,
+    )
+}
+
+fn upload_stage_timeout(upload_bytes: usize) -> Duration {
+    transfer_stage_timeout(
+        upload_bytes,
+        ASSUMED_MIN_UPLOAD_MBPS,
+        MIN_UPLOAD_STAGE_TIMEOUT,
+        MAX_UPLOAD_STAGE_TIMEOUT,
+        5.0,
+    )
+}
+
+fn transfer_stage_timeout(
+    transfer_bytes: usize,
+    assumed_min_mbps: f64,
+    min_timeout: Duration,
+    max_timeout: Duration,
+    safety_margin_secs: f64,
+) -> Duration {
+    if transfer_bytes == 0 || assumed_min_mbps <= 0.0 {
+        return min_timeout;
+    }
+
+    let estimated_seconds = ((transfer_bytes as f64 * 8.0) / 1_000_000.0 / assumed_min_mbps)
+        + safety_margin_secs;
+
+    Duration::from_secs_f64(
+        estimated_seconds.clamp(min_timeout.as_secs_f64(), max_timeout.as_secs_f64()),
+    )
 }
 
 fn describe_reqwest_error(stage: &str, error: &reqwest::Error) -> String {
@@ -593,12 +796,28 @@ fn bytes_to_mbps(total_bytes: usize, elapsed_seconds: f64) -> f64 {
     (total_bytes as f64 * 8.0) / elapsed_seconds / 1_000_000.0
 }
 
+fn bytes_from_mbps_for_duration(mbps: f64, duration_seconds: f64) -> usize {
+    if mbps <= 0.0 || duration_seconds <= 0.0 {
+        return 0;
+    }
+
+    ((mbps * 1_000_000.0 / 8.0) * duration_seconds).round() as usize
+}
+
 fn milliseconds_from_duration(duration: Duration) -> u64 {
     duration.as_millis().min(u64::MAX as u128) as u64
 }
 
 fn bytes_to_mebibytes(total_bytes: usize) -> usize {
-    (total_bytes / 1024 / 1024).max(1)
+    (total_bytes / MEBIBYTE).max(1)
+}
+
+fn round_bytes_to_mebibytes(total_bytes: usize) -> usize {
+    if total_bytes == 0 {
+        return MEBIBYTE;
+    }
+
+    (((total_bytes as f64) / MEBIBYTE as f64).round() as usize).max(1) * MEBIBYTE
 }
 
 fn median(points: &[f64]) -> f64 {
@@ -762,15 +981,20 @@ fn resolve_speed_test_server_label(
 #[cfg(test)]
 mod tests {
     use crate::speed_test_targets::resolve_speed_test_target;
+    use std::time::Duration;
 
     use super::{
         build_download_request_url, build_latency_baseline, build_latency_request_url,
-        calculate_jitter, describe_latency_probe_failure, describe_transport_error,
-        ensure_bytes_transferred, is_preferred_colo, parse_librespeed_public_ip,
-        parse_trace_metadata,
+        calculate_jitter, choose_calibration_download_bytes, describe_latency_probe_failure,
+        describe_transport_error, download_stage_timeout, ensure_bytes_transferred,
+        estimate_adaptive_download_bytes, is_preferred_colo,
+        is_transfer_duration_in_target_window, parse_librespeed_public_ip, parse_trace_metadata,
         resolve_speed_test_provider_label, resolve_speed_test_route_fit,
         resolve_speed_test_server_label, resolve_upload_bytes, sanitize_download_mb,
-        SpeedTestRouteFit, SpeedTestTargetContext, SpeedTestTraceMetadata,
+        upload_stage_timeout, SpeedTestRouteFit, SpeedTestTargetContext,
+        SpeedTestTraceMetadata, ThroughputMeasurement, LATENCY_STAGE_TIMEOUT,
+        MAX_DOWNLOAD_STAGE_TIMEOUT, MAX_UPLOAD_STAGE_TIMEOUT, MEBIBYTE,
+        MIN_DOWNLOAD_STAGE_TIMEOUT, MIN_UPLOAD_STAGE_TIMEOUT,
     };
 
     #[test]
@@ -789,6 +1013,62 @@ mod tests {
         assert_eq!(sanitize_download_mb(Some(32), jp_kr), 8);
         assert_eq!(sanitize_download_mb(None, eu), 1);
         assert_eq!(sanitize_download_mb(Some(8), eu), 2);
+    }
+
+    #[test]
+    fn choose_calibration_download_bytes_stays_within_target_profiles() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let auto_au =
+            resolve_speed_test_target(Some("auto_au")).expect("auto_au target should resolve");
+        let jp_kr = resolve_speed_test_target(Some("jp_kr")).expect("jp_kr target should resolve");
+        let eu = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+
+        assert_eq!(choose_calibration_download_bytes(auto_asia), 8 * MEBIBYTE);
+        assert_eq!(choose_calibration_download_bytes(auto_au), 8 * MEBIBYTE);
+        assert_eq!(choose_calibration_download_bytes(jp_kr), 2 * MEBIBYTE);
+        assert_eq!(choose_calibration_download_bytes(eu), 1 * MEBIBYTE);
+    }
+
+    #[test]
+    fn estimate_adaptive_download_bytes_scales_with_calibration_result() {
+        let auto_asia = resolve_speed_test_target(None).expect("default target should resolve");
+        let eu = resolve_speed_test_target(Some("eu")).expect("eu target should resolve");
+
+        let larger_payload = estimate_adaptive_download_bytes(
+            auto_asia,
+            &ThroughputMeasurement {
+                mbps: 24.0,
+                bytes_transferred: 8 * MEBIBYTE,
+                elapsed_ms: 2_000,
+            },
+        );
+        assert!(larger_payload > 8 * MEBIBYTE);
+        assert!(larger_payload <= 32 * MEBIBYTE);
+
+        let clamped_payload = estimate_adaptive_download_bytes(
+            eu,
+            &ThroughputMeasurement {
+                mbps: 90.0,
+                bytes_transferred: 1 * MEBIBYTE,
+                elapsed_ms: 300,
+            },
+        );
+        assert_eq!(clamped_payload, 2 * MEBIBYTE);
+    }
+
+    #[test]
+    fn transfer_window_and_stage_timeouts_stay_bounded() {
+        assert!(is_transfer_duration_in_target_window(Duration::from_secs(5)));
+        assert!(!is_transfer_duration_in_target_window(Duration::from_secs(7)));
+
+        let download_timeout = download_stage_timeout(32 * MEBIBYTE);
+        let upload_timeout = upload_stage_timeout(8 * MEBIBYTE);
+
+        assert!(LATENCY_STAGE_TIMEOUT < download_timeout);
+        assert!(download_timeout >= MIN_DOWNLOAD_STAGE_TIMEOUT);
+        assert!(download_timeout <= MAX_DOWNLOAD_STAGE_TIMEOUT);
+        assert!(upload_timeout >= MIN_UPLOAD_STAGE_TIMEOUT);
+        assert!(upload_timeout <= MAX_UPLOAD_STAGE_TIMEOUT);
     }
 
     #[test]

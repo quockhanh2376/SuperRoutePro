@@ -41,6 +41,7 @@ use repair_commands::{
     repair_flush_routes, repair_remove_bloatware, repair_run_machine_action,
     repair_save_persist_config, repair_set_default_gateway, unlock_repair_mode,
 };
+pub use speed_test::{run_speed_test_snapshot, SpeedTestResult};
 use speed_test::run_speed_test;
 use speed_test_targets::list_speed_test_targets;
 
