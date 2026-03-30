@@ -115,7 +115,7 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
   assert.match(html, /Live Throughput/);
   assert.match(html, /Stage/);
   assert.match(html, /Auto Australia/);
-  assert.match(html, /Download in progress/);
+  assert.match(html, /Downloading/);
   assert.match(html, /Measuring download throughput/);
   assert.match(html, /download throughput/i);
 });

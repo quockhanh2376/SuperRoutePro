@@ -33,7 +33,7 @@ const getLiveStatusLabel = (stage: string) => {
     case "latency":
       return "Measuring latency";
     case "download":
-      return "Download in progress";
+      return "Downloading";
     case "upload":
       return "Upload in progress";
     case "finalize":
@@ -182,10 +182,10 @@ export function SpeedTestModalDialog({
                 <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
               </div>
               <div className="speed-test-progress-track">
-                <div
-                  className="speed-test-progress-fill"
-                  style={{ width: `${progressPercent}%` }}
-                />
+                  <div
+                    className={`speed-test-progress-fill ${isTesting ? "speed-test-progress-fill-active" : ""}`}
+                    style={{ width: `${progressPercent}%` }}
+                  />
               </div>
               <div className="speed-test-progress-message">{progress.message}</div>
             </div>
@@ -197,10 +197,10 @@ export function SpeedTestModalDialog({
               <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
             </div>
             <div className="speed-test-progress-track">
-              <div
-                className="speed-test-progress-fill"
-                style={{ width: `${progressPercent}%` }}
-              />
+                <div
+                  className={`speed-test-progress-fill ${isTesting ? "speed-test-progress-fill-active" : ""}`}
+                  style={{ width: `${progressPercent}%` }}
+                />
             </div>
             <div className="speed-test-progress-message">{progress.message}</div>
             <div className="speed-test-live-speed">

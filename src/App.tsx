@@ -330,7 +330,7 @@ export default function App() {
   const ZOOM_MIN = 75;
   const ZOOM_MAX = 120;
   const ZOOM_STEP = 5;
-  const ZOOM_DEFAULT = 100;
+  const ZOOM_DEFAULT = 95;
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     const saved = localStorage.getItem("app-zoom-level");
     if (saved) {
