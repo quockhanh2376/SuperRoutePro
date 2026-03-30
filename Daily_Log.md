@@ -5,6 +5,22 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-30 - Speed Test Launch Badges Enlarged Slightly
+
+**Done**
+- Increased the round launch-badge diameter slightly after review so the icon treatment reads more comfortably without changing the approved 2x2 metric layout.
+- Kept the current light-theme polish direction intact; this pass only adjusted badge scale and spacing rather than reworking colors or structure again.
+- Pushed the follow-up sizing pass to `main` in commit `a4ab77d`.
+
+**Verification**
+- `npx tsx --test tests/SpeedTestModal.test.tsx`
+- `npm run build`
+
+**Next Steps**
+- If product wants one more visual pass, focus on numeric emphasis or card whiteness next instead of growing the badges further.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-30 - Speed Test Launch Metrics Switched To Round Badges
 
 **Done**

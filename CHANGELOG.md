@@ -4,6 +4,7 @@
 
 ### Draft Highlights
 - Reworked the Speed Test launch summary metrics from compact rectangular stat cards into round-badge rows so the latest `Download`, `Upload`, `Ping`, and `Jitter / Stability` snapshot reads closer to the approved visual direction.
+- Increased the new round badge diameter slightly so the icon treatment reads more clearly while preserving the approved 2x2 launch-card layout and surrounding metric spacing.
 - Kept the richer `v10.1.8` launch surface structure intact while polishing the presentation layer only: the server and public-IP detail row remains unchanged beneath the refreshed metric treatment.
 - Added `release-artifacts/` to `.gitignore` so local installer/output staging no longer keeps the post-release worktree noisy during follow-up UI passes.
 
