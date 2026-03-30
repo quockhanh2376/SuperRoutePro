@@ -1,5 +1,19 @@
 # Changelog
 
+## v10.1.8 (2026-03-30)
+
+### Highlights
+- Refreshed the Speed Test live controls with greener active-state chips, a slimmer animated progress bar, and shorter stage/status wording so the in-run state scans faster.
+- Rebalanced the Speed Test modal layout by turning the target selector into a compact side panel, promoting result metrics plus `Server` / `Public IP` details into the top result area, and tightening the responsive layout around the richer summary view.
+- Improved result readability across both the launch card and the modal: the latest server snapshot now stays visible in the launch surface, progress copy condenses into payload-sized messages like `Downloading 24 MB...`, and timestamp wrapping stays under better control.
+- Aligned the surrounding UI polish with the new line, including a dedicated themed clear action for the `Ping & Tracert Output` console.
+
+### Verification
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.8 -SkipInstall`
+- Built the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.8\\Super Route Pro_10.1.8_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.8`.
+
 ## v10.1.7 (2026-03-29)
 
 ### Highlights

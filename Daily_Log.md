@@ -5,6 +5,27 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-30 - Released v10.1.8 Speed Test UI Refresh
+
+**Done**
+- Fast-forwarded local `main` to the newer `origin/main` UI head before finalizing the next release line.
+- Promoted the post-`v10.1.7` frontend polish into the shipped `v10.1.8` line.
+- The in-run Speed Test flow now uses greener active-state accents, a slimmer animated progress fill, and shorter stage/status copy so live measurement state reads faster.
+- The modal/result layout now promotes summary metrics and `Server` / `Public IP` details into a clearer top section while keeping the target selector as a compact side panel.
+- The launch card now mirrors richer result metadata, long progress messages are condensed into payload-sized status text, and the `Ping & Tracert Output` clear action now uses a dedicated themed button style.
+- Updated the release-facing docs and version files to `10.1.8`, including `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+- Built fresh release artifacts for `v10.1.8`, including the NSIS installer, portable binary, and checksums.
+
+**Verification**
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.8 -SkipInstall`
+
+**Next Steps**
+- Push the `10.1.8` release commit and annotated `v10.1.8` tag to `origin`.
+- Watch the GitHub release workflow for the new `v10.1.8` tag and confirm installer/assets publish cleanly.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-29 - Released v10.1.7 Thin Cleanup And Speed Test Stabilization
 
 **Done**
