@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Activity } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Gauge, type LucideIcon } from "lucide-react";
 import {
   listSpeedTestTargets,
   runSpeedTest,
@@ -78,6 +78,35 @@ const formatMetric = (value: number | null | undefined, suffix: string) => {
   }
   return `${value.toFixed(1)} ${suffix}`;
 };
+
+type LaunchMetricProps = {
+  iconToneClassName: string;
+  label: string;
+  value: string;
+  Icon: LucideIcon;
+};
+
+function LaunchMetric({
+  iconToneClassName,
+  label,
+  value,
+  Icon,
+}: LaunchMetricProps) {
+  return (
+    <div className="speed-test-launch-metric">
+      <div className={`speed-test-launch-icon-shell ${iconToneClassName}`}>
+        <Icon
+          aria-hidden="true"
+          className="w-4 h-4"
+        />
+      </div>
+      <div className="speed-test-launch-metric-copy">
+        <span className="speed-test-launch-label">{label}</span>
+        <span className="speed-test-launch-value">{value}</span>
+      </div>
+    </div>
+  );
+}
 
 export function SpeedTestModal({
   onStatusChange,
@@ -245,22 +274,30 @@ export function SpeedTestModal({
           {result ? (
             <div className="speed-test-launch-results">
               <div className="speed-test-launch-metrics">
-                <div className="speed-test-launch-metric speed-test-launch-metric-download">
-                  <span className="speed-test-launch-label">Down</span>
-                  <span className="speed-test-launch-value">{formatMetric(result.download_mbps, "Mbps")}</span>
-                </div>
-                <div className="speed-test-launch-metric speed-test-launch-metric-upload">
-                  <span className="speed-test-launch-label">Up</span>
-                  <span className="speed-test-launch-value">{formatMetric(result.upload_mbps, "Mbps")}</span>
-                </div>
-                <div className="speed-test-launch-metric speed-test-launch-metric-ping">
-                  <span className="speed-test-launch-label">Ping</span>
-                  <span className="speed-test-launch-value">{formatMetric(result.ping_ms, "ms")}</span>
-                </div>
-                <div className="speed-test-launch-metric speed-test-launch-metric-jitter">
-                  <span className="speed-test-launch-label">Jitter / Stability</span>
-                  <span className="speed-test-launch-value">{formatMetric(result.jitter_ms, "ms")}</span>
-                </div>
+                <LaunchMetric
+                  iconToneClassName="speed-test-launch-icon-download"
+                  Icon={ArrowDown}
+                  label="Download"
+                  value={formatMetric(result.download_mbps, "Mbps")}
+                />
+                <LaunchMetric
+                  iconToneClassName="speed-test-launch-icon-upload"
+                  Icon={ArrowUp}
+                  label="Upload"
+                  value={formatMetric(result.upload_mbps, "Mbps")}
+                />
+                <LaunchMetric
+                  iconToneClassName="speed-test-launch-icon-ping"
+                  Icon={Gauge}
+                  label="Ping"
+                  value={formatMetric(result.ping_ms, "ms")}
+                />
+                <LaunchMetric
+                  iconToneClassName="speed-test-launch-icon-jitter"
+                  Icon={Activity}
+                  label="Jitter / Stability"
+                  value={formatMetric(result.jitter_ms, "ms")}
+                />
               </div>
 
               <div className="speed-test-launch-server-card">

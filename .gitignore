@@ -21,6 +21,7 @@ src-tauri/.cargo-check/
 # =========================
 # Local Binaries / Installers
 # =========================
+release-artifacts/
 SuperRoute.exe
 *.exe
 *.msi
