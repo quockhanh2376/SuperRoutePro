@@ -5,6 +5,18 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-30 - Pushed v10.1.8 Release Commit And Tag
+
+**Done**
+- Pushed the `v10.1.8` release commit on `main` after the full validation gate and local release build had already completed successfully.
+- Pushed the annotated `v10.1.8` tag to `origin` so the GitHub release workflow can build/publish from the tagged release commit.
+- Kept this note as a docs-only follow-up on `main`, matching the repo pattern where the release tag can point at the release commit immediately before the post-push logging update.
+
+**Next Steps**
+- Watch the GitHub release workflow for `v10.1.8` and confirm the installer, portable binary, and checksums publish cleanly.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-30 - Released v10.1.8 Speed Test UI Refresh
 
 **Done**
