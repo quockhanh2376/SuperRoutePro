@@ -548,6 +548,18 @@ html[data-zoom] {
   border-color: rgba(45, 212, 191, 0.52);
 }
 
+.output-clear-btn {
+  background: rgba(51, 65, 85, 0.72);
+  color: #e2e8f0;
+  border: 1px solid rgba(100, 116, 139, 0.68);
+  transition: transform 0.16s ease, filter 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.output-clear-btn:hover {
+  background: rgba(71, 85, 105, 0.82);
+  color: #f8fafc;
+}
+
 .theme-light .console-chip-command {
   background: linear-gradient(180deg, rgba(219, 234, 254, 1), rgba(147, 197, 253, 0.96));
   color: #172554;
@@ -582,6 +594,18 @@ html[data-zoom] {
   background: linear-gradient(180deg, rgba(204, 251, 241, 0.96), rgba(153, 246, 228, 0.86));
   color: #134e4a;
   border-color: rgba(20, 184, 166, 0.58);
+}
+
+.theme-light .output-clear-btn {
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.98), rgba(203, 213, 225, 0.95));
+  color: #0f172a;
+  border-color: rgba(100, 116, 139, 0.72);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.theme-light .output-clear-btn:hover {
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.98), rgba(148, 163, 184, 0.9));
+  color: #020617;
 }
 
 .tool-grid {

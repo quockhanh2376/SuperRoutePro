@@ -243,22 +243,37 @@ export function SpeedTestModal({
 
         <div className="speed-test-launch-body">
           {result ? (
-            <div className="speed-test-launch-metrics">
-              <div className="speed-test-launch-metric speed-test-launch-metric-download">
-                <span className="speed-test-launch-label">Down</span>
-                <span className="speed-test-launch-value">{formatMetric(result.download_mbps, "Mbps")}</span>
+            <div className="speed-test-launch-results">
+              <div className="speed-test-launch-metrics">
+                <div className="speed-test-launch-metric speed-test-launch-metric-download">
+                  <span className="speed-test-launch-label">Down</span>
+                  <span className="speed-test-launch-value">{formatMetric(result.download_mbps, "Mbps")}</span>
+                </div>
+                <div className="speed-test-launch-metric speed-test-launch-metric-upload">
+                  <span className="speed-test-launch-label">Up</span>
+                  <span className="speed-test-launch-value">{formatMetric(result.upload_mbps, "Mbps")}</span>
+                </div>
+                <div className="speed-test-launch-metric speed-test-launch-metric-ping">
+                  <span className="speed-test-launch-label">Ping</span>
+                  <span className="speed-test-launch-value">{formatMetric(result.ping_ms, "ms")}</span>
+                </div>
+                <div className="speed-test-launch-metric speed-test-launch-metric-jitter">
+                  <span className="speed-test-launch-label">Jitter / Stability</span>
+                  <span className="speed-test-launch-value">{formatMetric(result.jitter_ms, "ms")}</span>
+                </div>
               </div>
-              <div className="speed-test-launch-metric speed-test-launch-metric-upload">
-                <span className="speed-test-launch-label">Up</span>
-                <span className="speed-test-launch-value">{formatMetric(result.upload_mbps, "Mbps")}</span>
-              </div>
-              <div className="speed-test-launch-metric speed-test-launch-metric-ping">
-                <span className="speed-test-launch-label">Ping</span>
-                <span className="speed-test-launch-value">{formatMetric(result.ping_ms, "ms")}</span>
-              </div>
-              <div className="speed-test-launch-metric speed-test-launch-metric-jitter">
-                <span className="speed-test-launch-label">Jitter</span>
-                <span className="speed-test-launch-value">{formatMetric(result.jitter_ms, "ms")}</span>
+
+              <div className="speed-test-launch-server-card">
+                <div className="speed-test-launch-server-grid">
+                  <div className="speed-test-launch-server-row">
+                    <span className="speed-test-launch-label">Server</span>
+                    <span className="speed-test-launch-server-value">{result.server_label}</span>
+                  </div>
+                  <div className="speed-test-launch-server-row">
+                    <span className="speed-test-launch-label">Public IP</span>
+                    <span className="speed-test-launch-server-value">{result.ip || "--"}</span>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (

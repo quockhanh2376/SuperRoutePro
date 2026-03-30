@@ -50,6 +50,20 @@ const getLiveThroughputValue = (stage: string, currentSpeedMbps: number | null |
   return formatMetric(currentSpeedMbps, "Mbps");
 };
 
+const getCondensedProgressMessage = (stage: string, message: string) => {
+  const sizeMatch = message.match(/(?:~|\/\s*)(\d+)\s*MB/i);
+
+  if (stage === "download") {
+    return sizeMatch ? `Downloading ${sizeMatch[1]} MB...` : "Downloading...";
+  }
+
+  if (stage === "upload") {
+    return sizeMatch ? `Uploading ${sizeMatch[1]} MB...` : "Uploading...";
+  }
+
+  return message;
+};
+
 export type SpeedTestModalDialogProps = {
   error: string;
   isTesting: boolean;
@@ -86,6 +100,7 @@ export function SpeedTestModalDialog({
   const progressStageLabel = getStageLabel(progress.stage);
   const liveStatusLabel = getLiveStatusLabel(progress.stage);
   const liveThroughputValue = getLiveThroughputValue(progress.stage, progress.current_speed_mbps);
+  const condensedProgressMessage = getCondensedProgressMessage(progress.stage, progress.message);
 
   return (
     <div
@@ -121,48 +136,93 @@ export function SpeedTestModalDialog({
           </div>
         )}
 
-        <div className="speed-test-target-shell">
-          <div className="speed-test-target-title-row">
-            <div>
+        <div className={`speed-test-top-layout ${result ? "speed-test-top-layout-with-results" : ""}`}>
+          <div className="speed-test-target-shell">
+            <div className="speed-test-target-title-row">
               <div className="speed-test-target-title">Test Target</div>
-              <div className="speed-test-target-subtitle">
-                The catalog can mix auto-selected and fixed regional backends. This modal stays neutral so new targets like Auto Australia can appear without any copy changes.
-              </div>
+              <div className="speed-test-target-chip">{activeTarget?.label ?? "Auto"}</div>
             </div>
-            <div className="speed-test-target-chip">{activeTarget?.label ?? "Auto"}</div>
-          </div>
-          <label className="speed-test-target-control">
-            <span className="speed-test-target-label">Region Target</span>
+            <label className="speed-test-target-control">
+              <span className="speed-test-target-label">Region Target</span>
             <select
               className="speed-test-target-select"
               disabled={isTesting || targetOptions.length <= 1}
               onChange={(event) => onTargetChange(event.target.value)}
               value={selectedTargetId}
-            >
-              {targetOptions.map((target) => (
-                <option key={target.id} value={target.id}>
-                  {target.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="speed-test-target-description">
-            {activeTarget?.description ?? "Target catalog is loading."}
+              >
+                {targetOptions.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+
+          {result && (
+            <div className="speed-test-result-sidebar">
+              <div className="speed-test-summary-grid speed-test-summary-grid-top">
+                <div className="speed-test-summary-card">
+                  <div className="speed-test-summary-label">Download</div>
+                  <div className="speed-test-summary-value">
+                    {formatMetric(result.download_mbps, "Mbps")}
+                  </div>
+                </div>
+                <div className="speed-test-summary-card">
+                  <div className="speed-test-summary-label">Upload</div>
+                  <div className="speed-test-summary-value">
+                    {formatMetric(result.upload_mbps, "Mbps")}
+                  </div>
+                </div>
+                <div className="speed-test-summary-card">
+                  <div className="speed-test-summary-label">Ping</div>
+                  <div className="speed-test-summary-value">
+                    {formatMetric(result.ping_ms, "ms")}
+                  </div>
+                </div>
+                <div className="speed-test-summary-card">
+                  <div className="speed-test-summary-label">Jitter / Stability</div>
+                  <div className="speed-test-summary-value">
+                    {formatMetric(result.jitter_ms, "ms")}
+                  </div>
+                </div>
+              </div>
+
+              <div className="speed-test-meta-grid speed-test-meta-grid-top">
+                <div className="speed-test-meta-row">
+                  <span className="speed-test-meta-label">Server</span>
+                  <span className="speed-test-meta-value">{result.server_label}</span>
+                </div>
+                <div className="speed-test-meta-row">
+                  <span className="speed-test-meta-label">Public IP</span>
+                  <span className="speed-test-meta-value">{result.ip || "--"}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {isTesting ? (
           <div className="speed-test-live-shell">
+            <div className="speed-test-live-meter">
+              <div className="speed-test-progress-topline">
+                <span className="speed-test-stage-chip">{progressStageLabel}</span>
+                <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
+              </div>
+              <div className="speed-test-progress-track">
+                <div
+                  className={`speed-test-progress-fill ${isTesting ? "speed-test-progress-fill-active" : ""}`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className="speed-test-progress-message">{condensedProgressMessage}</div>
+            </div>
+
             <div className="speed-test-live-grid">
               <div className="speed-test-live-card speed-test-live-card-primary">
                 <span className="speed-test-live-label">Live Throughput</span>
                 <span className="speed-test-live-value">{liveThroughputValue}</span>
                 <span className="speed-test-live-copy">Current transfer rate</span>
-              </div>
-              <div className="speed-test-live-card">
-                <span className="speed-test-live-label">Stage</span>
-                <span className="speed-test-live-value">{progressStageLabel}</span>
-                <span className="speed-test-live-copy">Progress {Math.round(progress.percent)}%</span>
               </div>
               <div className="speed-test-live-card">
                 <span className="speed-test-live-label">Target</span>
@@ -172,22 +232,8 @@ export function SpeedTestModalDialog({
               <div className="speed-test-live-card">
                 <span className="speed-test-live-label">Status</span>
                 <span className="speed-test-live-value">{liveStatusLabel}</span>
-                <span className="speed-test-live-copy">{progress.message}</span>
+                <span className="speed-test-live-copy">{condensedProgressMessage}</span>
               </div>
-            </div>
-
-            <div className="speed-test-live-meter">
-              <div className="speed-test-progress-topline">
-                <span className="speed-test-stage-chip">{progressStageLabel}</span>
-                <span className="speed-test-progress-percent">{Math.round(progress.percent)}%</span>
-              </div>
-              <div className="speed-test-progress-track">
-                  <div
-                    className={`speed-test-progress-fill ${isTesting ? "speed-test-progress-fill-active" : ""}`}
-                    style={{ width: `${progressPercent}%` }}
-                  />
-              </div>
-              <div className="speed-test-progress-message">{progress.message}</div>
             </div>
           </div>
         ) : (
@@ -225,49 +271,6 @@ export function SpeedTestModalDialog({
               <div className="speed-test-identity-card speed-test-identity-card-region">
                 <span className="speed-test-identity-label">Region</span>
                 <span className="speed-test-identity-value">{regionLabel}</span>
-                <span className="speed-test-identity-copy">{result.server_label}</span>
-              </div>
-            </div>
-
-            <div className="speed-test-summary-grid">
-              <div className="speed-test-summary-card">
-                <div className="speed-test-summary-label">Download</div>
-                <div className="speed-test-summary-value">
-                  {formatMetric(result.download_mbps, "Mbps")}
-                </div>
-              </div>
-              <div className="speed-test-summary-card">
-                <div className="speed-test-summary-label">Upload</div>
-                <div className="speed-test-summary-value">
-                  {formatMetric(result.upload_mbps, "Mbps")}
-                </div>
-              </div>
-              <div className="speed-test-summary-card">
-                <div className="speed-test-summary-label">Ping</div>
-                <div className="speed-test-summary-value">
-                  {formatMetric(result.ping_ms, "ms")}
-                </div>
-              </div>
-              <div className="speed-test-summary-card">
-                <div className="speed-test-summary-label">Jitter</div>
-                <div className="speed-test-summary-value">
-                  {formatMetric(result.jitter_ms, "ms")}
-                </div>
-              </div>
-            </div>
-
-            <div className="speed-test-meta-grid">
-              <div className="speed-test-meta-row">
-                <span className="speed-test-meta-label">Server</span>
-                <span className="speed-test-meta-value">{result.server_label}</span>
-              </div>
-              <div className="speed-test-meta-row">
-                <span className="speed-test-meta-label">Public IP</span>
-                <span className="speed-test-meta-value">{result.ip || "--"}</span>
-              </div>
-              <div className="speed-test-meta-row">
-                <span className="speed-test-meta-label">Timestamp</span>
-                <span className="speed-test-meta-value">{result.timestamp}</span>
               </div>
             </div>
           </>

@@ -75,6 +75,12 @@
   gap: 0.75rem;
 }
 
+.speed-test-launch-results {
+  width: 100%;
+  display: grid;
+  gap: 0.75rem;
+}
+
 .speed-test-launch-metric {
   border: 1px solid rgba(71, 85, 105, 0.7);
   border-radius: 0.85rem;
@@ -97,6 +103,30 @@
   font-size: 1rem;
   font-weight: 800;
   margin-top: 0.3rem;
+}
+
+.speed-test-launch-server-card {
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  border-radius: 0.85rem;
+  padding: 0.8rem 0.85rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.speed-test-launch-server-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+}
+
+.speed-test-launch-server-row {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.speed-test-launch-server-value {
+  color: #f8fafc;
+  font-size: 0.86rem;
+  line-height: 1.4;
 }
 
 .speed-test-modal-backdrop {
@@ -155,6 +185,16 @@
   gap: 1rem;
 }
 
+.speed-test-top-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.speed-test-top-layout-with-results {
+  grid-template-columns: minmax(0, 17.25rem) minmax(0, 1fr);
+  align-items: stretch;
+}
+
 .speed-test-progress-shell,
 .speed-test-meta-grid,
 .speed-test-target-shell {
@@ -168,7 +208,21 @@
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  align-items: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.speed-test-target-shell {
+  max-width: min(100%, 17.25rem);
+  justify-self: flex-start;
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  height: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 34%),
+    rgba(12, 18, 32, 0.92);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
 }
 
 .speed-test-target-title {
@@ -209,7 +263,6 @@
 .speed-test-target-control {
   display: grid;
   gap: 0.4rem;
-  margin-top: 0.85rem;
 }
 
 .speed-test-target-label {
@@ -295,6 +348,7 @@
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(34, 197, 94, 0.98), rgba(22, 163, 74, 0.96), rgba(16, 185, 129, 0.92));
   transition: width 0.18s ease;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
 }
 
 .speed-test-progress-fill-active {
@@ -306,9 +360,9 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.1) 30%, rgba(255, 255, 255, 0.34) 50%, rgba(255, 255, 255, 0.1) 70%, transparent 100%);
-  transform: translateX(-100%);
-  animation: speed-test-progress-sheen 1.2s linear infinite;
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.08) 22%, rgba(255, 255, 255, 0.42) 46%, rgba(255, 255, 255, 0.14) 68%, transparent 100%);
+  transform: translateX(-120%);
+  animation: speed-test-progress-sheen 0.95s linear infinite;
 }
 
 @keyframes speed-test-progress-sheen {
@@ -317,7 +371,7 @@
   }
 
   to {
-    transform: translateX(100%);
+    transform: translateX(120%);
   }
 }
 
@@ -348,7 +402,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(200px, 1.08fr) repeat(3, minmax(0, 0.97fr));
+  grid-template-columns: minmax(220px, 1.08fr) repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
@@ -405,6 +459,9 @@
   margin-top: 0.75rem;
   color: #cbd5e1;
   font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .speed-test-live-speed {
@@ -421,6 +478,23 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.speed-test-summary-grid-top {
+  align-self: start;
+}
+
+.speed-test-result-sidebar {
+  display: grid;
+  gap: 0.8rem;
+  align-self: start;
+}
+
+.speed-test-meta-grid-top {
+  border: 1px solid rgba(51, 65, 85, 0.72);
+  border-radius: 0.9rem;
+  background: rgba(12, 18, 32, 0.92);
+  padding: 0.9rem;
 }
 
 .speed-test-identity-grid {
@@ -512,6 +586,12 @@
   color: #e2e8f0;
   font-size: 0.82rem;
   word-break: break-word;
+}
+
+.speed-test-meta-value-timestamp {
+  white-space: nowrap;
+  word-break: normal;
+  font-size: 0.78rem;
 }
 
 .speed-test-error-box {
@@ -621,6 +701,12 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
+.theme-light .speed-test-launch-server-card {
+  border-color: rgba(148, 163, 184, 0.72);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
 .theme-light .speed-test-launch-metric-download {
   border-color: rgba(37, 99, 235, 0.24);
   background: linear-gradient(180deg, rgba(219, 234, 254, 0.98), rgba(191, 219, 254, 0.9));
@@ -645,6 +731,13 @@
   border-color: rgba(13, 148, 136, 0.24);
   background: rgba(204, 251, 241, 0.92);
   color: #0f766e;
+}
+
+.theme-light .speed-test-target-shell {
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.14), transparent 34%),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .theme-light .speed-test-error-box {
@@ -679,6 +772,10 @@
 .theme-light .speed-test-identity-copy,
 .theme-light .speed-test-meta-value,
 .theme-light .speed-test-launch-value {
+  color: #0f172a;
+}
+
+.theme-light .speed-test-launch-server-value {
   color: #0f172a;
 }
 
@@ -743,9 +840,17 @@
 }
 
 @media (max-width: 1180px) {
+  .speed-test-top-layout-with-results {
+    grid-template-columns: 1fr;
+  }
+
   .speed-test-identity-grid,
   .speed-test-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .speed-test-target-shell {
+    max-width: 100%;
   }
 
   .speed-test-live-grid {
@@ -753,6 +858,10 @@
   }
 
   .speed-test-live-card-primary {
+    grid-column: span 2;
+  }
+
+  .speed-test-live-card:last-child {
     grid-column: span 2;
   }
 }
@@ -766,9 +875,14 @@
   }
 
   .speed-test-launch-metrics,
+  .speed-test-top-layout-with-results,
   .speed-test-identity-grid,
   .speed-test-summary-grid,
   .speed-test-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .speed-test-launch-server-grid {
     grid-template-columns: 1fr;
   }
 

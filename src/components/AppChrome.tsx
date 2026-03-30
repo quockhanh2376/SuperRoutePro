@@ -82,7 +82,7 @@ export const OutputConsole = memo(function OutputConsole({
             </span>
             <button
               onClick={onClearPing}
-              className="capsule-btn compact-pill bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border-slate-600 transition"
+              className="capsule-btn compact-pill output-clear-btn"
             >
               Clear
             </button>

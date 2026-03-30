@@ -73,7 +73,6 @@ test("SpeedTestModalDialog renders regional targets and the resolved fixed backe
   assert.match(html, /LibreSpeed \(regional fixed backend\)/);
   assert.match(html, /Region Target/);
   assert.match(html, /Auto Australia/);
-  assert.match(html, /The catalog can mix auto-selected and fixed regional backends/);
 });
 
 test("SpeedTestModalDialog renders live metric cards while a run is active", () => {
@@ -88,7 +87,7 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
         stage: "download",
         percent: 42,
         current_speed_mbps: 188.6,
-        message: "Measuring download throughput...",
+        message: "Downloading test payload... 0 / 24 MB",
       }}
       result={null}
       selectedTargetId="auto_au"
@@ -113,11 +112,9 @@ test("SpeedTestModalDialog renders live metric cards while a run is active", () 
   );
 
   assert.match(html, /Live Throughput/);
-  assert.match(html, /Stage/);
   assert.match(html, /Auto Australia/);
   assert.match(html, /Downloading/);
-  assert.match(html, /Measuring download throughput/);
-  assert.match(html, /download throughput/i);
+  assert.match(html, /Downloading 24 MB/);
 });
 
 test("SpeedTestModalDialog derives a stage-aware live status label", () => {
