@@ -100,6 +100,7 @@ type RouteWatcherToast = {
   tone: "success" | "warning";
   title: string;
   message: string;
+  actionLabel?: string;
 };
 
 type CacheCleanupOption = {
@@ -622,6 +623,7 @@ export default function App() {
       message: payload.used_repair_host
         ? `${payload.message} Repair Mode handled the restore.`
         : payload.message,
+      actionLabel: payload.status === "failed" ? "Open Routing Console" : undefined,
     });
 
     if (routeWatcherToastTimerRef.current !== null) {
@@ -1136,6 +1138,15 @@ export default function App() {
       setStatusMsg(errorText);
     }
   }, [routes]);
+
+  const handleOpenRouteWatcherToastAction = useCallback(() => {
+    if (routeWatcherToastTimerRef.current !== null) {
+      window.clearTimeout(routeWatcherToastTimerRef.current);
+      routeWatcherToastTimerRef.current = null;
+    }
+    setRouteWatcherToast(null);
+    void handleShowRoutingOutput();
+  }, [handleShowRoutingOutput]);
 
   const handleShowCommandOutput = useCallback(() => {
     setDiagnosticView("command");
@@ -2717,6 +2728,14 @@ export default function App() {
                 <div className="mt-1 text-[0.72rem] leading-5 text-slate-300">
                   {routeWatcherToast.message}
                 </div>
+                {routeWatcherToast.actionLabel && (
+                  <button
+                    onClick={handleOpenRouteWatcherToastAction}
+                    className="mt-2 inline-flex rounded-lg border border-amber-300/35 bg-amber-400/10 px-2.5 py-1 text-[0.7rem] font-semibold text-amber-100 transition hover:bg-amber-300/15"
+                  >
+                    {routeWatcherToast.actionLabel}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => {
