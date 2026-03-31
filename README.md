@@ -1,9 +1,9 @@
-# Super Route Pro v10.1.7
+# Super Route Pro v10.1.10
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
 
-Current stable release: `v10.1.7`
+Current stable release: `v10.1.10`
 
 Author: Zonzon
 
@@ -66,9 +66,10 @@ This app provides a practical control panel for Windows networking tasks:
 - Background service (`SuperRouteService.exe`) runs at login via Task Scheduler
 - Identifies NIC by description + MAC address (survives InterfaceIndex changes)
 - Re-applies WAN default gateway + custom routes automatically
+- While the app stays open, an in-app route watcher monitors route-table drift and re-applies the persisted config when Windows rewrites the active routes
 - Balloon tip notification if NIC not found
 - Toggle "Persist on startup" in the WAN section
-- Run-once and exit — no background resource usage
+- Startup restore remains run-once at login; runtime drift protection is active only while the app is open
 
 ### Speed Test
 
@@ -107,15 +108,17 @@ super-route-pro/
 |  |- api.ts
 |  |- repairModeModel.ts
 |  |- SpeedTestModal.tsx
-|  |- SpeedTestModalView.tsx
 |- src-tauri/              # Tauri + Rust backend
 |  |- src/
 |  |  |- lib.rs                 # Tauri builder/composition root
 |  |  |- app_bootstrap.rs       # startup/runtime validation and main window setup
 |  |  |- network.rs             # network operations + diagnostics helpers
+|  |  |- network_snapshot.rs    # NIC and route snapshot parsing helpers
 |  |  |- repair_commands.rs     # repair-facing Tauri command wrappers
+|  |  |- route_apply.rs         # shared persisted-route apply engine
 |  |  |- route_persist.rs       # persist config (JSON read/write)
 |  |  |- route_service_main.rs  # SuperRouteService binary
+|  |  |- route_watcher.rs       # in-app route drift watcher while UI is open
 |  |  |- speed_test*.rs         # native speed test engine + target catalog
 |  |- binaries/            # Compiled sidecar EXEs
 |  |- tauri.conf.json

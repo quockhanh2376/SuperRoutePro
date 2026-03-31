@@ -5,6 +5,27 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-31 - Released v10.1.10 Route Watcher Runtime Persist Hardening
+
+**Done**
+- Implemented Option A for route persistence hardening: the desktop app now starts an in-app route watcher that polls the live IPv4 table, detects drift against `persist.json`, and re-applies the saved WAN plus custom routes while the app remains open.
+- Reused one shared route-apply engine across both the login-time startup binary and the in-app watcher so persisted-route restore behavior stays aligned.
+- Added frontend notifications for watcher restore/failure states, including a toast shortcut that opens the Routing Console when automatic recovery fails.
+- Merged the route watcher work into `main`, fixed a release-blocking stale test reference in `package.json`, and shipped the patch release as `v10.1.10`.
+- Verified that the GitHub release published the installer, portable binary, and checksums successfully.
+- Fixed the release script afterward so future release commits also include `src-tauri/Cargo.lock` and no longer leave a dirty working tree after a version bump.
+
+**Verification**
+- `npm run check`
+- `npm run release:ship -- patch`
+- GitHub release `v10.1.10` published with 5 assets
+
+**Next Steps**
+- If product wants broader protection beyond “while app is open”, the next step is still the full Windows Service path (Option B).
+- Consider adding a dedicated watcher event history panel if repeated route rewrites become a support/debugging concern.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-31 - Speed Test Orb Polish + Route Persist Architecture Review
 
 **Done**

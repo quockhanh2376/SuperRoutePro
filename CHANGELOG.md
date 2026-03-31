@@ -1,5 +1,17 @@
 # Changelog
 
+## v10.1.10 (2026-03-31)
+
+### Highlights
+- Added Option A runtime route persistence hardening: while the app is open, an in-app watcher now compares the live IPv4 route table against `persist.json` and re-applies the saved WAN plus custom routes after confirmed drift.
+- Reused one shared persisted-route apply engine for both the startup restore path and the new runtime watcher path, reducing the chance that startup behavior and in-app repair diverge over time.
+- Surfaced route watcher status back into the UI with toast feedback, automatic snapshot refresh after successful restore, and a direct shortcut into the Routing Console when automatic restore fails.
+- Fixed the release gate itself by removing a stale deleted `SpeedTestModal` test reference from the Node test script, then updated the release flow to include `src-tauri/Cargo.lock` so future version bumps do not leave the working tree dirty after tagging.
+
+### Verification
+- `npm run check`
+- GitHub release `v10.1.10` published with `Super.Route.Pro_10.1.10_x64-setup.exe`, `SuperRoute.exe`, and `SHA256SUMS.txt`
+
 ## v10.1.9 (2026-03-30)
 
 ### Highlights
