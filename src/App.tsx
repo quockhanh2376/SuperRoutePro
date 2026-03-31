@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Globe, Flame,
   Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
@@ -85,6 +86,21 @@ const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
 
 const IP_SCAN_BATCH_SIZE = 24;
 const DONATE_QR_IMAGE_PATH = "/donate-qr-vpbank.png";
+const ROUTE_WATCHER_STATUS_EVENT = "route-watcher://status";
+
+type RouteWatcherStatusEventPayload = {
+  status: "reapplied" | "failed";
+  title: string;
+  message: string;
+  detail: string | null;
+  used_repair_host: boolean;
+};
+
+type RouteWatcherToast = {
+  tone: "success" | "warning";
+  title: string;
+  message: string;
+};
 
 type CacheCleanupOption = {
   id: string;
@@ -347,6 +363,7 @@ export default function App() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [statusMsg, setStatusMsg] = useState("System Ready");
+  const [routeWatcherToast, setRouteWatcherToast] = useState<RouteWatcherToast | null>(null);
   const [repairSession, setRepairSession] = useState<RepairSessionStatus>({
     locked: true,
     connected: false,
@@ -592,10 +609,38 @@ export default function App() {
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
   const commandOutputRef = useRef<HTMLPreElement | null>(null);
   const latestNicsRef = useRef<NetworkInterface[]>([]);
+  const routeWatcherToastTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     latestNicsRef.current = nics;
   }, [nics]);
+
+  const pushRouteWatcherToast = useCallback((payload: RouteWatcherStatusEventPayload) => {
+    setRouteWatcherToast({
+      tone: payload.status === "reapplied" ? "success" : "warning",
+      title: payload.title,
+      message: payload.used_repair_host
+        ? `${payload.message} Repair Mode handled the restore.`
+        : payload.message,
+    });
+
+    if (routeWatcherToastTimerRef.current !== null) {
+      window.clearTimeout(routeWatcherToastTimerRef.current);
+    }
+
+    routeWatcherToastTimerRef.current = window.setTimeout(() => {
+      setRouteWatcherToast(null);
+      routeWatcherToastTimerRef.current = null;
+    }, 6500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (routeWatcherToastTimerRef.current !== null) {
+        window.clearTimeout(routeWatcherToastTimerRef.current);
+      }
+    };
+  }, []);
 
   // ======================== DATA LOADING ========================
 
@@ -679,6 +724,35 @@ export default function App() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    let active = true;
+    let cleanup = () => {};
+
+    void listen<RouteWatcherStatusEventPayload>(ROUTE_WATCHER_STATUS_EVENT, ({ payload }) => {
+      if (!active) {
+        return;
+      }
+
+      setStatusMsg(payload.message);
+      pushRouteWatcherToast(payload);
+
+      if (payload.status === "reapplied") {
+        void loadData({ invalidateNicCache: true });
+      }
+    }).then((unlisten) => {
+      if (!active) {
+        unlisten();
+        return;
+      }
+      cleanup = unlisten;
+    });
+
+    return () => {
+      active = false;
+      cleanup();
+    };
+  }, [loadData, pushRouteWatcherToast]);
 
   // Internet monitor with adaptive polling and cancellation-safe updates.
   useEffect(() => {
@@ -2621,6 +2695,47 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {routeWatcherToast && (
+        <div className="fixed bottom-14 right-4 z-40 w-full max-w-sm px-4 sm:px-0 pointer-events-none">
+          <div
+            className={`pointer-events-auto rounded-2xl border shadow-2xl backdrop-blur px-4 py-3 ${routeWatcherToast.tone === "success"
+              ? "border-emerald-400/40 bg-slate-950/92"
+              : "border-amber-400/45 bg-slate-950/94"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              {routeWatcherToast.tone === "success" ? (
+                <RefreshCw className="mt-0.5 h-4 w-4 text-emerald-300" />
+              ) : (
+                <OctagonAlert className="mt-0.5 h-4 w-4 text-amber-300" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-[0.75rem] font-semibold text-slate-100">
+                  {routeWatcherToast.title}
+                </div>
+                <div className="mt-1 text-[0.72rem] leading-5 text-slate-300">
+                  {routeWatcherToast.message}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (routeWatcherToastTimerRef.current !== null) {
+                    window.clearTimeout(routeWatcherToastTimerRef.current);
+                    routeWatcherToastTimerRef.current = null;
+                  }
+                  setRouteWatcherToast(null);
+                }}
+                className="rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+                aria-label="Dismiss route watcher notification"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={`theme-lens ${themeLensActive ? "theme-lens-active" : ""}`} />
     </div>
   );

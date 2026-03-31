@@ -62,6 +62,8 @@ pub(crate) fn setup_main_window<R: Runtime>(
         }
     }
 
+    crate::route_watcher::start(app.handle().clone()).map_err(std::io::Error::other)?;
+
     Ok(())
 }
 

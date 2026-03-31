@@ -172,6 +172,7 @@ pub enum RepairMachineAction {
     DeleteRoute(DeleteRouteRequest),
     FlushRoutes,
     SetDefaultGateway(SetDefaultGatewayRequest),
+    ApplyPersistConfig(PersistConfigRequest),
     SavePersistConfig(PersistConfigRequest),
     ClearPersistConfig,
     FlushDns,

@@ -122,6 +122,13 @@ pub fn run_machine_action_blocking(
         RepairMachineAction::SetDefaultGateway(request) => {
             network::set_default_gateway_blocking(request.gateway, request.interface_index)?
         }
+        RepairMachineAction::ApplyPersistConfig(request) => {
+            let report = crate::route_apply::apply_persist_config(&request.config)?;
+            network::CommandResult {
+                success: true,
+                output: report.summary(),
+            }
+        }
         RepairMachineAction::SavePersistConfig(request) => {
             persist_startup::save_enabled_config(&request.config)?;
             network::CommandResult {
