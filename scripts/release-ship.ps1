@@ -154,8 +154,8 @@ if ($DryRun) {
     if (-not $SkipCheck) {
         Write-Host "npm run check"
     }
-    Write-Host "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json"
-    Write-Host "git commit -m `"chore(release): $tagName`" -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json"
+    Write-Host "git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
+    Write-Host "git commit -m `"chore(release): $tagName`" -- package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
     Write-Host "git tag -a $tagName -m `"Release $tagName`""
     Write-Host "git push $Remote $currentBranch"
     Write-Host "git push $Remote $tagName"
@@ -182,18 +182,20 @@ if (-not $SkipCheck) {
 $versionFiles = @(
     "package.json",
     "src-tauri/Cargo.toml",
+    "src-tauri/Cargo.lock",
     "src-tauri/tauri.conf.json"
 )
 
 Write-Step "Creating release commit"
-Invoke-Checked "git" @("add", "--", $versionFiles[0], $versionFiles[1], $versionFiles[2])
+Invoke-Checked "git" @("add", "--", $versionFiles[0], $versionFiles[1], $versionFiles[2], $versionFiles[3])
 Invoke-Checked "git" @(
     "commit",
     "-m", "chore(release): $tagName",
     "--",
     $versionFiles[0],
     $versionFiles[1],
-    $versionFiles[2]
+    $versionFiles[2],
+    $versionFiles[3]
 )
 
 Write-Step "Creating git tag"
