@@ -16,6 +16,10 @@ const sanitizeMetricValue = (value: number | null | undefined) => {
 const getAnimationDurationMs = (startValue: number, targetValue: number) =>
   Math.min(920, Math.max(320, 260 + Math.abs(targetValue - startValue) * 8));
 
+type AnimatedMetricValueOptions = {
+  durationMs?: number;
+};
+
 type LiveTransferMetrics = {
   download: number;
   upload: number;
@@ -95,8 +99,12 @@ export const formatSpeedTestCapturedAt = (
   return isTesting ? "Pending final snapshot..." : "--";
 };
 
-export const useAnimatedMetricValue = (value: number | null | undefined) => {
+export const useAnimatedMetricValue = (
+  value: number | null | undefined,
+  options?: AnimatedMetricValueOptions,
+) => {
   const targetValue = sanitizeMetricValue(value);
+  const fixedDurationMs = options?.durationMs;
   const [displayValue, setDisplayValue] = useState<number | null>(() => {
     if (targetValue === null) {
       return null;
@@ -130,7 +138,7 @@ export const useAnimatedMetricValue = (value: number | null | undefined) => {
       return;
     }
 
-    const durationMs = getAnimationDurationMs(startValue, targetValue);
+    const durationMs = fixedDurationMs ?? getAnimationDurationMs(startValue, targetValue);
     let frameId = 0;
     let animationStartTime = 0;
 
@@ -159,7 +167,7 @@ export const useAnimatedMetricValue = (value: number | null | undefined) => {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [targetValue]);
+  }, [fixedDurationMs, targetValue]);
 
   return displayValue;
 };
@@ -218,8 +226,8 @@ export const useSpeedTestMetricSnapshot = ({
     showSummary: isTesting || Boolean(result),
     downloadValue: result?.download_mbps ?? (isTesting ? liveTransferMetrics.download : null),
     uploadValue: result?.upload_mbps ?? (isTesting ? liveTransferMetrics.upload : null),
-    pingValue: result?.ping_ms ?? null,
-    stabilityValue: result?.jitter_ms ?? null,
+    pingValue: result?.ping_ms ?? (isTesting ? 0 : null),
+    stabilityValue: result?.jitter_ms ?? (isTesting ? 0 : null),
     serverLabel: result?.server_label ?? (isTesting ? "Awaiting result" : "--"),
     ipLabel: result?.ip || (isTesting ? "Checking..." : "--"),
     routeFitLabel: formatSpeedTestRouteFit(result?.route_fit, isTesting),

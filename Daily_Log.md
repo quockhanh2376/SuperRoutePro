@@ -5,6 +5,28 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-03-31 - Speed Test Orb Polish + Route Persist Architecture Review
+
+**Done**
+- Continued Speed Test orb visual polish: orbit light effects, per-orb async animation speeds, colored head dots, enlarged orbs +15%, caption contrast improvements, dark/light mode dropdown fixes.
+- Moved server selector inline with title row as a compact rounded-rectangle button.
+- Fixed z-index stacking so dropdown renders above metric circles.
+- All 4 metrics (Download, Upload, Ping, Stability) now start from 0.0 during active test.
+- Reviewed the full route persistence architecture (`route_persist.rs`, `persist_startup.rs`, `route_service_main.rs`, `persist_commands.rs`, `win32_net.rs`).
+- Identified root cause for WAN switching despite "Persist on startup": `SuperRouteService.exe` is a run-once binary that applies routes at ONLOGON then exits, leaving routes unprotected against DHCP renewal, NIC reconnect, VPN changes, and sleep/wake cycles.
+- Documented three solution options: (A) background watcher thread in app, (B) proper Windows Service, (C) hybrid approach.
+
+**Verification**
+- `npm run build`
+- Full backend code review of 5 core Rust files for routing system
+
+**Next Steps**
+- Decide on route persistence hardening approach (Option A recommended for v10.2).
+- Implement route table change monitoring via `NotifyRouteChange2()` or polling.
+- Consider proper Windows Service for v11 long-term route protection.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-30 - Released v10.1.9 Speed Test Orb Dashboard Polish
 
 **Done**

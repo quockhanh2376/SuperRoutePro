@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Activity, ArrowDown, ArrowUp, Gauge, type LucideIcon } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Check, ChevronDown, Gauge, type LucideIcon } from "lucide-react";
 import {
   listSpeedTestTargets,
   runSpeedTest,
@@ -16,7 +16,6 @@ import {
   useSpeedTestMetricSnapshot,
 } from "./speedTestMetricDisplay";
 import { isTauriRuntime, runMockSpeedTest } from "./speedTestDemo";
-import { SpeedTestModalDialog } from "./SpeedTestModalView";
 import "./SpeedTestModal.css";
 
 const SPEED_TEST_PROGRESS_EVENT = "speed-test://progress";
@@ -84,12 +83,18 @@ type LaunchMetricProps = {
   unit: string;
   value: number | null | undefined;
   Icon: LucideIcon;
+  isTesting: boolean;
 };
 
-type LaunchMetaRowProps = {
-  label: string;
-  value: string;
+const FIXED_LAUNCH_METRIC_ROTATION_CONFIG: Record<string, { cssDuration: string; durationMs: number }> = {
+  Download: { cssDuration: "0.84s", durationMs: 840 },
+  Upload: { cssDuration: "1.02s", durationMs: 1020 },
+  Ping: { cssDuration: "1.26s", durationMs: 1260 },
+  Stability: { cssDuration: "1.48s", durationMs: 1480 },
 };
+
+const getLaunchMetricRotationConfig = (label: string) =>
+  FIXED_LAUNCH_METRIC_ROTATION_CONFIG[label] ?? { cssDuration: "1.2s", durationMs: 1200 };
 
 function LaunchMetric({
   iconToneClassName,
@@ -97,14 +102,33 @@ function LaunchMetric({
   value,
   unit,
   Icon,
+  isTesting,
 }: LaunchMetricProps) {
-  const displayValue = useAnimatedMetricValue(value);
+  const rotationConfig = getLaunchMetricRotationConfig(label);
+  const displayValue = useAnimatedMetricValue(value, {
+    durationMs: rotationConfig.durationMs,
+  });
   const amount = formatMetricAmount(displayValue);
   const labelLines = splitMetricLabelLines(label);
+  const rotationDuration = rotationConfig.cssDuration;
 
   return (
     <div className="speed-test-launch-metric">
+      <div className={`speed-test-launch-metric-aura ${iconToneClassName}`} />
+      <div
+        aria-hidden="true"
+        className={`speed-test-launch-metric-track ${isTesting ? "speed-test-launch-metric-track-live" : ""} ${iconToneClassName}`}
+        style={{ animationDuration: rotationDuration }}
+      />
+      {isTesting && (
+        <div
+          aria-hidden="true"
+          className={`speed-test-launch-metric-head ${iconToneClassName}`}
+          style={{ animationDuration: rotationDuration }}
+        />
+      )}
       <div className={`speed-test-launch-icon-shell ${iconToneClassName}`}>
+        <div className="speed-test-launch-icon-inner-ring" />
         <Icon
           aria-hidden="true"
           className="speed-test-launch-icon-glyph"
@@ -127,28 +151,20 @@ function LaunchMetric({
   );
 }
 
-function LaunchMetaRow({ label, value }: LaunchMetaRowProps) {
-  return (
-    <div className="speed-test-launch-server-row">
-      <span className="speed-test-launch-label">{label}</span>
-      <span className="speed-test-launch-server-value">{value}</span>
-    </div>
-  );
-}
-
 export function SpeedTestModal({
   onStatusChange,
 }: {
   onStatusChange?: (message: string) => void;
 }) {
   const tauriRuntime = isTauriRuntime();
-  const [open, setOpen] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTargetMenuOpen, setIsTargetMenuOpen] = useState(false);
   const [progress, setProgress] = useState<SpeedTestProgress>(DEFAULT_PROGRESS);
   const [result, setResult] = useState<SpeedTestResult | null>(null);
   const [error, setError] = useState("");
   const [targetOptions, setTargetOptions] = useState<SpeedTestTargetOption[]>(() => getInitialTargetOptions(tauriRuntime));
   const [selectedTargetId, setSelectedTargetId] = useState(() => getInitialTargetOptions(tauriRuntime)[0]?.id ?? "");
+  const targetMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!tauriRuntime) return;
@@ -200,17 +216,41 @@ export function SpeedTestModal({
     };
   }, [tauriRuntime]);
 
-  const handleOpen = useCallback(() => {
-    setOpen(true);
-  }, []);
+  useEffect(() => {
+    if (!isTargetMenuOpen) {
+      return;
+    }
 
-  const handleClose = useCallback(() => {
-    if (isTesting) return;
-    setOpen(false);
-  }, [isTesting]);
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!targetMenuRef.current?.contains(event.target as Node)) {
+        setIsTargetMenuOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTargetMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isTargetMenuOpen]);
+
+  useEffect(() => {
+    if (isTesting || targetOptions.length <= 1) {
+      setIsTargetMenuOpen(false);
+    }
+  }, [isTesting, targetOptions.length]);
 
   const handleTargetChange = useCallback((targetId: string) => {
     setSelectedTargetId(targetId);
+    setIsTargetMenuOpen(false);
     setResult(null);
     setError("");
     setProgress(DEFAULT_PROGRESS);
@@ -225,10 +265,16 @@ export function SpeedTestModal({
     progress,
     result,
   });
+  const activeProviderLabel = result?.provider ?? selectedTarget?.provider ?? (tauriRuntime ? "Native backend" : "Browser preview");
 
   const handleStart = useCallback(async () => {
+    if (isTesting) {
+      return;
+    }
+
     const targetLabel = selectedTarget?.label ?? (tauriRuntime ? "Auto" : "Browser Preview");
 
+    setIsTargetMenuOpen(false);
     setIsTesting(true);
     setError("");
     setResult(null);
@@ -278,96 +324,120 @@ export function SpeedTestModal({
     } finally {
       setIsTesting(false);
     }
-  }, [onStatusChange, selectedTarget, selectedTargetId, tauriRuntime]);
+  }, [isTesting, onStatusChange, selectedTarget, selectedTargetId, tauriRuntime]);
 
   return (
-    <>
-      <div className="speed-test-launch-card">
-        <div className="speed-test-launch-head">
-          <button
-            onClick={handleOpen}
-            className="speed-test-launch-trigger"
-            title={tauriRuntime ? "Open Speed Test" : "Preview Speed Test"}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Speed Test</span>
-          </button>
-        </div>
+    <div className="speed-test-launch-card">
+      <div className="speed-test-launch-head">
+        <div className="speed-test-launch-title-cluster">
+          <div className="speed-test-launch-title-row">
+            <button
+              className="speed-test-launch-trigger speed-test-launch-trigger-action"
+              disabled={isTesting}
+              onClick={() => void handleStart()}
+              title={tauriRuntime ? "Start the native Speed Test" : "Start the browser preview run"}
+              type="button"
+            >
+              <Activity className="w-4 h-4" />
+              <span>
+                {isTesting ? (
+                  <>
+                    Analyzing <span className="speed-test-launch-heading-accent">...</span>
+                  </>
+                ) : (
+                  <>
+                    Speed <span className="speed-test-launch-heading-accent">test</span>
+                  </>
+                )}
+              </span>
+            </button>
 
-        <div className="speed-test-launch-body">
-          {summaryMetrics.showSummary ? (
-            <div className="speed-test-launch-results">
-              <div className="speed-test-launch-metrics">
-                <LaunchMetric
-                  iconToneClassName="speed-test-launch-icon-download"
-                  Icon={ArrowDown}
-                  label="Download"
-                  unit="Mbps"
-                  value={summaryMetrics.downloadValue}
-                />
-                <LaunchMetric
-                  iconToneClassName="speed-test-launch-icon-upload"
-                  Icon={ArrowUp}
-                  label="Upload"
-                  unit="Mbps"
-                  value={summaryMetrics.uploadValue}
-                />
-                <LaunchMetric
-                  iconToneClassName="speed-test-launch-icon-ping"
-                  Icon={Gauge}
-                  label="Ping"
-                  unit="ms"
-                  value={summaryMetrics.pingValue}
-                />
-                <LaunchMetric
-                  iconToneClassName="speed-test-launch-icon-jitter"
-                  Icon={Activity}
-                  label="Stability"
-                  unit="ms"
-                  value={summaryMetrics.stabilityValue}
-                />
-              </div>
+            <div className="speed-test-launch-target-shell">
+              <div className="speed-test-launch-target-menu" ref={targetMenuRef}>
+                <button
+                  aria-expanded={isTargetMenuOpen}
+                  aria-haspopup="listbox"
+                  className="speed-test-launch-target-button"
+                  disabled={isTesting || targetOptions.length <= 1}
+                  onClick={() => setIsTargetMenuOpen((current) => !current)}
+                  title={activeProviderLabel}
+                  type="button"
+                >
+                  <span className="speed-test-launch-target-button-value">{selectedTarget?.label ?? "Auto"}</span>
+                  <ChevronDown
+                    className={`speed-test-launch-target-button-chevron ${isTargetMenuOpen ? "speed-test-launch-target-button-chevron-open" : ""}`}
+                  />
+                </button>
 
-              <div className="speed-test-launch-server-card">
-                <div className="speed-test-launch-server-grid">
-                  <LaunchMetaRow label="Server" value={summaryMetrics.serverLabel} />
-                  <LaunchMetaRow label="Public IP" value={summaryMetrics.ipLabel} />
-                  <LaunchMetaRow label="Route Fit" value={summaryMetrics.routeFitLabel} />
-                  <LaunchMetaRow label="Resolved Edge" value={summaryMetrics.resolvedEdgeLabel} />
-                  <LaunchMetaRow label="Latency Baseline" value={summaryMetrics.latencyBaselineLabel} />
-                  <LaunchMetaRow label="Captured" value={summaryMetrics.capturedAtLabel} />
-                </div>
+                {isTargetMenuOpen && (
+                  <div className="speed-test-launch-target-list" role="listbox">
+                    {targetOptions.map((target) => {
+                      const isSelected = target.id === (selectedTarget?.id ?? "");
+
+                      return (
+                        <button
+                          aria-selected={isSelected}
+                          className={`speed-test-launch-target-option ${isSelected ? "speed-test-launch-target-option-selected" : ""}`}
+                          key={target.id}
+                          onClick={() => handleTargetChange(target.id)}
+                          role="option"
+                          title={`${target.region_label} | ${target.provider}`}
+                          type="button"
+                        >
+                          <span className="speed-test-launch-target-button-value">{target.label}</span>
+                          {isSelected && <Check className="speed-test-launch-target-check" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="speed-test-launch-placeholder">
-              {tauriRuntime
-                ? "Start a native test run to capture live throughput and latency from a dedicated modal."
-                : "Run a browser-safe mock sequence to preview the speed test flow before using the desktop runtime."}
-            </div>
-          )}
+          </div>
+
+          {error && <div className="speed-test-launch-error">{error}</div>}
         </div>
       </div>
 
-      {open && (
-        <div
-          className="speed-test-modal-backdrop"
-          onClick={handleClose}
-        >
-          <SpeedTestModalDialog
-            error={error}
-            isTesting={isTesting}
-            onClose={handleClose}
-            onStart={() => void handleStart()}
-            onTargetChange={handleTargetChange}
-            progress={progress}
-            result={result}
-            selectedTargetId={selectedTargetId}
-            tauriRuntime={tauriRuntime}
-            targetOptions={targetOptions}
-          />
+      <div className="speed-test-launch-body">
+        <div className="speed-test-launch-surface">
+          <div className="speed-test-launch-metrics">
+            <LaunchMetric
+              iconToneClassName="speed-test-launch-icon-download"
+              Icon={ArrowDown}
+              isTesting={isTesting}
+              label="Download"
+              unit="Mbps"
+              value={summaryMetrics.downloadValue}
+            />
+            <LaunchMetric
+              iconToneClassName="speed-test-launch-icon-upload"
+              Icon={ArrowUp}
+              isTesting={isTesting}
+              label="Upload"
+              unit="Mbps"
+              value={summaryMetrics.uploadValue}
+            />
+            <LaunchMetric
+              iconToneClassName="speed-test-launch-icon-ping"
+              Icon={Gauge}
+              isTesting={isTesting}
+              label="Ping"
+              unit="ms"
+              value={summaryMetrics.pingValue}
+            />
+            <LaunchMetric
+              iconToneClassName="speed-test-launch-icon-jitter"
+              Icon={Activity}
+              isTesting={isTesting}
+              label="Stability"
+              unit="ms"
+              value={summaryMetrics.stabilityValue}
+            />
+          </div>
         </div>
-      )}
-    </>
+
+      </div>
+    </div>
   );
 }
