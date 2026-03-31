@@ -25,6 +25,7 @@ pub(crate) fn handle_main_window_event<R: tauri::Runtime>(
         event,
         tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
     ) {
+        crate::route_watcher::stop();
         let _ = lock_repair_mode_state();
     }
 }

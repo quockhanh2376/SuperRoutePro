@@ -171,6 +171,16 @@ fn read_ipv4_route_table_blocking() -> Result<String, String> {
     )
 }
 
+pub(crate) fn get_routing_table_blocking_with_adapters(
+    adapters: &[crate::win32_net::NativeNic],
+) -> Result<Vec<RouteEntry>, String> {
+    let output = read_ipv4_route_table_blocking()?;
+    Ok(parse_ipv4_route_print(
+        &output,
+        &build_interface_index_lookup(adapters),
+    ))
+}
+
 #[tauri::command]
 pub async fn get_network_interfaces(active_only: bool) -> Result<Vec<NetworkInterface>, String> {
     let adapters =
