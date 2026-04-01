@@ -1,5 +1,19 @@
 # Changelog
 
+## v10.1.12 (2026-04-01)
+
+### Highlights
+- Added automatic Repair Mode unlock for already-elevated app sessions so an administrator who launches Super Route Pro with an elevated token no longer needs to click `Unlock` or spawn a second broker hop before running admin-only actions.
+- Promoted `SuperRouteService.exe` from a logon-time run-once helper into a long-running Windows route service that keeps persisted WAN and custom routes aligned over time instead of only restoring them once and exiting.
+- Centralized route drift inspection into a shared monitor layer so the background service and the in-app fallback watcher use the same signature logic, reducing the chance that route protection diverges across runtime paths.
+- Updated the Windows installer lifecycle to stop the route service before file replacement and remove it cleanly during uninstall, while also refreshing the user-facing documentation for the new service-backed route persistence model.
+
+### Verification
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.12 -SkipInstall`
+- Built the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.12\\Super Route Pro_10.1.12_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.12`.
+
 ## v10.1.10 (2026-03-31)
 
 ### Highlights

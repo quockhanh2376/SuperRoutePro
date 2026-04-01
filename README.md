@@ -1,9 +1,9 @@
-# Super Route Pro v10.1.10
+# Super Route Pro v10.1.12
 
 Super Route Pro is a Windows desktop network toolkit built with Tauri + React + Rust.
 It focuses on route management, network diagnostics, and continuous ping/fping testing in one lightweight UI.
 
-Current stable release: `v10.1.10`
+Current stable release: `v10.1.12`
 
 Author: Zonzon
 
@@ -63,13 +63,12 @@ This app provides a practical control panel for Windows networking tasks:
 
 ### Route Persistence Service
 
-- Background service (`SuperRouteService.exe`) runs at login via Task Scheduler
+- `Persist on startup` installs and starts `SuperRouteService.exe` as a per-machine Windows service
 - Identifies NIC by description + MAC address (survives InterfaceIndex changes)
-- Re-applies WAN default gateway + custom routes automatically
-- While the app stays open, an in-app route watcher monitors route-table drift and re-applies the persisted config when Windows rewrites the active routes
-- Balloon tip notification if NIC not found
-- Toggle "Persist on startup" in the WAN section
-- Startup restore remains run-once at login; runtime drift protection is active only while the app is open
+- Re-applies WAN default gateway + custom routes automatically when the saved config changes and whenever route drift is detected later
+- Keeps protecting persisted routes even when the desktop UI is no longer open
+- Falls back to the in-app watcher only when the Windows route service is not running
+- Cleans up the installed route service during uninstall and stops it before update file replacement
 
 ### Speed Test
 
@@ -90,6 +89,7 @@ This app provides a practical control panel for Windows networking tasks:
 Network command execution uses a whitelist in Rust (`run_network_command`) to block arbitrary command execution.
 Only allowed command prefixes can run from UI actions.
 Privileged machine actions flow through Repair Mode and the elevated repair broker rather than direct arbitrary shell access from the UI.
+If the UI process is already running with an elevated administrator token, Repair Mode now auto-unlocks for that app session without showing a second unlock step.
 
 ## 5) Performance Optimizations Already Applied
 
@@ -115,10 +115,13 @@ super-route-pro/
 |  |  |- network.rs             # network operations + diagnostics helpers
 |  |  |- network_snapshot.rs    # NIC and route snapshot parsing helpers
 |  |  |- repair_commands.rs     # repair-facing Tauri command wrappers
+|  |  |- privilege.rs           # elevated-token detection for auto-unlock
 |  |  |- route_apply.rs         # shared persisted-route apply engine
+|  |  |- route_monitor.rs       # shared route drift inspection
 |  |  |- route_persist.rs       # persist config (JSON read/write)
-|  |  |- route_service_main.rs  # SuperRouteService binary
-|  |  |- route_watcher.rs       # in-app route drift watcher while UI is open
+|  |  |- route_service_control.rs # install/start/stop route service lifecycle
+|  |  |- route_service_main.rs  # SuperRouteService Windows service host
+|  |  |- route_watcher.rs       # in-app fallback watcher when service is absent
 |  |  |- speed_test*.rs         # native speed test engine + target catalog
 |  |- binaries/            # Compiled sidecar EXEs
 |  |- tauri.conf.json

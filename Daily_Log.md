@@ -5,6 +5,26 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-01 - Released v10.1.12 Elevated Auto-Unlock + Route Service Promotion
+
+**Done**
+- Shipped automatic Repair Mode unlock for app sessions that are already running elevated, so administrator launches can execute repair-only actions without a second manual unlock step.
+- Promoted `SuperRouteService.exe` into a long-running Windows route service that keeps persisted WAN and custom routes aligned beyond startup rather than restoring them once at logon and exiting.
+- Shared one route monitor/drift-signature layer between the background service and the in-app fallback watcher so route persistence behavior stays consistent across protection paths.
+- Updated the installer hooks to stop the route service before updates and remove it on uninstall, then refreshed release-facing docs and README language to match the new persistence architecture.
+
+**Verification**
+- `npm run check`
+- `npm run release:local -- -VersionTag v10.1.12 -SkipInstall`
+- Built the Windows NSIS installer successfully at `D:\\SuperRoutePro\\release-artifacts\\v10.1.12\\Super Route Pro_10.1.12_x64-setup.exe`.
+- Collected the portable desktop binary and checksums alongside the installer at `D:\\SuperRoutePro\\release-artifacts\\v10.1.12`.
+
+**Next Steps**
+- Validate `v10.1.12` on one real elevated admin session plus one standard-user session to confirm the new auto-unlock split behaves exactly as intended.
+- NotebookLM sync is still pending on this workstation because no NotebookLM library entry or authenticated session is configured yet for Super Route Pro.
+
+--------------------------------------------------------------------------------
+
 ## 2026-03-31 - Released v10.1.10 Route Watcher Runtime Persist Hardening
 
 **Done**
