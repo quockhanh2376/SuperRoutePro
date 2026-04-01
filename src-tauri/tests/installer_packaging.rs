@@ -74,4 +74,12 @@ fn installer_packaging_bundles_required_sidecars() {
         !installer_hooks.contains("NSIS_HOOK_POSTINSTALL"),
         "installer hooks should no longer try to install a placeholder Windows service"
     );
+    assert!(
+        installer_hooks.contains("NSIS_HOOK_PREUNINSTALL"),
+        "installer hooks should clean up the route service before uninstall removes the binaries"
+    );
+    assert!(
+        installer_hooks.contains("SuperRouteProRouteService"),
+        "installer hooks should stop or delete the installed route service during update/uninstall"
+    );
 }

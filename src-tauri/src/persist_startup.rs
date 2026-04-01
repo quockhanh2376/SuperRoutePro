@@ -1,9 +1,9 @@
 #[cfg(target_os = "windows")]
 use crate::process_exec::run_hidden_output_blocking;
+#[cfg(target_os = "windows")]
+use crate::route_service_control;
 use crate::route_persist::{self, PersistConfig};
 
-#[cfg(target_os = "windows")]
-const STARTUP_TASK_NAME: &str = "SuperRouteProPersist";
 #[cfg(target_os = "windows")]
 const LEGACY_WAN_TASK_NAME: &str = "SuperRoutePro-PersistWAN";
 #[cfg(target_os = "windows")]
@@ -18,7 +18,7 @@ pub fn save_enabled_config(config: &PersistConfig) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        register_startup_task()?;
+        route_service_control::ensure_route_service_running()?;
         cleanup_obsolete_startup_artifacts()?;
     }
 
@@ -30,7 +30,7 @@ pub fn clear_persisted_startup_state() -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        unregister_startup_task()?;
+        route_service_control::uninstall_route_service_if_present()?;
         cleanup_obsolete_startup_artifacts()?;
     }
 
@@ -39,7 +39,7 @@ pub fn clear_persisted_startup_state() -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 pub fn startup_task_exists() -> Result<bool, String> {
-    query_task_exists(STARTUP_TASK_NAME)
+    route_service_control::route_service_is_installed()
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -67,44 +67,6 @@ pub fn cleanup_obsolete_startup_artifacts() -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 pub fn cleanup_obsolete_startup_artifacts() -> Result<(), String> {
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn register_startup_task() -> Result<(), String> {
-    let exe =
-        std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {e}"))?;
-    let exe_dir = exe.parent().ok_or("No parent dir")?;
-    let service_exe = exe_dir.join("SuperRouteService.exe");
-    let service_path = service_exe.to_string_lossy();
-
-    let _ = delete_task_if_exists(STARTUP_TASK_NAME);
-
-    let output = run_task_command(
-        "schtasks",
-        &[
-            "/Create",
-            "/TN",
-            STARTUP_TASK_NAME,
-            "/TR",
-            &format!("\"{}\"", service_path),
-            "/SC",
-            "ONLOGON",
-            "/RL",
-            "HIGHEST",
-            "/F",
-        ],
-    )?;
-
-    if let TaskCommandStatus::Failed(detail) = task_command_status(&output) {
-        return Err(format!("Task registration failed: {detail}"));
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn unregister_startup_task() -> Result<(), String> {
-    delete_task_if_exists(STARTUP_TASK_NAME)
 }
 
 #[cfg(target_os = "windows")]
@@ -158,17 +120,6 @@ fn delete_task_if_exists(task_name: &str) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn query_task_exists(task_name: &str) -> Result<bool, String> {
-    let output = run_task_command("schtasks", &["/Query", "/TN", task_name])?;
-
-    match task_command_status(&output) {
-        TaskCommandStatus::Success => Ok(true),
-        TaskCommandStatus::Missing => Ok(false),
-        TaskCommandStatus::Failed(detail) => Err(format!("Task query failed: {detail}")),
-    }
 }
 
 #[cfg(all(test, target_os = "windows"))]

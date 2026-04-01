@@ -8,6 +8,7 @@ mod network_snapshot;
 mod persist_commands;
 pub mod persist_startup;
 mod ping;
+mod privilege;
 pub mod process_exec;
 pub mod repair_actions;
 mod repair_commands;
@@ -16,7 +17,9 @@ pub mod repair_protocol;
 pub mod repair_session;
 pub mod repair_targets;
 pub mod route_apply;
+pub mod route_monitor;
 pub mod route_persist;
+pub mod route_service_control;
 mod route_watcher;
 mod speed_test;
 mod speed_test_targets;
@@ -38,7 +41,8 @@ use persist_commands::{
 };
 use ping::{fping_scan, ping_host};
 use repair_commands::{
-    get_repair_service_health, get_repair_session_status, list_repair_targets, lock_repair_mode,
+    auto_unlock_repair_mode, get_repair_service_health, get_repair_session_status,
+    list_repair_targets, lock_repair_mode,
     repair_add_route, repair_clear_cache_targets, repair_clear_persist_config, repair_delete_route,
     repair_flush_routes, repair_remove_bloatware, repair_run_machine_action,
     repair_save_persist_config, repair_set_default_gateway, unlock_repair_mode,
@@ -77,6 +81,7 @@ pub fn run() {
             get_repair_service_health,
             get_repair_session_status,
             list_repair_targets,
+            auto_unlock_repair_mode,
             unlock_repair_mode,
             lock_repair_mode,
             repair_add_route,

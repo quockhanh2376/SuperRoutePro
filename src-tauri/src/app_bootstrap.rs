@@ -62,7 +62,11 @@ pub(crate) fn setup_main_window<R: Runtime>(
         }
     }
 
-    crate::route_watcher::start(app.handle().clone()).map_err(std::io::Error::other)?;
+    let route_service_running = crate::route_service_control::route_service_is_running()
+        .unwrap_or(false);
+    if !route_service_running {
+        crate::route_watcher::start(app.handle().clone()).map_err(std::io::Error::other)?;
+    }
 
     Ok(())
 }

@@ -279,6 +279,16 @@ export async function getRepairSessionStatus(): Promise<RepairSessionStatus> {
   return invoke<RepairSessionStatus>("get_repair_session_status");
 }
 
+export async function autoUnlockRepairMode(
+  appInstanceId: string,
+  connectionId: string,
+): Promise<RepairSessionStatus> {
+  return invoke<RepairSessionStatus>("auto_unlock_repair_mode", {
+    appInstanceId,
+    connectionId,
+  });
+}
+
 export async function listRepairTargets(): Promise<RepairTargetUser[]> {
   return invoke<RepairTargetUser[]>("list_repair_targets");
 }

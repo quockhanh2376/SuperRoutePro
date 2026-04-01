@@ -1,4 +1,9 @@
 !macro NSIS_HOOK_PREINSTALL
+  ; Stop the route service before replacing the installed files during update.
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" stop SuperRouteProRouteService'
+  Sleep 1500
+
   ; Force old version removal before new files are copied.
   ClearErrors
   ReadRegStr $R7 SHCTX "${UNINSTKEY}" "UninstallString"
@@ -18,4 +23,12 @@
   Abort
 
 nsis_hook_done:
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  ; Remove the route service before deleting the installed binaries.
+  ClearErrors
+  ExecWait '"$SYSDIR\sc.exe" stop SuperRouteProRouteService'
+  Sleep 1500
+  ExecWait '"$SYSDIR\sc.exe" delete SuperRouteProRouteService'
 !macroend

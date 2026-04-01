@@ -2,13 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![cfg_attr(test, allow(dead_code))]
 
-//! SuperRouteService — Run-once startup service that re-applies WAN and custom
-//! routes using stable NIC identifiers (description / MAC) to survive
-//! InterfaceIndex changes across reboots.
-
 #[cfg(test)]
 use std::collections::HashMap;
-use std::thread;
+#[cfg(target_os = "windows")]
+use std::ffi::OsString;
+#[cfg(target_os = "windows")]
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 use super_route_pro_lib::route_apply::{
     apply_persist_config_with_adapters, resolve_nic_interface_index_from_adapters,
@@ -17,70 +17,226 @@ use super_route_pro_lib::route_apply::{
 use super_route_pro_lib::route_apply::{
     build_nic_index_lookup, resolve_custom_route_interface_index,
 };
+#[cfg(target_os = "windows")]
+use super_route_pro_lib::route_monitor::{
+    inspect_config_drift, ROUTE_MONITOR_CONFIRMATION_PASSES, ROUTE_MONITOR_POLL_INTERVAL,
+};
 use super_route_pro_lib::route_persist::{self, NicIdentifier, PersistConfig};
+#[cfg(target_os = "windows")]
+use super_route_pro_lib::route_service_control::ROUTE_SERVICE_NAME;
 #[cfg(test)]
 use super_route_pro_lib::route_persist::CustomRoute;
 
-const MAX_RETRY_SECONDS: u64 = 60;
-const RETRY_INTERVAL_SECONDS: u64 = 5;
+#[cfg(target_os = "windows")]
+use windows_service::define_windows_service;
+#[cfg(target_os = "windows")]
+use windows_service::service::{
+    ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+    ServiceType,
+};
+#[cfg(target_os = "windows")]
+use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
+#[cfg(target_os = "windows")]
+use windows_service::service_dispatcher;
 
-fn main() {
-    let config = match route_persist::load_config() {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            eprintln!("[SuperRouteService] No persist.json found. Exiting.");
-            return;
-        }
-        Err(e) => {
-            eprintln!("[SuperRouteService] Failed to load config: {e}");
-            return;
-        }
-    };
+#[cfg(target_os = "windows")]
+define_windows_service!(ffi_route_service_main, route_service_main);
 
-    if !config.enabled {
-        eprintln!("[SuperRouteService] Persist disabled. Exiting.");
-        return;
+#[cfg(target_os = "windows")]
+#[derive(Default)]
+struct RouteServiceState {
+    last_applied_config_stamp: Option<String>,
+    last_drift_signature: Option<String>,
+    drift_passes: u8,
+}
+
+#[cfg(target_os = "windows")]
+impl RouteServiceState {
+    fn reset(&mut self) {
+        self.last_applied_config_stamp = None;
+        self.last_drift_signature = None;
+        self.drift_passes = 0;
     }
 
-    // Retry loop: wait for NIC to come up after boot.
-    let mut elapsed: u64 = 0;
+    fn mark_applied(&mut self, config_stamp: String) {
+        self.last_applied_config_stamp = Some(config_stamp);
+        self.last_drift_signature = None;
+        self.drift_passes = 0;
+    }
+}
+
+fn main() {
+    if let Err(err) = run_entrypoint() {
+        eprintln!("[SuperRouteService] {err}");
+        std::process::exit(1);
+    }
+}
+
+fn run_entrypoint() -> Result<(), String> {
+    let mut args = std::env::args().skip(1);
+    if matches!(args.next().as_deref(), Some("--console")) {
+        return run_console_loop();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        service_dispatcher::start(ROUTE_SERVICE_NAME, ffi_route_service_main)
+            .map_err(|err| format!("Unable to connect the route service to the Service Control Manager: {err}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        run_console_loop()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn route_service_main(_arguments: Vec<OsString>) {
+    if let Err(err) = run_windows_service() {
+        eprintln!("[SuperRouteService] {err}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_service() -> Result<(), String> {
+    let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
+    let status_handle = service_control_handler::register(
+        ROUTE_SERVICE_NAME,
+        move |control_event| match control_event {
+            ServiceControl::Stop => {
+                let _ = shutdown_tx.send(());
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        },
+    )
+    .map_err(|err| format!("Unable to register the route service control handler: {err}"))?;
+
+    status_handle
+        .set_service_status(service_status(ServiceState::StartPending))
+        .map_err(|err| format!("Unable to set the route service start-pending status: {err}"))?;
+    status_handle
+        .set_service_status(service_status(ServiceState::Running))
+        .map_err(|err| format!("Unable to set the route service running status: {err}"))?;
+
+    let loop_result = run_route_service_loop(Some(&shutdown_rx));
+
+    let final_status = if loop_result.is_ok() {
+        service_status(ServiceState::Stopped)
+    } else {
+        service_status_with_exit_code(ServiceState::Stopped, 1)
+    };
+    status_handle
+        .set_service_status(final_status)
+        .map_err(|err| format!("Unable to set the route service stopped status: {err}"))?;
+
+    loop_result
+}
+
+fn run_console_loop() -> Result<(), String> {
+    run_route_service_loop(None)
+}
+
+#[cfg(target_os = "windows")]
+fn run_route_service_loop(shutdown_rx: Option<&Receiver<()>>) -> Result<(), String> {
+    let mut state = RouteServiceState::default();
+
     loop {
-        match find_nic_interface_index(&config.nic) {
-            Ok((index, adapters)) => {
-                eprintln!(
-                    "[SuperRouteService] NIC '{}' found at InterfaceIndex {index}",
-                    config.nic.description
-                );
-                apply_routes(&config, &index, &adapters);
-                eprintln!("[SuperRouteService] Routes applied. Exiting.");
-                return;
-            }
-            Err(e) => {
-                if elapsed >= MAX_RETRY_SECONDS {
-                    let msg = format!(
-                        "Super Route Pro: NIC '{}' not found after {MAX_RETRY_SECONDS}s. Routes not applied.",
-                        config.nic.description
-                    );
-                    eprintln!("[SuperRouteService] {msg}");
-                    show_balloon_tip("Super Route Pro", &msg);
-                    return;
-                }
-                eprintln!(
-                    "[SuperRouteService] NIC not found ({e}), retrying in {RETRY_INTERVAL_SECONDS}s... ({elapsed}/{MAX_RETRY_SECONDS}s)"
-                );
-                thread::sleep(Duration::from_secs(RETRY_INTERVAL_SECONDS));
-                elapsed += RETRY_INTERVAL_SECONDS;
-            }
+        if let Err(err) = route_service_tick(&mut state) {
+            eprintln!("[SuperRouteService] {err}");
+        }
+
+        match shutdown_rx {
+            Some(receiver) => match receiver.recv_timeout(ROUTE_MONITOR_POLL_INTERVAL) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                Err(RecvTimeoutError::Timeout) => {}
+            },
+            None => std::thread::sleep(ROUTE_MONITOR_POLL_INTERVAL),
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// NIC matching
-// ---------------------------------------------------------------------------
+#[cfg(not(target_os = "windows"))]
+fn run_route_service_loop(_shutdown_rx: Option<&()>) -> Result<(), String> {
+    Ok(())
+}
 
-/// Find the current InterfaceIndex of a NIC by matching its description (primary)
-/// or MAC address (fallback).
+#[cfg(target_os = "windows")]
+fn route_service_tick(state: &mut RouteServiceState) -> Result<(), String> {
+    let Some(config) = route_persist::load_config()? else {
+        state.reset();
+        return Ok(());
+    };
+    if !config.enabled {
+        state.reset();
+        return Ok(());
+    }
+
+    let config_stamp = config.updated_at.clone().unwrap_or_else(|| persist_config_stamp(&config));
+    if state.last_applied_config_stamp.as_deref() != Some(config_stamp.as_str()) {
+        apply_config_and_mark_state(state, &config, config_stamp)?;
+        return Ok(());
+    }
+
+    match inspect_config_drift(&config)? {
+        Some(signature) => {
+            if state
+                .last_drift_signature
+                .as_ref()
+                .is_some_and(|last_signature| last_signature == &signature)
+            {
+                state.drift_passes = state.drift_passes.saturating_add(1);
+            } else {
+                state.last_drift_signature = Some(signature.clone());
+                state.drift_passes = 1;
+            }
+
+            if state.drift_passes >= ROUTE_MONITOR_CONFIRMATION_PASSES {
+                apply_config_and_mark_state(state, &config, config_stamp)?;
+                eprintln!(
+                    "[SuperRouteService] Re-applied persisted routes after drift '{}'.",
+                    signature
+                );
+            }
+        }
+        None => {
+            state.last_drift_signature = None;
+            state.drift_passes = 0;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn apply_config_and_mark_state(
+    state: &mut RouteServiceState,
+    config: &PersistConfig,
+    config_stamp: String,
+) -> Result<(), String> {
+    let (interface_index, adapters) = find_nic_interface_index(&config.nic)?;
+    eprintln!(
+        "[SuperRouteService] NIC '{}' resolved at InterfaceIndex {interface_index}",
+        config.nic.description
+    );
+    apply_routes(config, &interface_index, &adapters)?;
+    state.mark_applied(config_stamp);
+    Ok(())
+}
+
+fn persist_config_stamp(config: &PersistConfig) -> String {
+    serde_json::to_string(config).unwrap_or_else(|_| {
+        format!(
+            "{}:{}:{}:{}",
+            config.enabled,
+            config.nic.description,
+            config.nic.mac_address,
+            config.custom_routes.len()
+        )
+    })
+}
+
 fn find_nic_interface_index(
     nic: &NicIdentifier,
 ) -> Result<(String, Vec<super_route_pro_lib::win32_net::NativeNic>), String> {
@@ -89,105 +245,42 @@ fn find_nic_interface_index(
     Ok((index, adapters))
 }
 
-// ---------------------------------------------------------------------------
-// Route application
-// ---------------------------------------------------------------------------
-
 fn apply_routes(
     config: &PersistConfig,
     interface_index: &str,
     adapters: &[super_route_pro_lib::win32_net::NativeNic],
-) {
-    match apply_persist_config_with_adapters(config, adapters) {
-        Ok(report) => {
-            for line in report.output_lines {
-                eprintln!("[SuperRouteService] {line}");
-            }
-            eprintln!(
-                "[SuperRouteService] Persist config applied on interface {interface_index} with {} custom route(s).",
-                report.custom_route_count
-            );
-        }
-        Err(err) => eprintln!("[SuperRouteService] Failed to apply persisted routes: {err}"),
+) -> Result<(), String> {
+    let report = apply_persist_config_with_adapters(config, adapters)?;
+    for line in report.output_lines {
+        eprintln!("[SuperRouteService] {line}");
     }
+    eprintln!(
+        "[SuperRouteService] Persist config applied on interface {interface_index} with {} custom route(s).",
+        report.custom_route_count
+    );
+    Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Balloon tip notification (Windows Shell_NotifyIcon)
-// ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
-fn show_balloon_tip(title: &str, message: &str) {
-    use std::mem;
-    use std::ptr;
-
-    // Shell_NotifyIconW constants
-    const NIM_ADD: u32 = 0x00000000;
-    const NIM_MODIFY: u32 = 0x00000001;
-    const NIM_DELETE: u32 = 0x00000002;
-    const NIF_ICON: u32 = 0x00000002;
-    const NIF_TIP: u32 = 0x00000004;
-    const NIF_INFO: u32 = 0x00000010;
-    const NIIF_INFO: u32 = 0x00000001;
-
-    #[repr(C)]
-    #[allow(non_snake_case)]
-    struct NOTIFYICONDATAW {
-        cbSize: u32,
-        hWnd: *mut std::ffi::c_void,
-        uID: u32,
-        uFlags: u32,
-        uCallbackMessage: u32,
-        hIcon: *mut std::ffi::c_void,
-        szTip: [u16; 128],
-        dwState: u32,
-        dwStateMask: u32,
-        szInfo: [u16; 256],
-        uTimeoutOrVersion: u32,
-        szInfoTitle: [u16; 64],
-        dwInfoFlags: u32,
-        guidItem: [u8; 16],
-        hBalloonIcon: *mut std::ffi::c_void,
-    }
-
-    #[link(name = "shell32")]
-    extern "system" {
-        fn Shell_NotifyIconW(message: u32, data: *mut NOTIFYICONDATAW) -> i32;
-    }
-
-    fn to_wide_fixed<const N: usize>(s: &str) -> [u16; N] {
-        let mut buf = [0u16; N];
-        for (i, ch) in s.encode_utf16().take(N - 1).enumerate() {
-            buf[i] = ch;
-        }
-        buf
-    }
-
-    unsafe {
-        let mut nid: NOTIFYICONDATAW = mem::zeroed();
-        nid.cbSize = mem::size_of::<NOTIFYICONDATAW>() as u32;
-        nid.hWnd = ptr::null_mut();
-        nid.uID = 1;
-        nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
-        nid.szTip = to_wide_fixed::<128>("Super Route Pro");
-        nid.szInfo = to_wide_fixed::<256>(message);
-        nid.szInfoTitle = to_wide_fixed::<64>(title);
-        nid.dwInfoFlags = NIIF_INFO;
-        nid.uTimeoutOrVersion = 5000; // 5 seconds
-
-        Shell_NotifyIconW(NIM_ADD, &mut nid);
-        Shell_NotifyIconW(NIM_MODIFY, &mut nid);
-
-        // Keep alive long enough for user to see the balloon
-        thread::sleep(Duration::from_secs(5));
-
-        Shell_NotifyIconW(NIM_DELETE, &mut nid);
-    }
+fn service_status(current_state: ServiceState) -> ServiceStatus {
+    service_status_with_exit_code(current_state, 0)
 }
 
-#[cfg(not(target_os = "windows"))]
-fn show_balloon_tip(_title: &str, message: &str) {
-    eprintln!("[SuperRouteService] NOTIFICATION: {message}");
+#[cfg(target_os = "windows")]
+fn service_status_with_exit_code(current_state: ServiceState, exit_code: u32) -> ServiceStatus {
+    ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state,
+        controls_accepted: if current_state == ServiceState::Running {
+            ServiceControlAccept::STOP
+        } else {
+            ServiceControlAccept::empty()
+        },
+        exit_code: ServiceExitCode::Win32(exit_code),
+        checkpoint: 0,
+        wait_hint: Duration::from_secs(10),
+        process_id: None,
+    }
 }
 
 #[cfg(test)]

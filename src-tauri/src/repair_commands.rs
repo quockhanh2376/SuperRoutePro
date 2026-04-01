@@ -1,5 +1,6 @@
 use crate::repair_ipc::{
-    complete_unlock_request, get_repair_service_health as read_repair_service_health,
+    auto_unlock_local_session, complete_unlock_request,
+    get_repair_service_health as read_repair_service_health,
     get_repair_session_status as read_repair_session_status, issue_unlock_request,
     lock_repair_mode as lock_repair_mode_state, run_appx_removal as dispatch_appx_removal,
     run_machine_action as dispatch_repair_machine_action,
@@ -46,10 +47,22 @@ pub(crate) fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
 }
 
 #[tauri::command]
+pub(crate) fn auto_unlock_repair_mode(
+    app_instance_id: String,
+    connection_id: String,
+) -> Result<RepairSessionStatus, String> {
+    auto_unlock_local_session(&app_instance_id, &connection_id)
+}
+
+#[tauri::command]
 pub(crate) fn unlock_repair_mode(
     app_instance_id: String,
     connection_id: String,
 ) -> Result<RepairSessionStatus, String> {
+    if crate::privilege::is_process_elevated()? {
+        return auto_unlock_local_session(&app_instance_id, &connection_id);
+    }
+
     let request = issue_unlock_request(&app_instance_id, &connection_id)?;
     launch_repair_broker(&request)?;
 

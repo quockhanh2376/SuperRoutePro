@@ -11,7 +11,7 @@ import {
   runNetworkCommand, pingHost, testTcpPort,
   fpingScan, checkInternet,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
-  getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
+  autoUnlockRepairMode, getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSavePersistConfig, repairClearPersistConfig,
   runRepairMachineAction, persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
@@ -551,6 +551,8 @@ export default function App() {
         getRepairSessionStatus(),
         listRepairTargets(),
       ]);
+      let nextRepairSession =
+        sessionResult.status === "fulfilled" ? sessionResult.value : null;
       if (sessionResult.status === "fulfilled") {
         setRepairSession(sessionResult.value);
       }
@@ -560,6 +562,23 @@ export default function App() {
         setSelectedRepairTargetSid(activeTarget.sid);
         console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
       }
+
+      if (nextRepairSession?.locked) {
+        try {
+          const autoUnlocked = await autoUnlockRepairMode(
+            repairAppInstanceId,
+            repairConnectionId,
+          );
+          nextRepairSession = autoUnlocked;
+          setRepairSession(autoUnlocked);
+          if (!autoUnlocked.locked) {
+            setStatusMsg("Repair Mode auto-unlocked for the current elevated app session.");
+          }
+        } catch (autoUnlockErr) {
+          console.warn("Auto-unlock repair mode skipped:", autoUnlockErr);
+        }
+      }
+
       const sessionFailure =
         sessionResult.status === "rejected" ? sessionResult.reason : null;
       const targetsFailure =
@@ -567,13 +586,15 @@ export default function App() {
       const failure = sessionFailure ?? targetsFailure;
       if (failure) {
         setStatusMsg(`Repair context error: ${failure}`);
+      } else if (nextRepairSession?.locked) {
+        setStatusMsg("Repair Mode is locked.");
       }
     } catch (err) {
       setStatusMsg(`Repair context error: ${err}`);
     } finally {
       setRepairLoading(false);
     }
-  }, []);
+  }, [repairAppInstanceId, repairConnectionId]);
 
   useEffect(() => {
     void refreshRepairContext();

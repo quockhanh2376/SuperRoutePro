@@ -74,6 +74,59 @@ fn current_host() -> Option<RepairHostConnection> {
         .clone()
 }
 
+fn local_session_status() -> RepairSessionStatus {
+    session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned")
+        .status()
+}
+
+fn local_session_can_run_privileged_actions_with(
+    session_status: &RepairSessionStatus,
+    process_is_elevated: bool,
+) -> bool {
+    process_is_elevated && !session_status.locked
+}
+
+fn local_session_can_run_privileged_actions(session_status: &RepairSessionStatus) -> bool {
+    match crate::privilege::is_process_elevated() {
+        Ok(process_is_elevated) => {
+            local_session_can_run_privileged_actions_with(session_status, process_is_elevated)
+        }
+        Err(_) => false,
+    }
+}
+
+fn auto_unlock_local_session_with_check<F>(
+    app_instance_id: &str,
+    connection_id: &str,
+    process_is_elevated: F,
+) -> Result<RepairSessionStatus, String>
+where
+    F: FnOnce() -> Result<bool, String>,
+{
+    if !process_is_elevated()? {
+        return Ok(local_session_status());
+    }
+
+    let mut session = session_manager()
+        .lock()
+        .expect("repair session manager mutex should not be poisoned");
+    if session.status().locked {
+        session.unlock(app_instance_id.to_string(), connection_id.to_string());
+    }
+    Ok(session.status())
+}
+
+pub fn auto_unlock_local_session(
+    app_instance_id: &str,
+    connection_id: &str,
+) -> Result<RepairSessionStatus, String> {
+    auto_unlock_local_session_with_check(app_instance_id, connection_id, || {
+        crate::privilege::is_process_elevated()
+    })
+}
+
 fn reserve_repair_host_port() -> Result<u16, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|err| format!("Unable to reserve a local repair host port: {err}"))?;
@@ -216,7 +269,21 @@ pub fn get_repair_service_health() -> RepairServiceHealth {
     match request_with_active_host(RepairServiceRequest::GetServiceHealth) {
         Ok(RepairServiceResponse::ServiceHealth(health)) => health,
         Ok(_) => RepairServiceHealth::service_unavailable(),
-        Err(_) => RepairServiceHealth::service_unavailable(),
+        Err(_) => {
+            let session_status = local_session_status();
+            if local_session_can_run_privileged_actions(&session_status) {
+                RepairServiceHealth {
+                    connected: true,
+                    requires_unlock: false,
+                    detail: Some(
+                        "In-process elevated repair session is active for this app instance."
+                            .to_string(),
+                    ),
+                }
+            } else {
+                RepairServiceHealth::service_unavailable()
+            }
+        }
     }
 }
 
@@ -313,25 +380,102 @@ pub fn lock_repair_mode() -> RepairSessionStatus {
 }
 
 pub fn run_machine_action(action: RepairMachineAction) -> Result<RepairCommandResult, String> {
-    match request_with_active_host(RepairServiceRequest::RunMachineAction(action)) {
+    match request_with_active_host(RepairServiceRequest::RunMachineAction(action.clone())) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected machine-action response.".to_string()),
-        Err(_) => Ok(locked_result()),
+        Err(_) => {
+            let session_status = local_session_status();
+            if local_session_can_run_privileged_actions(&session_status) {
+                crate::repair_actions::run_machine_action_blocking(&session_status, action)
+            } else {
+                Ok(locked_result())
+            }
+        }
     }
 }
 
 pub fn run_profile_cleanup(request: ProfileCleanupRequest) -> Result<RepairCommandResult, String> {
-    match request_with_active_host(RepairServiceRequest::RunProfileCleanup(request)) {
+    match request_with_active_host(RepairServiceRequest::RunProfileCleanup(request.clone())) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected cleanup response.".to_string()),
-        Err(_) => Ok(locked_result()),
+        Err(_) => {
+            let session_status = local_session_status();
+            if local_session_can_run_privileged_actions(&session_status) {
+                crate::repair_actions::clear_profile_caches_blocking(&session_status, request)
+            } else {
+                Ok(locked_result())
+            }
+        }
     }
 }
 
 pub fn run_appx_removal(request: AppxRemovalRequest) -> Result<RepairCommandResult, String> {
-    match request_with_active_host(RepairServiceRequest::RunAppxRemoval(request)) {
+    match request_with_active_host(RepairServiceRequest::RunAppxRemoval(request.clone())) {
         Ok(RepairServiceResponse::RepairAction(result)) => Ok(result),
         Ok(_) => Err("Repair host returned an unexpected Appx response.".to_string()),
-        Err(_) => Ok(locked_result()),
+        Err(_) => {
+            let session_status = local_session_status();
+            if local_session_can_run_privileged_actions(&session_status) {
+                crate::repair_actions::remove_appx_for_target_blocking(&session_status, request)
+            } else {
+                Ok(locked_result())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        auto_unlock_local_session_with_check, local_session_can_run_privileged_actions_with,
+    };
+    use crate::repair_protocol::RepairSessionStatus;
+
+    #[test]
+    fn local_session_requires_elevation_and_unlocked_state() {
+        let unlocked = RepairSessionStatus {
+            locked: false,
+            connected: true,
+            target_sid: None,
+            requires_unlock: false,
+        };
+        let locked = RepairSessionStatus {
+            locked: true,
+            connected: false,
+            target_sid: None,
+            requires_unlock: true,
+        };
+
+        assert!(local_session_can_run_privileged_actions_with(&unlocked, true));
+        assert!(!local_session_can_run_privileged_actions_with(&unlocked, false));
+        assert!(!local_session_can_run_privileged_actions_with(&locked, true));
+    }
+
+    #[test]
+    fn auto_unlock_local_session_unlocks_when_process_is_elevated() {
+        let before = crate::repair_ipc::lock_repair_mode();
+        assert!(before.locked, "test should start from a locked repair session");
+
+        let status =
+            auto_unlock_local_session_with_check("app-elevated", "conn-elevated", || Ok(true))
+                .expect("elevated process should auto-unlock");
+
+        assert!(!status.locked, "repair mode should auto-unlock");
+        assert!(status.connected, "local elevated session should be connected");
+
+        let after = crate::repair_ipc::lock_repair_mode();
+        assert!(after.locked, "test should restore the locked repair session");
+    }
+
+    #[test]
+    fn auto_unlock_local_session_stays_locked_when_process_is_not_elevated() {
+        let before = crate::repair_ipc::lock_repair_mode();
+        assert!(before.locked, "test should start from a locked repair session");
+
+        let status =
+            auto_unlock_local_session_with_check("app-standard", "conn-standard", || Ok(false))
+                .expect("standard process should return a status");
+
+        assert!(status.locked, "non-elevated sessions should stay locked");
     }
 }
