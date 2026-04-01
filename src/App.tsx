@@ -547,6 +547,7 @@ export default function App() {
   const refreshRepairContext = useCallback(async () => {
     setRepairLoading(true);
     try {
+      let autoUnlockFailure: string | null = null;
       const [sessionResult, targetsResult] = await Promise.allSettled([
         getRepairSessionStatus(),
         listRepairTargets(),
@@ -572,9 +573,13 @@ export default function App() {
           nextRepairSession = autoUnlocked;
           setRepairSession(autoUnlocked);
           if (!autoUnlocked.locked) {
-            setStatusMsg("Repair Mode auto-unlocked for the current elevated app session.");
+            setStatusMsg("Repair Mode unlocked automatically for this app session.");
           }
         } catch (autoUnlockErr) {
+          autoUnlockFailure =
+            autoUnlockErr instanceof Error
+              ? autoUnlockErr.message
+              : String(autoUnlockErr);
           console.warn("Auto-unlock repair mode skipped:", autoUnlockErr);
         }
       }
@@ -586,6 +591,8 @@ export default function App() {
       const failure = sessionFailure ?? targetsFailure;
       if (failure) {
         setStatusMsg(`Repair context error: ${failure}`);
+      } else if (autoUnlockFailure) {
+        setStatusMsg(`Repair Mode stayed locked: ${autoUnlockFailure}`);
       } else if (nextRepairSession?.locked) {
         setStatusMsg("Repair Mode is locked.");
       }

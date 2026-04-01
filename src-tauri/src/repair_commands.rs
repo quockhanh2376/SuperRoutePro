@@ -1,3 +1,6 @@
+use crate::privilege::{current_privilege_context, PrivilegeContext};
+#[cfg(target_os = "windows")]
+use crate::process_exec::run_hidden_output_blocking;
 use crate::repair_ipc::{
     auto_unlock_local_session, complete_unlock_request,
     get_repair_service_health as read_repair_service_health,
@@ -11,8 +14,23 @@ use crate::repair_protocol::{
     RepairMachineAction, RepairServiceHealth, RepairSessionStatus, UnlockRepairSessionRequest,
 };
 use crate::repair_targets::{list_repair_targets as read_repair_targets, RepairTargetUser};
-#[cfg(target_os = "windows")]
-use crate::process_exec::run_hidden_output_blocking;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoUnlockStrategy {
+    UnlockLocalSession,
+    PromptForElevation,
+    LeaveLocked,
+}
+
+fn resolve_auto_unlock_strategy(context: PrivilegeContext) -> AutoUnlockStrategy {
+    if context.process_is_elevated {
+        AutoUnlockStrategy::UnlockLocalSession
+    } else if context.account_is_local_admin {
+        AutoUnlockStrategy::PromptForElevation
+    } else {
+        AutoUnlockStrategy::LeaveLocked
+    }
+}
 
 pub(crate) fn handle_main_window_event<R: tauri::Runtime>(
     window: &tauri::Window<R>,
@@ -51,7 +69,15 @@ pub(crate) fn auto_unlock_repair_mode(
     app_instance_id: String,
     connection_id: String,
 ) -> Result<RepairSessionStatus, String> {
-    auto_unlock_local_session(&app_instance_id, &connection_id)
+    match resolve_auto_unlock_strategy(current_privilege_context()?) {
+        AutoUnlockStrategy::UnlockLocalSession => {
+            auto_unlock_local_session(&app_instance_id, &connection_id)
+        }
+        AutoUnlockStrategy::PromptForElevation => {
+            unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
+        }
+        AutoUnlockStrategy::LeaveLocked => Ok(read_repair_session_status()),
+    }
 }
 
 #[tauri::command]
@@ -63,17 +89,7 @@ pub(crate) fn unlock_repair_mode(
         return auto_unlock_local_session(&app_instance_id, &connection_id);
     }
 
-    let request = issue_unlock_request(&app_instance_id, &connection_id)?;
-    launch_repair_broker(&request)?;
-
-    let response = complete_unlock_request(request);
-    if response.unlocked {
-        Ok(read_repair_session_status())
-    } else {
-        Err(response
-            .detail
-            .unwrap_or_else(|| "Repair mode unlock failed.".to_string()))
-    }
+    unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
 }
 
 #[tauri::command]
@@ -173,6 +189,23 @@ pub(crate) async fn repair_remove_bloatware(
     })
 }
 
+fn unlock_repair_mode_via_broker(
+    app_instance_id: &str,
+    connection_id: &str,
+) -> Result<RepairSessionStatus, String> {
+    let request = issue_unlock_request(app_instance_id, connection_id)?;
+    launch_repair_broker(&request)?;
+
+    let response = complete_unlock_request(request);
+    if response.unlocked {
+        Ok(read_repair_session_status())
+    } else {
+        Err(response
+            .detail
+            .unwrap_or_else(|| "Repair mode unlock failed.".to_string()))
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), String> {
     let broker_path = std::env::current_exe()
@@ -218,4 +251,40 @@ fn launch_repair_broker(request: &UnlockRepairSessionRequest) -> Result<(), Stri
 #[cfg(not(target_os = "windows"))]
 fn launch_repair_broker(_request: &UnlockRepairSessionRequest) -> Result<(), String> {
     Err("Repair mode unlock is only available on Windows.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_auto_unlock_strategy, AutoUnlockStrategy};
+    use crate::privilege::PrivilegeContext;
+
+    #[test]
+    fn auto_unlock_prefers_in_process_session_when_already_elevated() {
+        let strategy = resolve_auto_unlock_strategy(PrivilegeContext {
+            process_is_elevated: true,
+            account_is_local_admin: true,
+        });
+
+        assert_eq!(strategy, AutoUnlockStrategy::UnlockLocalSession);
+    }
+
+    #[test]
+    fn auto_unlock_prompts_for_uac_when_account_is_admin_but_process_isnt() {
+        let strategy = resolve_auto_unlock_strategy(PrivilegeContext {
+            process_is_elevated: false,
+            account_is_local_admin: true,
+        });
+
+        assert_eq!(strategy, AutoUnlockStrategy::PromptForElevation);
+    }
+
+    #[test]
+    fn auto_unlock_leaves_standard_users_locked() {
+        let strategy = resolve_auto_unlock_strategy(PrivilegeContext {
+            process_is_elevated: false,
+            account_is_local_admin: false,
+        });
+
+        assert_eq!(strategy, AutoUnlockStrategy::LeaveLocked);
+    }
 }
