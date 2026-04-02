@@ -135,14 +135,9 @@ pub fn route_service_binary_path() -> Result<PathBuf, String> {
 
 #[cfg(target_os = "windows")]
 fn create_route_service(service_path: &std::path::Path) -> Result<(), String> {
-    let service_path = service_path.to_string_lossy().to_string();
-    match run_service_command(&[
-        "create",
-        ROUTE_SERVICE_NAME,
-        &format!("binPath= \"{}\"", service_path),
-        "start= auto",
-        &format!("DisplayName= \"{}\"", ROUTE_SERVICE_DISPLAY_NAME),
-    ])? {
+    let args = build_create_route_service_args(service_path);
+    let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match run_service_command(&args_refs)? {
         ServiceCommandStatus::Success(_) => {
             let _ = run_service_command(&[
                 "description",
@@ -158,14 +153,9 @@ fn create_route_service(service_path: &std::path::Path) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn configure_route_service(service_path: &std::path::Path) -> Result<(), String> {
-    let service_path = service_path.to_string_lossy().to_string();
-    match run_service_command(&[
-        "config",
-        ROUTE_SERVICE_NAME,
-        &format!("binPath= \"{}\"", service_path),
-        "start= auto",
-        &format!("DisplayName= \"{}\"", ROUTE_SERVICE_DISPLAY_NAME),
-    ])? {
+    let args = build_configure_route_service_args(service_path);
+    let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match run_service_command(&args_refs)? {
         ServiceCommandStatus::Success(_) => {
             let _ = run_service_command(&[
                 "description",
@@ -174,11 +164,37 @@ fn configure_route_service(service_path: &std::path::Path) -> Result<(), String>
             ]);
             Ok(())
         }
-        ServiceCommandStatus::Missing => {
-            create_route_service(std::path::Path::new(&service_path))
-        }
+        ServiceCommandStatus::Missing => create_route_service(service_path),
         ServiceCommandStatus::Failed(detail) => Err(format!("Route service update failed: {detail}")),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn build_create_route_service_args(service_path: &std::path::Path) -> Vec<String> {
+    build_route_service_command_args("create", service_path)
+}
+
+#[cfg(target_os = "windows")]
+fn build_configure_route_service_args(service_path: &std::path::Path) -> Vec<String> {
+    build_route_service_command_args("config", service_path)
+}
+
+#[cfg(target_os = "windows")]
+fn build_route_service_command_args(
+    operation: &str,
+    service_path: &std::path::Path,
+) -> Vec<String> {
+    let service_path = service_path.to_string_lossy().to_string();
+    vec![
+        operation.to_string(),
+        ROUTE_SERVICE_NAME.to_string(),
+        "binPath=".to_string(),
+        format!("\"{}\"", service_path),
+        "start=".to_string(),
+        "auto".to_string(),
+        "DisplayName=".to_string(),
+        format!("\"{}\"", ROUTE_SERVICE_DISPLAY_NAME),
+    ]
 }
 
 #[cfg(target_os = "windows")]
@@ -259,7 +275,11 @@ fn service_is_running(detail: &str) -> bool {
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::{service_is_running, service_missing_marker_present};
+    use super::{
+        build_configure_route_service_args, build_create_route_service_args, service_is_running,
+        service_missing_marker_present, ROUTE_SERVICE_DISPLAY_NAME, ROUTE_SERVICE_NAME,
+    };
+    use std::path::Path;
 
     #[test]
     fn service_missing_marker_matches_sc_output() {
@@ -277,5 +297,32 @@ mod tests {
         assert!(!service_is_running(
             "STATE              : 1  STOPPED\nWIN32_EXIT_CODE    : 0  (0x0)"
         ));
+    }
+
+    #[test]
+    fn create_service_args_keep_sc_option_keys_and_values_separate() {
+        let args = build_create_route_service_args(Path::new(
+            r"C:\Program Files\SuperRoutePro\SuperRouteService.exe",
+        ));
+
+        assert_eq!(args[0], "create");
+        assert_eq!(args[1], ROUTE_SERVICE_NAME);
+        assert_eq!(args[2], "binPath=");
+        assert_eq!(args[3], r#""C:\Program Files\SuperRoutePro\SuperRouteService.exe""#);
+        assert_eq!(args[4], "start=");
+        assert_eq!(args[5], "auto");
+        assert_eq!(args[6], "DisplayName=");
+        assert_eq!(args[7], format!(r#""{}""#, ROUTE_SERVICE_DISPLAY_NAME));
+    }
+
+    #[test]
+    fn config_service_args_keep_sc_option_keys_and_values_separate() {
+        let args = build_configure_route_service_args(Path::new(
+            r"C:\Program Files\SuperRoutePro\SuperRouteService.exe",
+        ));
+
+        assert_eq!(args[0], "config");
+        assert_eq!(args[4], "start=");
+        assert_eq!(args[5], "auto");
     }
 }
