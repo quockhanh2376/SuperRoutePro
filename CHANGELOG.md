@@ -5,6 +5,7 @@
 ### Highlights
 - Added automatic Repair Mode unlock for already-elevated app sessions so an administrator who launches Super Route Pro with an elevated token no longer needs to click `Unlock` or spawn a second broker hop before running admin-only actions.
 - Hotfixed the Repair Mode bootstrap so local-admin accounts that start the UI with a standard UAC-filtered token now auto-prompt the broker/UAC path instead of silently staying locked just because the process was not already elevated.
+- Fixed the Windows `sc.exe` argument formatting used by `Persist Startup Config`, so `SuperRouteService` now installs/configures correctly instead of failing with `ERROR: Invalid start= field` when startup persistence is enabled.
 - Promoted `SuperRouteService.exe` from a logon-time run-once helper into a long-running Windows route service that keeps persisted WAN and custom routes aligned over time instead of only restoring them once and exiting.
 - Centralized route drift inspection into a shared monitor layer so the background service and the in-app fallback watcher use the same signature logic, reducing the chance that route protection diverges across runtime paths.
 - Updated the Windows installer lifecycle to stop the route service before file replacement and remove it cleanly during uninstall, while also refreshing the user-facing documentation for the new service-backed route persistence model.

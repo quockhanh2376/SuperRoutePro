@@ -10,6 +10,7 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 **Done**
 - Shipped automatic Repair Mode unlock for app sessions that are already running elevated, so administrator launches can execute repair-only actions without a second manual unlock step.
 - Hotfixed the same `v10.1.12` line so a Microsoft or local account that belongs to `Administrators` but opens the UI with a standard UAC-filtered token now auto-prompts the broker/UAC path instead of remaining locked with no escalation attempt.
+- Hotfixed the `Persist Startup Config` service install path so `sc.exe` now receives `binPath=`, `start=`, and `DisplayName=` in the argument shape Windows expects, fixing the `Invalid start= field` failure seen while enabling startup persistence.
 - Promoted `SuperRouteService.exe` into a long-running Windows route service that keeps persisted WAN and custom routes aligned beyond startup rather than restoring them once at logon and exiting.
 - Shared one route monitor/drift-signature layer between the background service and the in-app fallback watcher so route persistence behavior stays consistent across protection paths.
 - Updated the installer hooks to stop the route service before updates and remove it on uninstall, then refreshed release-facing docs and README language to match the new persistence architecture.
