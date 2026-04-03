@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: usePingMonitor Extraction
+
+**Done**
+- Extracted the continuous ping/fping monitor logic from `src/App.tsx` into `src/hooks/usePingMonitor.ts`.
+- Moved `pingTarget`, `pingMode`, `pingRunning`, the ping loop refs, `handleStartPing`, `handleStopPing`, and the interval effect into the new hook while keeping the existing UI behavior unchanged.
+- Left `Tracert` in `App.tsx` so the hook stays focused on the continuous monitor only.
+- Reduced `src/App.tsx` from 2,219 lines to 2,146 lines by removing the inline ping monitor state and interval management block.
+- Updated `OPTIMIZE.md` to mark `Create usePingMonitor hook` complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 2,146 lines
+
+**Next Steps**
+- Continue state extraction with either `useRepairMode` or `useNetworkMonitoring`, both of which still own meaningful chunks of state and side effects in `App.tsx`.
+- Keep pushing toward the Phase 1 target of ~1,800 lines before broader Phase 2 cleanup.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: ConfirmDialog Extraction
 
 **Done**

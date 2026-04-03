@@ -57,6 +57,7 @@ import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/
 import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
+import { usePingMonitor } from "./hooks/usePingMonitor";
 import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 import { useModal } from "./hooks/useModal";
@@ -114,9 +115,6 @@ export default function App() {
   const [repairUnlocking, setRepairUnlocking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasLoadedNicSnapshot, setHasLoadedNicSnapshot] = useState(false);
-  const [pingTarget, setPingTarget] = useState("1.1.1.1");
-  const [pingMode, setPingMode] = useState<"ping" | "fping">("ping");
-  const [pingRunning, setPingRunning] = useState(false);
   const ipScanModal = useModal();
   const [ipScanRunning, setIpScanRunning] = useState(false);
   const [ipScanStopPending, setIpScanStopPending] = useState(false);
@@ -377,10 +375,20 @@ export default function App() {
     appendLines: appendCommandLines,
     clear: clearCommandOutput,
   } = useBufferedLog(1200);
+  const {
+    pingTarget,
+    setPingTarget,
+    pingMode,
+    setPingMode,
+    pingRunning,
+    handleStartPing,
+    handleStopPing,
+  } = usePingMonitor({
+    appendLine: appendPingLine,
+    appendLines: appendPingLines,
+    setStatusMessage: setStatusMsg,
+  });
 
-  const pingLoopRef = useRef<number | null>(null);
-  const pingBusyRef = useRef(false);
-  const pingSeqRef = useRef(0);
   const lensTimerRef = useRef<number | null>(null);
   const cacheStopRequestedRef = useRef(false);
   const ipScanStopRequestedRef = useRef(false);
@@ -1482,87 +1490,6 @@ export default function App() {
     confirmActionRef.current = null;
     setConfirmOpen(false);
   };
-
-  const handleStartPing = useCallback(() => {
-    const target = pingTarget.trim() || "1.1.1.1";
-    setPingTarget(target);
-    pingSeqRef.current = 0;
-    const label = pingMode === "fping" ? "fping-like" : "ping";
-    appendPingLine(`--- Start ${label} continuous check to ${target} ---`);
-    setStatusMsg(`${label} ${target} continuously...`);
-    setPingRunning(true);
-  }, [appendPingLine, pingMode, pingTarget]);
-
-  const handleStopPing = useCallback(() => {
-    const target = pingTarget.trim() || "1.1.1.1";
-    setPingRunning(false);
-    appendPingLine(`--- Stopped continuous ping to ${target} ---`);
-    setStatusMsg("Ping stopped");
-  }, [appendPingLine, pingTarget]);
-
-  useEffect(() => {
-    if (!pingRunning) {
-      if (pingLoopRef.current) {
-        window.clearInterval(pingLoopRef.current);
-        pingLoopRef.current = null;
-      }
-      return;
-    }
-
-    const target = pingTarget.trim() || "1.1.1.1";
-    const parsedTargets = target
-      .split(/[\s,;]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const fpingTargets = parsedTargets.length > 0 ? parsedTargets : ["1.1.1.1"];
-    const runOnce = async () => {
-      if (pingBusyRef.current) return;
-      pingBusyRef.current = true;
-      try {
-        if (pingMode === "fping") {
-          const result = await fpingScan(fpingTargets, 1200);
-          const stamp = new Date().toLocaleTimeString("en-GB");
-          pingSeqRef.current += 1;
-          const lines: string[] = [
-            `[${stamp}] fping-like round=${pingSeqRef.current} sent=${result.sent} recv=${result.received} loss=${result.loss_percent.toFixed(0)}% min/avg/max=${result.min_ms}/${result.avg_ms}/${result.max_ms}ms`,
-          ];
-          for (const host of result.hosts) {
-            if (host.success) {
-              lines.push(`  [UP] ${host.target} ${host.latency_ms} ms`);
-            } else {
-              lines.push(`  [DOWN] ${host.target} timeout`);
-            }
-          }
-          appendPingLines(lines);
-        } else {
-          const result = await pingHost(target, 1);
-          const stamp = new Date().toLocaleTimeString("en-GB");
-          pingSeqRef.current += 1;
-          if (result.success) {
-            appendPingLine(`[${stamp}] Reply from ${target}: bytes=32 time=${result.latency_ms}ms TTL=52`);
-          } else {
-            appendPingLine(`[${stamp}] Request timed out (${target})`);
-          }
-        }
-      } catch (err) {
-        appendPingLine(`[${new Date().toLocaleTimeString("en-GB")}] Ping error: ${err}`);
-      } finally {
-        pingBusyRef.current = false;
-      }
-    };
-
-    void runOnce();
-    pingLoopRef.current = window.setInterval(() => {
-      void runOnce();
-    }, pingMode === "fping" ? 450 : 1000);
-
-    return () => {
-      if (pingLoopRef.current) {
-        window.clearInterval(pingLoopRef.current);
-        pingLoopRef.current = null;
-      }
-    };
-  }, [pingRunning, pingTarget, pingMode]);
 
   useEffect(() => {
     if (pingOutputRef.current) {
