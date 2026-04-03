@@ -72,10 +72,10 @@ src/constants/
 - [x] Create usePingMonitor hook
 - [x] Create useRepairMode hook
 - [x] Create useNetworkMonitoring hook
-- [ ] Extract routeActions
+- [x] Extract routeActions
 - [x] Extract repairActions
 
-**Progress:** 12/13 tasks completed. App.tsx currently 1,914 lines (down 678 lines from 2,592, -26.2%). Target: ~1,800 lines for Phase 1.
+**Progress:** 13/13 tasks completed. App.tsx currently 1,823 lines (down 769 lines from 2,592, -29.7%). Phase 1 target: ~1,800 lines, now 23 lines away.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 1,914 lines
+- ❌ App.tsx: 1,823 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (major UI/state hooks extracted; route actions are the largest remaining centralized block)
+- ❌ Code duplication: Low-Medium (major modal, hook, and action extraction complete; remaining size is mostly app-specific orchestration)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)

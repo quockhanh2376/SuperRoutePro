@@ -12,11 +12,8 @@ import {
   fpingScan,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   getRepairSessionStatus, listRepairTargets,
-  repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
-  repairSavePersistConfig, repairClearPersistConfig,
   persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
-  type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction,
 } from "./api";
 import {
@@ -44,8 +41,7 @@ import {
   syncSelectedNicToList,
 } from "./nicDescriptionModel";
 import { getNicTableMessage } from "./nicTableModel";
-import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
-import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
+import { resolvePersistStartupEnabled } from "./persistStartupModel";
 import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
@@ -67,6 +63,12 @@ import {
   executeRepairAction as executeRepairActionImpl,
   handleRepairCommandResult as handleRepairCommandResultImpl,
 } from "./repairActions";
+import {
+  executeAddRouteAction,
+  executeDeleteRouteAction,
+  executeFlushRoutesAction,
+  executeSetInternetAction,
+} from "./routeActions";
 
 type RouteWatcherStatusEventPayload = {
   status: "reapplied" | "failed";
@@ -476,134 +478,41 @@ export default function App() {
   }, []);
 
   const handleAddRoute = useCallback(async () => {
-    if (!formDest || !formGw) {
-      setStatusMsg("Please fill Destination and Gateway");
-      return;
-    }
-    setStatusMsg("Adding route...");
-    try {
-      const result = await repairAddRoute(
-        formDest,
-        formMask,
-        formGw,
-        formMetric,
-        selectedNic?.index
-      );
-      await handleRepairCommandResult("Add Route", result, {
-        appendOutput: true,
-        refresh: true,
-        successMessage: "Route added successfully!",
-        failureMessage: "Add Route - Failed",
-      });
-    } catch (err) {
-      setStatusMsg(`Error: ${err}`);
-    }
+    await executeAddRouteAction({
+      formDest,
+      formMask,
+      formGw,
+      formMetric,
+      selectedNicIndex: selectedNic?.index,
+      setStatusMessage: setStatusMsg,
+      handleRepairCommandResult,
+    });
   }, [formDest, formGw, formMask, formMetric, handleRepairCommandResult, selectedNic?.index]);
 
   const handleDeleteRoute = useCallback(async () => {
-    if (!formDest) {
-      setStatusMsg("Please fill Destination IP");
-      return;
-    }
-    setStatusMsg("Deleting route...");
-    try {
-      const result = await repairDeleteRoute(formDest, formMask);
-      await handleRepairCommandResult("Delete Route", result, {
-        appendOutput: true,
-        refresh: true,
-        successMessage: "Route deleted!",
-        failureMessage: "Delete Route - Failed",
-      });
-    } catch (err) {
-      setStatusMsg(`Error: ${err}`);
-    }
+    await executeDeleteRouteAction({
+      formDest,
+      formMask,
+      setStatusMessage: setStatusMsg,
+      handleRepairCommandResult,
+    });
   }, [formDest, formMask, handleRepairCommandResult]);
 
   const executeSetInternet = useCallback(async () => {
-    if (!selectedNic || !selectedNic.gateway) {
-      setStatusMsg("Select a NIC with a gateway first");
-      return;
-    }
-    setStatusMsg("Setting default gateway...");
-    try {
-      const gatewayResult = await repairSetDefaultGateway(selectedNic.gateway, selectedNic.index);
-      const gatewayApplied = await handleRepairCommandResult("Set Default Gateway", gatewayResult, {
-        appendOutput: true,
-        successMessage: "Default gateway set.",
-        failureMessage: "Set Default Gateway - Failed",
-      });
-      if (!gatewayApplied) {
-        return;
-      }
-
-      const persistWriteMode = getPersistStartupWriteMode(persistWanOnStartup);
-      if (persistWriteMode === "save") {
-        try {
-          const persistRouteInterfaceIndexes = getPersistRouteInterfaceIndexes(routes);
-          const stableIdIndexes = Array.from(
-            new Set([selectedNic.index, ...persistRouteInterfaceIndexes]),
-          );
-          const stableIds = await persistGetNicStableIds(stableIdIndexes);
-          const nicId = stableIds[0];
-          const routeNicEntries = new Map(
-            [
-              [selectedNic.index, nicId] as const,
-              ...stableIdIndexes.slice(1).map((interfaceIndex, index) => [
-                interfaceIndex,
-                stableIds[index + 1],
-              ] as const),
-            ],
-          );
-          const config: PersistConfig = {
-            schema_version: 1,
-            enabled: true,
-            nic: nicId,
-            wan: { gateway: selectedNic.gateway, metric: "1" },
-            custom_routes: buildPersistCustomRoutes(
-              routes,
-              routeNicEntries,
-            ),
-            updated_at: new Date().toISOString(),
-          };
-          const persistConfigResult = await repairSavePersistConfig(config);
-          await handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
-            appendOutput: true,
-            successMessage: "Default gateway set. Persist on startup enabled.",
-            failureMessage: "Persist Startup Config - Failed",
-          });
-        } catch (persistErr) {
-          console.warn("Failed to save persist config:", persistErr);
-        }
-      } else {
-        try {
-          const persistConfigResult = await repairClearPersistConfig();
-          await handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
-            appendOutput: true,
-            successMessage: "Default gateway set. Persist on startup disabled.",
-            failureMessage: "Persist Startup Config - Failed",
-          });
-        } catch (persistErr) {
-          console.warn("Failed to disable persist config:", persistErr);
-        }
-      }
-    } catch (err) {
-      setStatusMsg(`Error: ${err}`);
-    }
+    await executeSetInternetAction({
+      selectedNic,
+      persistWanOnStartup,
+      routes,
+      setStatusMessage: setStatusMsg,
+      handleRepairCommandResult,
+    });
   }, [handleRepairCommandResult, persistWanOnStartup, routes, selectedNic]);
 
   const executeFlush = useCallback(async () => {
-    setStatusMsg("Flushing routes...");
-    try {
-      const result = await repairFlushRoutes();
-      await handleRepairCommandResult("Flush Routes", result, {
-        appendOutput: true,
-        refresh: true,
-        successMessage: "All routes flushed!",
-        failureMessage: "Flush Routes - Failed",
-      });
-    } catch (err) {
-      setStatusMsg(`Error: ${err}`);
-    }
+    await executeFlushRoutesAction({
+      setStatusMessage: setStatusMsg,
+      handleRepairCommandResult,
+    });
   }, [handleRepairCommandResult]);
 
   const appendCommandOutput = useCallback((title: string, output: string) => {

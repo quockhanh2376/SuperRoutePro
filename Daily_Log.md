@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: routeActions Extraction
+
+**Done**
+- Extracted the route action implementations from `src/App.tsx` into `src/routeActions.ts`.
+- Moved add-route, delete-route, set-WAN/default-gateway, flush-routes, and persist-on-startup route config handling into the new module.
+- Kept `App.tsx` wrappers thin by passing only current form state, selected NIC, routes, and the shared repair-result handler into `routeActions`.
+- Reduced `src/App.tsx` from 1,914 lines to 1,823 lines, leaving the file only 23 lines above the original Phase 1 target of ~1,800 lines.
+- Updated `OPTIMIZE.md` to mark `Extract routeActions` complete; the Phase 1 tracking checklist is now fully completed.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 1,823 lines
+
+**Next Steps**
+- Do one final small extraction pass to break below the ~1,800-line Phase 1 target.
+- Then start Phase 2 cleanup, focusing on deeper state grouping and remaining orchestration complexity.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: repairActions Extraction
 
 **Done**
