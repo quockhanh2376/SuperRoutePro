@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: useRepairMode Extraction
+
+**Done**
+- Extracted repair-mode session state and lifecycle logic from `src/App.tsx` into `src/hooks/useRepairMode.ts`.
+- Moved repair session state, selected repair target state, auto-unlock refresh on mount, repair-target auto-load, and unlock/lock handlers into the new hook.
+- Kept repair action execution in `App.tsx` for now, but reused the hook's returned setters so existing admin-action flows continue updating repair session state correctly.
+- Reduced `src/App.tsx` from 2,034 lines to 1,931 lines by removing the inline repair-mode state and lifecycle block.
+- Updated `OPTIMIZE.md` to mark `Create useRepairMode hook` complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 1,931 lines
+
+**Next Steps**
+- Extract `routeActions` or `repairActions` next, since those are now the largest remaining centralized logic blocks in `App.tsx`.
+- Push below the Phase 1 target of ~1,800 lines with one more medium-size extraction pass.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: useNetworkMonitoring Extraction
 
 **Done**

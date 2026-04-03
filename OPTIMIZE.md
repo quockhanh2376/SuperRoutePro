@@ -70,12 +70,12 @@ src/constants/
 - [x] Create useProgressTracker hook
 - [x] Extract constants into `src/constants/*`
 - [x] Create usePingMonitor hook
-- [ ] Create useRepairMode hook
+- [x] Create useRepairMode hook
 - [x] Create useNetworkMonitoring hook
 - [ ] Extract routeActions
 - [ ] Extract repairActions
 
-**Progress:** 10/13 tasks completed. App.tsx currently 2,034 lines (down 558 lines from 2,592, -21.5%). Target: ~1,800 lines for Phase 1.
+**Progress:** 11/13 tasks completed. App.tsx currently 1,931 lines (down 661 lines from 2,592, -25.5%). Target: ~1,800 lines for Phase 1.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 2,034 lines
+- ❌ App.tsx: 1,931 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (modals, constants, ping, and network monitoring hooks extracted; repair and route actions still centralized)
+- ❌ Code duplication: Medium (major UI/state hooks extracted; repair and route action logic still centralized)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)

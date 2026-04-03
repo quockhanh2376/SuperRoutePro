@@ -11,13 +11,13 @@ import {
   runNetworkCommand, testTcpPort,
   fpingScan,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
-  autoUnlockRepairMode, getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
+  getRepairSessionStatus, listRepairTargets,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSavePersistConfig, repairClearPersistConfig,
   runRepairMachineAction, persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
-  type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
+  type BatterySummaryResult, type RepairMachineAction,
 } from "./api";
 import {
   APP_AUTHOR,
@@ -60,6 +60,7 @@ import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useNetworkMonitoring } from "./hooks/useNetworkMonitoring";
 import { usePingMonitor } from "./hooks/usePingMonitor";
 import { useProgressTracker } from "./hooks/useProgressTracker";
+import { useRepairMode } from "./hooks/useRepairMode";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 import { useModal } from "./hooks/useModal";
 
@@ -104,15 +105,6 @@ export default function App() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [statusMsg, setStatusMsg] = useState("System Ready");
   const [routeWatcherToast, setRouteWatcherToast] = useState<RouteWatcherToast | null>(null);
-  const [repairSession, setRepairSession] = useState<RepairSessionStatus>({
-    locked: true,
-    connected: false,
-    target_sid: null,
-    requires_unlock: true,
-  });
-  const [selectedRepairTargetSid, setSelectedRepairTargetSid] = useState<string | null>(null);
-  const [repairLoading, setRepairLoading] = useState(true);
-  const [repairUnlocking, setRepairUnlocking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasLoadedNicSnapshot, setHasLoadedNicSnapshot] = useState(false);
   const ipScanModal = useModal();
@@ -174,14 +166,19 @@ export default function App() {
     () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
     [selectedCaches]
   );
-  const repairAppInstanceId = useMemo(
-    () => globalThis.crypto?.randomUUID?.() ?? `srp-ui-${Date.now()}`,
-    []
-  );
-  const repairConnectionId = useMemo(
-    () => globalThis.crypto?.randomUUID?.() ?? `srp-conn-${Date.now()}`,
-    []
-  );
+  const {
+    repairSession,
+    setRepairSession,
+    selectedRepairTargetSid,
+    setSelectedRepairTargetSid,
+    repairLoading,
+    repairUnlocking,
+    loadRepairTargets,
+    handleUnlockRepair,
+    handleLockRepair,
+  } = useRepairMode({
+    setStatusMessage: setStatusMsg,
+  });
 
   useEffect(() => {
     let active = true;
@@ -278,82 +275,6 @@ export default function App() {
   const handleZoomReset = useCallback(() => {
     setZoomLevel(ZOOM_DEFAULT);
   }, []);
-
-  const loadRepairTargets = useCallback(async () => {
-    try {
-      const targets = await listRepairTargets();
-      if (targets.length > 0) {
-        const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
-        setSelectedRepairTargetSid(activeTarget.sid);
-        console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
-      }
-    } catch (err) {
-      console.warn("Could not load repair targets:", err);
-    }
-  }, []);
-
-  const refreshRepairContext = useCallback(async () => {
-    setRepairLoading(true);
-    try {
-      let autoUnlockFailure: string | null = null;
-      const [sessionResult, targetsResult] = await Promise.allSettled([
-        getRepairSessionStatus(),
-        listRepairTargets(),
-      ]);
-      let nextRepairSession =
-        sessionResult.status === "fulfilled" ? sessionResult.value : null;
-      if (sessionResult.status === "fulfilled") {
-        setRepairSession(sessionResult.value);
-      }
-      if (targetsResult.status === "fulfilled" && targetsResult.value.length > 0) {
-        const targets = targetsResult.value;
-        const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
-        setSelectedRepairTargetSid(activeTarget.sid);
-        console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
-      }
-
-      if (nextRepairSession?.locked) {
-        try {
-          const autoUnlocked = await autoUnlockRepairMode(
-            repairAppInstanceId,
-            repairConnectionId,
-          );
-          nextRepairSession = autoUnlocked;
-          setRepairSession(autoUnlocked);
-          if (!autoUnlocked.locked) {
-            setStatusMsg("Repair Mode unlocked automatically for this app session.");
-          }
-        } catch (autoUnlockErr) {
-          autoUnlockFailure =
-            autoUnlockErr instanceof Error
-              ? autoUnlockErr.message
-              : String(autoUnlockErr);
-          console.warn("Auto-unlock repair mode skipped:", autoUnlockErr);
-        }
-      }
-
-      const sessionFailure =
-        sessionResult.status === "rejected" ? sessionResult.reason : null;
-      const targetsFailure =
-        targetsResult.status === "rejected" ? targetsResult.reason : null;
-      const failure = sessionFailure ?? targetsFailure;
-      if (failure) {
-        setStatusMsg(`Repair context error: ${failure}`);
-      } else if (autoUnlockFailure) {
-        setStatusMsg(`Repair Mode stayed locked: ${autoUnlockFailure}`);
-      } else if (nextRepairSession?.locked) {
-        setStatusMsg("Repair Mode is locked.");
-      }
-    } catch (err) {
-      setStatusMsg(`Repair context error: ${err}`);
-    } finally {
-      setRepairLoading(false);
-    }
-  }, [repairAppInstanceId, repairConnectionId]);
-
-  useEffect(() => {
-    void refreshRepairContext();
-  }, [refreshRepairContext]);
 
   // Form state
   const [formDest, setFormDest] = useState("");
@@ -548,30 +469,6 @@ export default function App() {
   const handleSelectNic = useCallback((nic: NetworkInterface) => {
     setSelectedNic(nic);
     setFormGw(nic.gateway);
-  }, []);
-
-  const handleUnlockRepair = useCallback(async () => {
-    setRepairUnlocking(true);
-    setStatusMsg("Unlocking Repair Mode...");
-    try {
-      const status = await unlockRepairMode(repairAppInstanceId, repairConnectionId);
-      setRepairSession(status);
-      setStatusMsg("Repair Mode unlocked for this app session.");
-    } catch (err) {
-      setStatusMsg(`Repair unlock error: ${err}`);
-    } finally {
-      setRepairUnlocking(false);
-    }
-  }, [repairAppInstanceId, repairConnectionId]);
-
-  const handleLockRepair = useCallback(async () => {
-    try {
-      const status = await lockRepairMode();
-      setRepairSession(status);
-      setStatusMsg("Repair Mode locked.");
-    } catch (err) {
-      setStatusMsg(`Repair lock error: ${err}`);
-    }
   }, []);
 
   const handleAddRoute = useCallback(async () => {
