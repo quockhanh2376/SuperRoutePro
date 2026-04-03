@@ -34,6 +34,8 @@ import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./per
 import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./persistStartupModel";
 import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
+import { BloatwareModal } from "./components/BloatwareModal";
+import { CacheModal, type CacheCleanupOption } from "./components/CacheModal";
 import { DonateModal } from "./components/DonateModal";
 import { HelpModal } from "./components/HelpModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
@@ -102,13 +104,6 @@ type RouteWatcherToast = {
   title: string;
   message: string;
   actionLabel?: string;
-};
-
-type CacheCleanupOption = {
-  id: string;
-  label: string;
-  description: string;
-  defaultChecked: boolean;
 };
 
 const CACHE_CLEANUP_OPTIONS: CacheCleanupOption[] = [
@@ -1723,6 +1718,30 @@ export default function App() {
     selectedTargetSid: selectedRepairTargetSid,
   });
 
+  const handleRemoveSelectedBloatware = useCallback(() => {
+    if (selectedBloatwareCount === 0) {
+      setStatusMsg("Select at least one app to remove");
+      return;
+    }
+    openConfirm(
+      "Remove Selected Apps",
+      `Remove ${selectedBloatwareCount} selected app(s)? This operation may require Administrator privileges.`,
+      executeRemoveSelectedBloatware
+    );
+  }, [executeRemoveSelectedBloatware, selectedBloatwareCount]);
+
+  const handleStartCacheCleanup = useCallback(() => {
+    if (selectedCacheCount === 0) {
+      setStatusMsg("Select at least one cache target");
+      return;
+    }
+    openConfirm(
+      "Start Cache Cleanup",
+      `Clean ${selectedCacheCount} selected cache target(s)?`,
+      executeClearSelectedCaches
+    );
+  }, [executeClearSelectedCaches, selectedCacheCount]);
+
   useEffect(() => {
     localStorage.setItem("ui-theme", theme);
   }, [theme]);
@@ -2223,255 +2242,40 @@ export default function App() {
         onClose={handleCloseIpScanModal}
       />
 
-      {cacheModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
-          <div className="cache-modal">
-            <div className="cache-modal-header">
-              <div>
-                <h3 className="text-base font-bold text-slate-100">Clear Cache</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Select cache targets, then click Start Cleanup.
-                </p>
-              </div>
-              <button
-                onClick={handleCloseCacheModal}
-                disabled={cacheCleaning}
-                className="cache-close-btn capsule-btn"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <CacheModal
+        open={cacheModalOpen}
+        cleaning={cacheCleaning}
+        stopPending={cacheStopPending}
+        options={CACHE_CLEANUP_OPTIONS}
+        selectedCaches={selectedCaches}
+        selectedCount={selectedCacheCount}
+        progressPercent={cacheProgressPercent}
+        progressText={cacheProgressText}
+        onToggleCache={handleToggleCache}
+        onSelectAll={handleSelectAllCaches}
+        onClearSelection={handleClearCacheSelection}
+        onForceStop={handleForceStopCacheCleanup}
+        onStartCleanup={handleStartCacheCleanup}
+        onClose={handleCloseCacheModal}
+      />
 
-            <div className="cache-options-grid">
-              {CACHE_CLEANUP_OPTIONS.map((option) => (
-                <label key={option.id} className="cache-option-item">
-                  <input
-                    type="checkbox"
-                    checked={selectedCaches.has(option.id)}
-                    onChange={() => handleToggleCache(option.id)}
-                    disabled={cacheCleaning}
-                    className="w-3.5 h-3.5 rounded accent-blue-500"
-                  />
-                  <div className="min-w-0">
-                    <div className="cache-option-title">{option.label}</div>
-                    <div className="cache-option-desc">{option.description}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-
-            <div className="cache-progress-panel">
-              <div className="cache-progress-track">
-                <div
-                  className="cache-progress-fill"
-                  style={{ width: `${cacheProgressPercent}%` }}
-                />
-                <span className="cache-progress-value">{cacheProgressPercent}%</span>
-              </div>
-              <div className="cache-progress-text">
-                {cacheCleaning
-                  ? cacheProgressText
-                  : cacheProgressPercent > 0
-                    ? cacheProgressText
-                    : `Ready. ${selectedCacheCount} cache target(s) selected.`}
-              </div>
-            </div>
-
-            <div className="cache-modal-footer">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleSelectAllCaches}
-                  disabled={cacheCleaning}
-                  className="capsule-btn compact-pill cache-tool-btn"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={handleClearCacheSelection}
-                  disabled={cacheCleaning}
-                  className="capsule-btn compact-pill cache-tool-btn"
-                >
-                  Clear Selection
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {cacheCleaning && (
-                  <button
-                    onClick={handleForceStopCacheCleanup}
-                    disabled={cacheStopPending}
-                    className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
-                  >
-                    {cacheStopPending ? "Stopping..." : "Force Stop"}
-                  </button>
-                )}
-                <button
-                  onClick={handleCloseCacheModal}
-                  disabled={cacheCleaning}
-                  className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedCacheCount === 0) {
-                      setStatusMsg("Select at least one cache target");
-                      return;
-                    }
-                    openConfirm(
-                      "Start Cache Cleanup",
-                      `Clean ${selectedCacheCount} selected cache target(s)?`,
-                      executeClearSelectedCaches
-                    );
-                  }}
-                  disabled={cacheCleaning || selectedCacheCount === 0}
-                  className="capsule-btn px-3 py-1.5 border border-amber-400/60 bg-amber-600/90 hover:bg-amber-500 text-white transition"
-                >
-                  {cacheCleaning ? "Cleaning..." : `Start Cleanup (${selectedCacheCount})`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {bloatwareModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
-          <div className="bloatware-modal">
-            <div className="bloatware-modal-header">
-              <div>
-                <h3 className="text-base font-bold text-slate-100">Remove Apps</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Select built-in Windows apps, then remove selected packages.
-                </p>
-              </div>
-              <button
-                onClick={handleCloseBloatwareModal}
-                disabled={bloatwareRemoving}
-                className="bloatware-close-btn capsule-btn"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="bloatware-toolbar">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleSelectAllBloatware}
-                  disabled={bloatwareLoading || bloatwareRemoving}
-                  className="capsule-btn compact-pill bloatware-tool-btn"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={handleSelectInstalledBloatware}
-                  disabled={bloatwareLoading || bloatwareRemoving}
-                  className="capsule-btn compact-pill bloatware-tool-btn"
-                >
-                  Select Installed
-                </button>
-                <button
-                  onClick={handleClearBloatwareSelection}
-                  disabled={bloatwareLoading || bloatwareRemoving}
-                  className="capsule-btn compact-pill bloatware-tool-btn"
-                >
-                  Clear Selection
-                </button>
-              </div>
-              <span className="text-[0.72rem] text-slate-400">
-                {selectedBloatwareCount} selected | {installedBloatwareCount} installed
-              </span>
-            </div>
-
-            <div className="bloatware-table-shell">
-              {bloatwareLoading ? (
-                <div className="bloatware-empty">Loading bloatware catalog...</div>
-              ) : bloatwareItems.length === 0 ? (
-                <div className="bloatware-empty">No bloatware candidates available.</div>
-              ) : (
-                <table className="bloatware-table">
-                  <thead>
-                    <tr>
-                      <th className="w-14">Pick</th>
-                      <th className="w-48">Application</th>
-                      <th>Package Name</th>
-                      <th className="w-28">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bloatwareItems.map((item) => (
-                      <tr key={item.package_name} className={!item.installed ? "bloatware-row-disabled" : ""}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selectedBloatware.has(item.package_name)}
-                            onChange={() => handleToggleBloatware(item.package_name)}
-                            disabled={bloatwareRemoving}
-                            className="w-3.5 h-3.5 rounded accent-blue-500"
-                          />
-                        </td>
-                        <td className="font-semibold">{item.label}</td>
-                        <td className="font-mono text-[0.7rem] text-slate-300">{item.package_name}</td>
-                        <td>
-                          <span className={`bloatware-status-chip ${item.installed ? "bloatware-status-installed" : "bloatware-status-missing"}`}>
-                            {item.installed ? "Installed" : "Not installed"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="remove-progress-panel">
-              <div className="remove-progress-track">
-                <div
-                  className="remove-progress-fill"
-                  style={{ width: `${removeProgressPercent}%` }}
-                />
-                <span className="remove-progress-value">{removeProgressPercent}%</span>
-              </div>
-              <div className="remove-progress-text">
-                {bloatwareRemoving
-                  ? removeProgressText
-                  : removeProgressPercent > 0
-                    ? removeProgressText
-                    : `Ready. ${selectedBloatwareCount} app(s) selected.`}
-              </div>
-            </div>
-
-            <div className="bloatware-modal-footer">
-              <button
-                onClick={handleCloseBloatwareModal}
-                disabled={bloatwareRemoving}
-                className="bloatware-footer-close-btn capsule-btn px-3 py-1.5 transition"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  if (selectedBloatwareCount === 0) {
-                    setStatusMsg("Select at least one app to remove");
-                    return;
-                  }
-                  openConfirm(
-                    "Remove Selected Apps",
-                    `Remove ${selectedBloatwareCount} selected app(s)? This operation may require Administrator privileges.`,
-                    executeRemoveSelectedBloatware
-                  );
-                }}
-                disabled={bloatwareRemoving || selectedBloatwareCount === 0 || bloatwareLoading}
-                className="capsule-btn px-3 py-1.5 border border-rose-400/60 bg-rose-600/85 hover:bg-rose-500 text-white transition"
-              >
-                {bloatwareRemoving ? "Removing..." : `Remove Selected (${selectedBloatwareCount})`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <BloatwareModal
+        open={bloatwareModalOpen}
+        loading={bloatwareLoading}
+        removing={bloatwareRemoving}
+        items={bloatwareItems}
+        selectedPackages={selectedBloatware}
+        selectedCount={selectedBloatwareCount}
+        installedCount={installedBloatwareCount}
+        progressPercent={removeProgressPercent}
+        progressText={removeProgressText}
+        onTogglePackage={handleToggleBloatware}
+        onSelectAll={handleSelectAllBloatware}
+        onSelectInstalled={handleSelectInstalledBloatware}
+        onClearSelection={handleClearBloatwareSelection}
+        onRemoveSelected={handleRemoveSelectedBloatware}
+        onClose={handleCloseBloatwareModal}
+      />
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
