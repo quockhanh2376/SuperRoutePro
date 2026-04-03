@@ -5,6 +5,24 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: Final Cleanup Hooks
+
+**Done**
+- Extracted confirm-dialog state and action orchestration from `src/App.tsx` into `src/hooks/useConfirmDialog.ts`.
+- Extracted output auto-scroll behavior into `src/hooks/useAutoScroll.ts` so ping and command consoles no longer manage inline scroll effects inside `App.tsx`.
+- Reduced `src/App.tsx` from 1,823 lines to 1,797 lines, which pushes the file below the original Phase 1 target of ~1,800 lines.
+- Updated `OPTIMIZE.md` to record that the full Phase 1 checklist is complete and the line-count target has been achieved.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 1,797 lines
+
+**Next Steps**
+- Start Phase 2 work focused on deeper state grouping and orchestration cleanup rather than more superficial extractions.
+- Prioritize the remaining highest-friction logic clusters inside `App.tsx` based on behavior complexity rather than raw line count.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: routeActions Extraction
 
 **Done**

@@ -52,6 +52,8 @@ import { HelpModal } from "./components/HelpModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
 import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
+import { useAutoScroll } from "./hooks/useAutoScroll";
+import { useConfirmDialog } from "./hooks/useConfirmDialog";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useNetworkMonitoring } from "./hooks/useNetworkMonitoring";
 import { usePingMonitor } from "./hooks/usePingMonitor";
@@ -131,9 +133,6 @@ export default function App() {
   const [diagHost, setDiagHost] = useState("google.com");
   const [diagDnsServer, setDiagDnsServer] = useState("8.8.8.8");
   const [diagPort, setDiagPort] = useState("443");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTitle, setConfirmTitle] = useState("Confirm");
-  const [confirmMessage, setConfirmMessage] = useState("");
   const [diagnosticView, setDiagnosticView] = useState<"command" | "routing">("command");
   const [routingOutput, setRoutingOutput] = useState("");
   const bloatwareModal = useModal();
@@ -184,6 +183,16 @@ export default function App() {
     handleLockRepair,
   } = useRepairMode({
     setStatusMessage: setStatusMsg,
+  });
+  const {
+    confirmOpen,
+    confirmTitle,
+    confirmMessage,
+    openConfirm,
+    onConfirm,
+    onCancelConfirm,
+  } = useConfirmDialog({
+    onErrorMessage: setStatusMsg,
   });
 
   useEffect(() => {
@@ -320,11 +329,12 @@ export default function App() {
   const cacheStopRequestedRef = useRef(false);
   const ipScanStopRequestedRef = useRef(false);
   const latestLoadRequestRef = useRef(0);
-  const confirmActionRef = useRef<(() => void | Promise<void>) | null>(null);
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
   const commandOutputRef = useRef<HTMLPreElement | null>(null);
   const latestNicsRef = useRef<NetworkInterface[]>([]);
   const routeWatcherToastTimerRef = useRef<number | null>(null);
+  useAutoScroll(pingOutputRef, pingLogVersion);
+  useAutoScroll(commandOutputRef, commandLogVersion);
 
   useEffect(() => {
     latestNicsRef.current = nics;
@@ -1143,42 +1153,6 @@ export default function App() {
       cacheStopRequestedRef.current = false;
     }
   }, [appendCommandOutput, selectedCacheTargets, selectedRepairTargetSid, updateCacheProgress]);
-
-  const openConfirm = (
-    title: string,
-    message: string,
-    action: () => void | Promise<void>
-  ) => {
-    confirmActionRef.current = action;
-    setConfirmTitle(title);
-    setConfirmMessage(message);
-    setConfirmOpen(true);
-  };
-
-  const onConfirm = () => {
-    const action = confirmActionRef.current;
-    confirmActionRef.current = null;
-    setConfirmOpen(false);
-    if (!action) return;
-    Promise.resolve(action()).catch((err) => setStatusMsg(`Error: ${err}`));
-  };
-
-  const onCancelConfirm = () => {
-    confirmActionRef.current = null;
-    setConfirmOpen(false);
-  };
-
-  useEffect(() => {
-    if (pingOutputRef.current) {
-      pingOutputRef.current.scrollTop = pingOutputRef.current.scrollHeight;
-    }
-  }, [pingLogVersion]);
-
-  useEffect(() => {
-    if (commandOutputRef.current) {
-      commandOutputRef.current.scrollTop = commandOutputRef.current.scrollHeight;
-    }
-  }, [commandLogVersion]);
 
   // ======================== RENDER ========================
 
