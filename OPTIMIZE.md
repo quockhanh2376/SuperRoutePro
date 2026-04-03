@@ -61,17 +61,19 @@ src/constants/
 **Estimate:** 1-2 tuần (4-8 hours/week)
 
 **Tracking:**
-- [ ] Extract BloatwareModal
-- [ ] Extract CacheModal
+- [x] Extract BloatwareModal (commit 6580b6e, ~150 lines)
+- [x] Extract CacheModal (commit 6580b6e, ~140 lines)
 - [ ] Extract ConfirmDialog
-- [ ] Extract DonateModal
-- [ ] Extract HelpModal
+- [x] Extract DonateModal (commit 4da246d, 47 lines)
+- [x] Extract HelpModal (commit 4da246d, 172 lines)
 - [ ] Create useRepairMode hook
 - [ ] Create useNetworkMonitoring hook
 - [ ] Create usePingMonitor hook
 - [ ] Extract routeActions
 - [ ] Extract repairActions
 - [ ] Extract constants
+
+**Progress:** 4/11 tasks completed. App.tsx reduced from 2,592 → 2,173 lines (-419 lines, -16.2%). Target: ~1,800 lines for Phase 1.
 
 ---
 

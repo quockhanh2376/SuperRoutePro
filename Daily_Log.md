@@ -5,6 +5,33 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: Modal Component Extraction
+
+**Done**
+- Extracted 4 major modal components from App.tsx (DonateModal, HelpModal, BloatwareModal, CacheModal) into separate component files following React component best practices.
+- Reduced App.tsx from 2,592 lines to 2,173 lines (-419 lines, -16.2%), making significant progress toward Phase 1 target of ~1,800 lines.
+- Created comprehensive `AGENTS.md` (335 lines) with build commands, testing guidelines, code style conventions, and NotebookLM integration instructions for AI coding agents.
+- Created detailed `OPTIMIZE.md` (1,742 lines) with 25 prioritized optimization tasks across 5 phases, providing clear roadmap from current 2,592 lines to target ~500 lines.
+- Fixed TypeScript LSP errors by adding `@types/node` dependency and updating `tsconfig.json` to include tests directory and node types.
+- Established modal extraction patterns: wrapper handlers for confirmation dialog integration, exported types from components (e.g., `CacheCleanupOption`), consistent prop naming for state/handlers.
+- BloatwareModal: ~150 lines, complex table with package selection, progress tracking, and batch removal with confirmation integration.
+- CacheModal: ~140 lines, 13 cache cleanup options with progress tracking, force stop capability, and confirmation integration.
+- HelpModal: 172 lines, bilingual help content (EN/VI) with language switching.
+- DonateModal: 47 lines, self-contained QR image loading state.
+
+**Verification**
+- `npm run build` passed successfully after each modal extraction
+- All TypeScript compilation and type checking passed
+- Git commits: c177e8b (docs), 4da246d (DonateModal/HelpModal), 6580b6e (BloatwareModal/CacheModal)
+
+**Next Steps**
+- Create `useModal` hook to eliminate duplicate modal state patterns (`{name}Open` + `handleOpen{Name}` + `handleClose{Name}`) across ~10 modals, expected to save ~80-100 lines.
+- Create `useProgressTracker` hook to extract shared progress tracking logic used by BloatwareModal, CacheModal, and IpScanModal.
+- Extract constants to `src/constants.ts` (IP_SCAN_BATCH_SIZE, ROUTE_WATCHER_STATUS_EVENT, CACHE_CLEANUP_OPTIONS, etc.) to reduce App.tsx clutter.
+- Continue Phase 1 modal extractions to reach ~1,800 line target, then proceed to Phase 2 (large section decomposition).
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-01 - Released v10.1.12 Elevated Auto-Unlock + Route Service Promotion
 
 **Done**
