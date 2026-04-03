@@ -20,6 +20,20 @@ import {
   type BatterySummaryResult, type RepairMachineAction, type RepairSessionStatus,
 } from "./api";
 import {
+  APP_AUTHOR,
+  IP_SCAN_BATCH_SIZE,
+  ROUTE_WATCHER_STATUS_EVENT,
+  ZOOM_DEFAULT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+} from "./constants/app";
+import {
+  CACHE_CLEANUP_OPTIONS,
+  DEFAULT_CACHE_SELECTION,
+} from "./constants/cacheTargets";
+import { formatRoutingSnapshot } from "./constants/routeTable";
+import {
   getProfileSensitiveActionHint,
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
@@ -35,7 +49,7 @@ import { getPersistStartupWriteMode, resolvePersistStartupEnabled } from "./pers
 import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
-import { CacheModal, type CacheCleanupOption } from "./components/CacheModal";
+import { CacheModal } from "./components/CacheModal";
 import { DonateModal } from "./components/DonateModal";
 import { HelpModal } from "./components/HelpModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
@@ -45,53 +59,6 @@ import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 import { useModal } from "./hooks/useModal";
-
-const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
-  { key: "destination", label: "Destination", width: 18 },
-  { key: "netmask", label: "Netmask", width: 18 },
-  { key: "gateway", label: "Gateway", width: 18 },
-  { key: "metric", label: "Met", width: 6 },
-  { key: "interface_index", label: "IF", width: 6 },
-];
-
-const formatRouteCell = (value: string, width: number) => {
-  if (value.length <= width) {
-    return value.padEnd(width, " ");
-  }
-  if (width <= 3) {
-    return value.slice(0, width);
-  }
-  return `${value.slice(0, width - 3)}...`;
-};
-
-const formatRoutingSnapshot = (routeData: RouteEntry[]) => {
-  const stamp = new Date().toLocaleTimeString("en-GB");
-  if (!routeData.length) {
-    return `[${stamp}] Routing table snapshot\nNo routes found.`;
-  }
-
-  const header = ROUTE_TABLE_COLUMNS
-    .map((column) => formatRouteCell(column.label, column.width))
-    .join(" ");
-  const divider = ROUTE_TABLE_COLUMNS
-    .map((column) => "-".repeat(column.width))
-    .join(" ");
-  const rows = routeData.map((route) =>
-    ROUTE_TABLE_COLUMNS
-      .map((column) => formatRouteCell(String(route[column.key] ?? ""), column.width))
-      .join(" ")
-  );
-
-  return [
-    `[${stamp}] Routing table snapshot (${routeData.length} routes)`,
-    header,
-    divider,
-    ...rows,
-  ].join("\n");
-};
-
-const IP_SCAN_BATCH_SIZE = 24;
-const ROUTE_WATCHER_STATUS_EVENT = "route-watcher://status";
 
 type RouteWatcherStatusEventPayload = {
   status: "reapplied" | "failed";
@@ -108,95 +75,9 @@ type RouteWatcherToast = {
   actionLabel?: string;
 };
 
-const CACHE_CLEANUP_OPTIONS: CacheCleanupOption[] = [
-  {
-    id: "user_temp",
-    label: "User Temp",
-    description: "Clear %LOCALAPPDATA%\\Temp",
-    defaultChecked: true,
-  },
-  {
-    id: "windows_temp",
-    label: "Windows Temp",
-    description: "Clear Windows temporary files",
-    defaultChecked: true,
-  },
-  {
-    id: "windows_update_cache",
-    label: "Windows Update Cache",
-    description: "Clear SoftwareDistribution download cache",
-    defaultChecked: true,
-  },
-  {
-    id: "prefetch",
-    label: "Prefetch",
-    description: "Clear prefetch cache files",
-    defaultChecked: false,
-  },
-  {
-    id: "explorer_cache",
-    label: "Explorer Cache",
-    description: "Clear icon and thumbnail cache",
-    defaultChecked: true,
-  },
-  {
-    id: "edge_cache",
-    label: "Microsoft Edge Cache",
-    description: "Clear Edge browser cache",
-    defaultChecked: false,
-  },
-  {
-    id: "chrome_cache",
-    label: "Google Chrome Cache",
-    description: "Clear Chrome browser cache",
-    defaultChecked: false,
-  },
-  {
-    id: "firefox_cache",
-    label: "Mozilla Firefox Cache",
-    description: "Clear Firefox browser cache",
-    defaultChecked: false,
-  },
-  {
-    id: "inet_cache",
-    label: "INetCache",
-    description: "Clear legacy internet cache",
-    defaultChecked: true,
-  },
-  {
-    id: "web_cache",
-    label: "WebCache",
-    description: "Clear Windows WebCache store",
-    defaultChecked: false,
-  },
-  {
-    id: "crash_dumps",
-    label: "Crash Dumps",
-    description: "Clear local crash dump files",
-    defaultChecked: true,
-  },
-  {
-    id: "wer_reports",
-    label: "Windows Error Reporting (WER)",
-    description: "Clear WER reports and queue",
-    defaultChecked: true,
-  },
-  {
-    id: "d3d_shader_cache",
-    label: "DirectX Shader Cache",
-    description: "Clear D3DSCache",
-    defaultChecked: true,
-  },
-];
-
-const DEFAULT_CACHE_SELECTION = new Set(
-  CACHE_CLEANUP_OPTIONS.filter((option) => option.defaultChecked).map((option) => option.id)
-);
-
 type HelpLanguage = "en" | "vi";
 
 export default function App() {
-  const APP_AUTHOR = "Zonzon";
   const [appVersion, setAppVersion] = useState("dev");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("ui-theme");
@@ -204,11 +85,6 @@ export default function App() {
   });
   const [persistWanOnStartup, setPersistWanOnStartup] = useState(false);
   const [persistWanLoading, setPersistWanLoading] = useState(true);
-
-  const ZOOM_MIN = 75;
-  const ZOOM_MAX = 120;
-  const ZOOM_STEP = 5;
-  const ZOOM_DEFAULT = 95;
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     const saved = localStorage.getItem("app-zoom-level");
     if (saved) {

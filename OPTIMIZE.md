@@ -68,14 +68,14 @@ src/constants/
 - [x] Extract HelpModal (commit 4da246d, 172 lines)
 - [x] Create useModal hook (commit f12b3a8)
 - [x] Create useProgressTracker hook
+- [x] Extract constants into `src/constants/*`
 - [ ] Create useRepairMode hook
 - [ ] Create useNetworkMonitoring hook
 - [ ] Create usePingMonitor hook
 - [ ] Extract routeActions
 - [ ] Extract repairActions
-- [ ] Extract constants
 
-**Progress:** 6/13 tasks completed. App.tsx currently 2,360 lines (down 232 lines from 2,592, -9.0%). Target: ~1,800 lines for Phase 1.
+**Progress:** 7/13 tasks completed. App.tsx currently 2,236 lines (down 356 lines from 2,592, -13.7%). Target: ~1,800 lines for Phase 1.
 
 ---
 
@@ -1656,7 +1656,7 @@ useEffect(() => {
 1. ✅ **Extract modals from App.tsx** → saves ~800 lines
 2. ✅ **Create useModal hook** → eliminates duplication
 3. ✅ **Create useProgressTracker hook** → eliminates duplication
-4. [ ] **Extract constants to separate files** → cleaner structure
+4. ✅ **Extract constants to separate files** → cleaner structure
 
 **Expected Impact:** App.tsx from 2,592 → ~1,800 lines
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 2,360 lines
+- ❌ App.tsx: 2,236 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (modals extracted, progress tracking hook added)
+- ❌ Code duplication: Medium (modals, progress tracking, and shared constants partially extracted)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)

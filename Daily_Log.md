@@ -5,6 +5,26 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: Constants Extraction
+
+**Done**
+- Extracted route-table formatting logic from `src/App.tsx` into `src/constants/routeTable.ts`, including `ROUTE_TABLE_COLUMNS` and `formatRoutingSnapshot()`.
+- Extracted cache cleanup metadata into `src/constants/cacheTargets.ts`, including `CacheCleanupOption`, `CACHE_CLEANUP_OPTIONS`, and `DEFAULT_CACHE_SELECTION`.
+- Extracted app-level constants into `src/constants/app.ts`, including author name, zoom limits, IP scan batch size, and route watcher event name.
+- Updated `src/components/CacheModal.tsx` to import `CacheCleanupOption` from the new constants module so the data model no longer lives inside the UI component.
+- Reduced `src/App.tsx` from 2,360 lines to 2,236 lines by removing inline constant definitions and routing-formatting helpers.
+- Updated `OPTIMIZE.md` to mark constant extraction complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 2,236 lines
+
+**Next Steps**
+- Extract the confirm dialog from `src/App.tsx` as the remaining modal-level Phase 1 cleanup.
+- After that, move on to state-management hooks such as `useRepairMode`, `useNetworkMonitoring`, or `usePingMonitor`.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: useProgressTracker Refactor
 
 **Done**

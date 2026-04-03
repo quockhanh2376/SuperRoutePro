@@ -1,11 +1,5 @@
 import { X } from "lucide-react";
-
-export type CacheCleanupOption = {
-  id: string;
-  label: string;
-  description: string;
-  defaultChecked: boolean;
-};
+import { type CacheCleanupOption } from "../constants/cacheTargets";
 
 interface CacheModalProps {
   open: boolean;
