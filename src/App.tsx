@@ -43,6 +43,7 @@ import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useBufferedLog } from "./hooks/useBufferedLog";
+import { useModal } from "./hooks/useModal";
 
 const ROUTE_TABLE_COLUMNS: Array<{ key: keyof RouteEntry; label: string; width: number }> = [
   { key: "destination", label: "Destination", width: 18 },
@@ -238,7 +239,7 @@ export default function App() {
   const [pingTarget, setPingTarget] = useState("1.1.1.1");
   const [pingMode, setPingMode] = useState<"ping" | "fping">("ping");
   const [pingRunning, setPingRunning] = useState(false);
-  const [ipScanModalOpen, setIpScanModalOpen] = useState(false);
+  const ipScanModal = useModal();
   const [ipScanRunning, setIpScanRunning] = useState(false);
   const [ipScanStopPending, setIpScanStopPending] = useState(false);
   const [ipScanPlan, setIpScanPlan] = useState<IpScanPlan | null>(null);
@@ -258,21 +259,21 @@ export default function App() {
   const [confirmMessage, setConfirmMessage] = useState("");
   const [diagnosticView, setDiagnosticView] = useState<"command" | "routing">("command");
   const [routingOutput, setRoutingOutput] = useState("");
-  const [bloatwareModalOpen, setBloatwareModalOpen] = useState(false);
+  const bloatwareModal = useModal();
   const [bloatwareLoading, setBloatwareLoading] = useState(false);
   const [bloatwareRemoving, setBloatwareRemoving] = useState(false);
   const [bloatwareItems, setBloatwareItems] = useState<BloatwareItem[]>([]);
   const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
   const [removeProgressPercent, setRemoveProgressPercent] = useState(0);
   const [removeProgressText, setRemoveProgressText] = useState("Ready.");
-  const [batteryModalOpen, setBatteryModalOpen] = useState(false);
   const [batteryLoading, setBatteryLoading] = useState(false);
   const [batterySummary, setBatterySummary] = useState<BatterySummaryResult | null>(null);
   const [batterySummaryError, setBatterySummaryError] = useState("");
-  const [donateModalOpen, setDonateModalOpen] = useState(false);
-  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const batteryModal = useModal();
+  const donateModal = useModal();
+  const helpModal = useModal();
   const [helpLanguage, setHelpLanguage] = useState<HelpLanguage>("vi");
-  const [cacheModalOpen, setCacheModalOpen] = useState(false);
+  const cacheModal = useModal();
   const [cacheCleaning, setCacheCleaning] = useState(false);
   const [cacheStopPending, setCacheStopPending] = useState(false);
   const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
@@ -1070,30 +1071,14 @@ export default function App() {
   }, []);
 
   const handleOpenBatteryModal = useCallback(() => {
-    setBatteryModalOpen(true);
+    batteryModal.open();
     void loadBatterySummary();
-  }, [loadBatterySummary]);
+  }, [batteryModal, loadBatterySummary]);
 
   const handleCloseBatteryModal = useCallback(() => {
     if (batteryLoading) return;
-    setBatteryModalOpen(false);
-  }, [batteryLoading]);
-
-  const handleOpenDonateModal = useCallback(() => {
-    setDonateModalOpen(true);
-  }, []);
-
-  const handleCloseDonateModal = useCallback(() => {
-    setDonateModalOpen(false);
-  }, []);
-
-  const handleOpenHelpModal = useCallback(() => {
-    setHelpModalOpen(true);
-  }, []);
-
-  const handleCloseHelpModal = useCallback(() => {
-    setHelpModalOpen(false);
-  }, []);
+    batteryModal.close();
+  }, [batteryModal, batteryLoading]);
 
   const handleResetWinHttpProxy = async () => {
     openConfirm(
@@ -1208,7 +1193,7 @@ export default function App() {
       return;
     }
     setIpScanPlan(plan);
-    setIpScanModalOpen(true);
+    ipScanModal.open();
     setIpScanResults([]);
     setIpScanProgressPercent(0);
     if (plan.source === "fallback") {
@@ -1216,7 +1201,7 @@ export default function App() {
     } else {
       setIpScanProgressText(`Ready to scan ${plan.targets.length} hosts on ${plan.subnetLabel}.`);
     }
-  }, [resolveIpScanPlan]);
+  }, [ipScanModal, resolveIpScanPlan]);
 
   const handleStartIpScan = useCallback(() => {
     if (ipScanRunning) return;
@@ -1240,8 +1225,8 @@ export default function App() {
 
   const handleCloseIpScanModal = useCallback(() => {
     if (ipScanRunning) return;
-    setIpScanModalOpen(false);
-  }, [ipScanRunning]);
+    ipScanModal.close();
+  }, [ipScanModal, ipScanRunning]);
 
   const handleTracertFromTarget = useCallback(async () => {
     const target = pingTarget
@@ -1287,15 +1272,15 @@ export default function App() {
   const handleOpenBloatwareModal = useCallback(() => {
     setRemoveProgressPercent(0);
     setRemoveProgressText("Ready.");
-    setBloatwareModalOpen(true);
+    bloatwareModal.open();
     void loadBloatwareList();
     void loadRepairTargets();
-  }, [loadBloatwareList, loadRepairTargets]);
+  }, [bloatwareModal, loadBloatwareList, loadRepairTargets]);
 
   const handleCloseBloatwareModal = useCallback(() => {
     if (bloatwareRemoving) return;
-    setBloatwareModalOpen(false);
-  }, [bloatwareRemoving]);
+    bloatwareModal.close();
+  }, [bloatwareModal, bloatwareRemoving]);
 
   const handleToggleBloatware = useCallback((packageName: string) => {
     setSelectedBloatware((previous) => {
@@ -1438,13 +1423,13 @@ export default function App() {
     setCacheProgressText("Ready.");
     setCacheStopPending(false);
     cacheStopRequestedRef.current = false;
-    setCacheModalOpen(true);
-  }, []);
+    cacheModal.open();
+  }, [cacheModal]);
 
   const handleCloseCacheModal = useCallback(() => {
     if (cacheCleaning) return;
-    setCacheModalOpen(false);
-  }, [cacheCleaning]);
+    cacheModal.close();
+  }, [cacheModal, cacheCleaning]);
 
   const handleToggleCache = useCallback((cacheId: string) => {
     setSelectedCaches((previous) => {
@@ -2187,14 +2172,14 @@ export default function App() {
         <div className="app-footer-left">
           <span className="text-[0.65rem] text-slate-500">{statusMsg}</span>
           <button
-            onClick={handleOpenDonateModal}
+            onClick={donateModal.open}
             className="donate-footer-btn capsule-btn"
             title="Donate to the author Zozon"
           >
             Donate
           </button>
           <button
-            onClick={handleOpenHelpModal}
+            onClick={helpModal.open}
             className="help-footer-btn capsule-btn"
             title="Open help"
           >
@@ -2208,19 +2193,19 @@ export default function App() {
       </footer>
 
       <DonateModal
-        open={donateModalOpen}
-        onClose={handleCloseDonateModal}
+        open={donateModal.isOpen}
+        onClose={donateModal.close}
       />
 
       <HelpModal
-        open={helpModalOpen}
+        open={helpModal.isOpen}
         language={helpLanguage}
         onLanguageChange={setHelpLanguage}
-        onClose={handleCloseHelpModal}
+        onClose={helpModal.close}
       />
 
       <BatteryModal
-        open={batteryModalOpen}
+        open={batteryModal.isOpen}
         loading={batteryLoading}
         summary={batterySummary}
         error={batterySummaryError}
@@ -2229,7 +2214,7 @@ export default function App() {
       />
 
       <IpScanModal
-        open={ipScanModalOpen}
+        open={ipScanModal.isOpen}
         selectedNic={selectedNic}
         plan={ipScanPlan}
         running={ipScanRunning}
@@ -2243,7 +2228,7 @@ export default function App() {
       />
 
       <CacheModal
-        open={cacheModalOpen}
+        open={cacheModal.isOpen}
         cleaning={cacheCleaning}
         stopPending={cacheStopPending}
         options={CACHE_CLEANUP_OPTIONS}
@@ -2260,7 +2245,7 @@ export default function App() {
       />
 
       <BloatwareModal
-        open={bloatwareModalOpen}
+        open={bloatwareModal.isOpen}
         loading={bloatwareLoading}
         removing={bloatwareRemoving}
         items={bloatwareItems}
