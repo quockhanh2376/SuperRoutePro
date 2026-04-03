@@ -63,7 +63,7 @@ src/constants/
 **Tracking:**
 - [x] Extract BloatwareModal (commit 6580b6e, ~150 lines)
 - [x] Extract CacheModal (commit 6580b6e, ~140 lines)
-- [ ] Extract ConfirmDialog
+- [x] Extract ConfirmDialog
 - [x] Extract DonateModal (commit 4da246d, 47 lines)
 - [x] Extract HelpModal (commit 4da246d, 172 lines)
 - [x] Create useModal hook (commit f12b3a8)
@@ -75,7 +75,7 @@ src/constants/
 - [ ] Extract routeActions
 - [ ] Extract repairActions
 
-**Progress:** 7/13 tasks completed. App.tsx currently 2,236 lines (down 356 lines from 2,592, -13.7%). Target: ~1,800 lines for Phase 1.
+**Progress:** 8/13 tasks completed. App.tsx currently 2,219 lines (down 373 lines from 2,592, -14.4%). Target: ~1,800 lines for Phase 1.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 2,236 lines
+- ❌ App.tsx: 2,219 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (modals, progress tracking, and shared constants partially extracted)
+- ❌ Code duplication: Medium (major modal and shared constant extraction complete; state/action logic still centralized)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)

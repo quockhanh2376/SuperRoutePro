@@ -5,6 +5,24 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: ConfirmDialog Extraction
+
+**Done**
+- Extracted the inline confirmation modal from `src/App.tsx` into `src/components/ConfirmDialog.tsx`.
+- Kept the existing confirm flow intact by preserving the same `confirmOpen`, `confirmTitle`, `confirmMessage`, `onConfirm`, and `onCancelConfirm` state/handler wiring in `App.tsx`.
+- Reduced `src/App.tsx` from 2,236 lines to 2,219 lines with a minimal structural refactor instead of changing any confirmation behavior.
+- Updated `OPTIMIZE.md` to mark `Extract ConfirmDialog` complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 2,219 lines
+
+**Next Steps**
+- Move on from modal-level cleanup to state-management extraction, starting with one of `useRepairMode`, `useNetworkMonitoring`, or `usePingMonitor`.
+- Continue shrinking `App.tsx` toward the Phase 1 target of ~1,800 lines.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: Constants Extraction
 
 **Done**

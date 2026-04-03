@@ -50,6 +50,7 @@ import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
 import { CacheModal } from "./components/CacheModal";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DonateModal } from "./components/DonateModal";
 import { HelpModal } from "./components/HelpModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
@@ -2155,31 +2156,13 @@ export default function App() {
         onClose={handleCloseBloatwareModal}
       />
 
-      {confirmOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center px-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 shadow-2xl">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700">
-              <OctagonAlert className="w-4 h-4 text-amber-400" />
-              <h3 className="text-sm font-bold text-slate-100">{confirmTitle}</h3>
-            </div>
-            <div className="confirm-dialog-body px-4 py-4 text-sm">{confirmMessage}</div>
-            <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-700">
-              <button
-                onClick={onCancelConfirm}
-                className="capsule-btn px-3 py-1.5 min-w-[84px] border border-slate-500 bg-slate-700/70 text-white font-semibold hover:bg-slate-600 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={onConfirm}
-                className="capsule-btn px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 transition"
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={confirmTitle}
+        message={confirmMessage}
+        onConfirm={onConfirm}
+        onCancel={onCancelConfirm}
+      />
 
       {routeWatcherToast && (
         <div className="fixed bottom-14 right-4 z-40 w-full max-w-sm px-4 sm:px-0 pointer-events-none">
