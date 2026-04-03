@@ -5,11 +5,29 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: useProgressTracker Refactor
+
+**Done**
+- Created `src/hooks/useProgressTracker.ts` to standardize the repeated `progressPercent` + `progressText` state pattern used by IP Scan, Bloatware removal, and Cache cleanup flows.
+- Refactored `src/App.tsx` to replace the three duplicated progress state pairs with the new hook while preserving the current UI behavior and modal props.
+- Kept the existing progress messages and stop/error handling intact for the three long-running operations, so the refactor stayed structural rather than behavioral.
+- Corrected `OPTIMIZE.md` so the roadmap matches the real codebase state: `useProgressTracker` is now marked complete, later phases were reset back to pending, and the App.tsx size metrics were synced to the current file.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 2,360 lines
+
+**Next Steps**
+- Extract shared constants from `src/App.tsx` into dedicated files, starting with cache cleanup options and route-table formatting constants.
+- Continue Phase 1 cleanup with the next low-risk structural extraction before moving into deeper state-grouping work.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: Modal Component Extraction
 
 **Done**
 - Extracted 4 major modal components from App.tsx (DonateModal, HelpModal, BloatwareModal, CacheModal) into separate component files following React component best practices.
-- Reduced App.tsx from 2,592 lines to 2,173 lines (-419 lines, -16.2%), making significant progress toward Phase 1 target of ~1,800 lines.
+- Reduced App.tsx materially through modal extraction; the exact line-count metrics were re-measured and corrected in the later 2026-04-03 follow-up entry.
 - Created comprehensive `AGENTS.md` (335 lines) with build commands, testing guidelines, code style conventions, and NotebookLM integration instructions for AI coding agents.
 - Created detailed `OPTIMIZE.md` (1,742 lines) with 25 prioritized optimization tasks across 5 phases, providing clear roadmap from current 2,592 lines to target ~500 lines.
 - Fixed TypeScript LSP errors by adding `@types/node` dependency and updating `tsconfig.json` to include tests directory and node types.

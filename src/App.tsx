@@ -42,6 +42,7 @@ import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/
 import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
+import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 import { useModal } from "./hooks/useModal";
 
@@ -244,8 +245,12 @@ export default function App() {
   const [ipScanStopPending, setIpScanStopPending] = useState(false);
   const [ipScanPlan, setIpScanPlan] = useState<IpScanPlan | null>(null);
   const [ipScanResults, setIpScanResults] = useState<FpingHostResult[]>([]);
-  const [ipScanProgressPercent, setIpScanProgressPercent] = useState(0);
-  const [ipScanProgressText, setIpScanProgressText] = useState("Ready.");
+  const {
+    percent: ipScanProgressPercent,
+    text: ipScanProgressText,
+    update: updateIpScanProgress,
+    setMessage: setIpScanProgressText,
+  } = useProgressTracker();
   const [themeLensActive, setThemeLensActive] = useState(false);
   const [currentLatency, setCurrentLatency] = useState<number>(0);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -264,8 +269,13 @@ export default function App() {
   const [bloatwareRemoving, setBloatwareRemoving] = useState(false);
   const [bloatwareItems, setBloatwareItems] = useState<BloatwareItem[]>([]);
   const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
-  const [removeProgressPercent, setRemoveProgressPercent] = useState(0);
-  const [removeProgressText, setRemoveProgressText] = useState("Ready.");
+  const {
+    percent: removeProgressPercent,
+    text: removeProgressText,
+    update: updateRemoveProgress,
+    setMessage: setRemoveProgressText,
+    reset: resetRemoveProgress,
+  } = useProgressTracker();
   const [batteryLoading, setBatteryLoading] = useState(false);
   const [batterySummary, setBatterySummary] = useState<BatterySummaryResult | null>(null);
   const [batterySummaryError, setBatterySummaryError] = useState("");
@@ -279,8 +289,13 @@ export default function App() {
   const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
     () => new Set(DEFAULT_CACHE_SELECTION)
   );
-  const [cacheProgressPercent, setCacheProgressPercent] = useState(0);
-  const [cacheProgressText, setCacheProgressText] = useState("Ready.");
+  const {
+    percent: cacheProgressPercent,
+    text: cacheProgressText,
+    update: updateCacheProgress,
+    setMessage: setCacheProgressText,
+    reset: resetCacheProgress,
+  } = useProgressTracker();
   const selectedCacheTargets = useMemo(
     () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
     [selectedCaches]
@@ -1139,8 +1154,7 @@ export default function App() {
     setIpScanStopPending(false);
     ipScanStopRequestedRef.current = false;
     setIpScanResults([]);
-    setIpScanProgressPercent(0);
-    setIpScanProgressText(`Starting scan on ${plan.subnetLabel}...`);
+    updateIpScanProgress(0, `Starting scan on ${plan.subnetLabel}...`);
     setStatusMsg(`Scan IP started on ${plan.subnetLabel}`);
 
     const totalTargets = plan.targets.length;
@@ -1162,8 +1176,8 @@ export default function App() {
         setIpScanResults([...collected]);
 
         const percent = Math.round((processed / totalTargets) * 100);
-        setIpScanProgressPercent(percent);
-        setIpScanProgressText(
+        updateIpScanProgress(
+          percent,
           `Scanning ${processed}/${totalTargets} hosts... Reachable ${reachable}`
         );
       }
@@ -1184,7 +1198,7 @@ export default function App() {
       setIpScanStopPending(false);
       ipScanStopRequestedRef.current = false;
     }
-  }, [ipScanRunning]);
+  }, [ipScanRunning, updateIpScanProgress]);
 
   const handleOpenIpScanModal = useCallback(() => {
     const plan = resolveIpScanPlan();
@@ -1195,13 +1209,12 @@ export default function App() {
     setIpScanPlan(plan);
     ipScanModal.open();
     setIpScanResults([]);
-    setIpScanProgressPercent(0);
     if (plan.source === "fallback") {
-      setIpScanProgressText(`Using fallback ${plan.subnetLabel} range from selected NIC.`);
+      updateIpScanProgress(0, `Using fallback ${plan.subnetLabel} range from selected NIC.`);
     } else {
-      setIpScanProgressText(`Ready to scan ${plan.targets.length} hosts on ${plan.subnetLabel}.`);
+      updateIpScanProgress(0, `Ready to scan ${plan.targets.length} hosts on ${plan.subnetLabel}.`);
     }
-  }, [ipScanModal, resolveIpScanPlan]);
+  }, [ipScanModal, resolveIpScanPlan, updateIpScanProgress]);
 
   const handleStartIpScan = useCallback(() => {
     if (ipScanRunning) return;
@@ -1270,12 +1283,11 @@ export default function App() {
   }, []);
 
   const handleOpenBloatwareModal = useCallback(() => {
-    setRemoveProgressPercent(0);
-    setRemoveProgressText("Ready.");
+    resetRemoveProgress();
     bloatwareModal.open();
     void loadBloatwareList();
     void loadRepairTargets();
-  }, [bloatwareModal, loadBloatwareList, loadRepairTargets]);
+  }, [bloatwareModal, loadBloatwareList, loadRepairTargets, resetRemoveProgress]);
 
   const handleCloseBloatwareModal = useCallback(() => {
     if (bloatwareRemoving) return;
@@ -1350,8 +1362,7 @@ export default function App() {
     setBloatwareRemoving(true);
     setDiagnosticView("command");
     setDiagnosticsOpen(true);
-    setRemoveProgressPercent(0);
-    setRemoveProgressText(`Starting removal... 0/${packages.length} (0%)`);
+    updateRemoveProgress(0, `Starting removal... 0/${packages.length} (0%)`);
     setStatusMsg(`Removing ${packages.length} selected app(s)...`);
     let successCount = 0;
     let failedCount = 0;
@@ -1360,8 +1371,10 @@ export default function App() {
         const packageName = packages[index];
         const appLabel = bloatwareItems.find((item) => item.package_name === packageName)?.label ?? packageName;
         const beforePercent = Math.round((index / packages.length) * 100);
-        setRemoveProgressPercent(beforePercent);
-        setRemoveProgressText(`Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`);
+        updateRemoveProgress(
+          beforePercent,
+          `Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`
+        );
 
         try {
           console.log(`[BLOATWARE] Calling repairRemoveBloatware for ${packageName} with SID ${targetSid}`);
@@ -1394,8 +1407,7 @@ export default function App() {
 
         const processed = index + 1;
         const percent = Math.round((processed / packages.length) * 100);
-        setRemoveProgressPercent(percent);
-        setRemoveProgressText(`Processed ${processed}/${packages.length} (${percent}%)`);
+        updateRemoveProgress(percent, `Processed ${processed}/${packages.length} (${percent}%)`);
       }
 
       console.log(`[BLOATWARE] Loop done. Success: ${successCount}, Failed: ${failedCount}`);
@@ -1415,16 +1427,22 @@ export default function App() {
     } finally {
       setBloatwareRemoving(false);
     }
-  }, [appendCommandOutput, bloatwareItems, loadBloatwareList, selectedBloatware, selectedRepairTargetSid]);
+  }, [
+    appendCommandOutput,
+    bloatwareItems,
+    loadBloatwareList,
+    selectedBloatware,
+    selectedRepairTargetSid,
+    updateRemoveProgress,
+  ]);
 
   const handleOpenCacheModal = useCallback(() => {
     setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
-    setCacheProgressPercent(0);
-    setCacheProgressText("Ready.");
+    resetCacheProgress();
     setCacheStopPending(false);
     cacheStopRequestedRef.current = false;
     cacheModal.open();
-  }, [cacheModal]);
+  }, [cacheModal, resetCacheProgress]);
 
   const handleCloseCacheModal = useCallback(() => {
     if (cacheCleaning) return;
@@ -1488,8 +1506,7 @@ export default function App() {
     cacheStopRequestedRef.current = false;
     setDiagnosticView("command");
     setDiagnosticsOpen(true);
-    setCacheProgressPercent(0);
-    setCacheProgressText(`Starting cleanup... 0/${selectedCacheTargets.length} (0%)`);
+    updateCacheProgress(0, `Starting cleanup... 0/${selectedCacheTargets.length} (0%)`);
     setStatusMsg(`Cleaning ${selectedCacheTargets.length} cache target(s)...`);
     let successCount = 0;
     let failedCount = 0;
@@ -1502,8 +1519,8 @@ export default function App() {
 
         const target = selectedCacheTargets[index];
         const beforePercent = Math.round((index / selectedCacheTargets.length) * 100);
-        setCacheProgressPercent(beforePercent);
-        setCacheProgressText(
+        updateCacheProgress(
+          beforePercent,
           `Cleaning ${target.label}... ${index}/${selectedCacheTargets.length} (${beforePercent}%)`
         );
 
@@ -1528,8 +1545,8 @@ export default function App() {
 
         processedCount = index + 1;
         const percent = Math.round((processedCount / selectedCacheTargets.length) * 100);
-        setCacheProgressPercent(percent);
-        setCacheProgressText(
+        updateCacheProgress(
+          percent,
           `Processed ${processedCount}/${selectedCacheTargets.length} (${percent}%)`
         );
 
@@ -1563,7 +1580,7 @@ export default function App() {
       setCacheStopPending(false);
       cacheStopRequestedRef.current = false;
     }
-  }, [appendCommandOutput, selectedCacheTargets, selectedRepairTargetSid]);
+  }, [appendCommandOutput, selectedCacheTargets, selectedRepairTargetSid, updateCacheProgress]);
 
   const openConfirm = (
     title: string,
