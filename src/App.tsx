@@ -14,7 +14,7 @@ import {
   getRepairSessionStatus, listRepairTargets,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
   repairSavePersistConfig, repairClearPersistConfig,
-  runRepairMachineAction, persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
+  persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
   type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
   type PersistConfig,
   type BatterySummaryResult, type RepairMachineAction,
@@ -63,6 +63,10 @@ import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useRepairMode } from "./hooks/useRepairMode";
 import { useBufferedLog } from "./hooks/useBufferedLog";
 import { useModal } from "./hooks/useModal";
+import {
+  executeRepairAction as executeRepairActionImpl,
+  handleRepairCommandResult as handleRepairCommandResultImpl,
+} from "./repairActions";
 
 type RouteWatcherStatusEventPayload = {
   status: "reapplied" | "failed";
@@ -620,27 +624,12 @@ export default function App() {
       failureMessage?: string;
     },
   ) {
-    if (options?.appendOutput !== false) {
-      appendCommandOutput(title, result.output);
-    }
-
-    if (result.requires_unlock) {
-      setStatusMsg("Unlock Repair Mode first to run admin fixes.");
-      const status = await getRepairSessionStatus();
-      setRepairSession(status);
-      return false;
-    }
-
-    setStatusMsg(
-      result.success
-        ? (options?.successMessage ?? `${title} - Success!`)
-        : (options?.failureMessage ?? `${title} - Failed`)
-    );
-
-    if (result.success && options?.refresh) {
-      await loadData({ invalidateNicCache: options.invalidateNicCache });
-    }
-    return result.success;
+    return handleRepairCommandResultImpl({
+      appendCommandOutput,
+      setStatusMessage: setStatusMsg,
+      setRepairSession,
+      loadData,
+    }, title, result, options);
   }
 
   async function executeRepairAction(
@@ -648,19 +637,13 @@ export default function App() {
     title: string,
     options?: { refresh?: boolean; invalidateNicCache?: boolean }
   ) {
-    setDiagnosticView("command");
-    setStatusMsg(`Running ${title}...`);
-    try {
-      const result = await runRepairMachineAction(action);
-      await handleRepairCommandResult(title, result, {
-        appendOutput: true,
-        refresh: options?.refresh,
-        invalidateNicCache: options?.invalidateNicCache,
-      });
-    } catch (err) {
-      appendCommandOutput(title, `Error: ${err}`);
-      setStatusMsg(`Error: ${err}`);
-    }
+    return executeRepairActionImpl({
+      appendCommandOutput,
+      setStatusMessage: setStatusMsg,
+      setRepairSession,
+      loadData,
+      setDiagnosticView,
+    }, action, title, options);
   }
 
   const executeNetCmd = useCallback(async (

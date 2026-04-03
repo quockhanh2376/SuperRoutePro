@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: repairActions Extraction
+
+**Done**
+- Extracted shared repair-action handling into `src/repairActions.ts`.
+- Moved the generic repair command result handler and machine repair action executor out of `src/App.tsx`, leaving only thin call-site wrappers in the component.
+- Preserved the existing behavior for command output logging, unlock-required recovery, status messaging, diagnostic view switching, and optional refresh/invalidate flows.
+- Reduced `src/App.tsx` from 1,931 lines to 1,914 lines while making future route/admin action extraction easier.
+- Updated `OPTIMIZE.md` to mark `Extract repairActions` complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 1,914 lines
+
+**Next Steps**
+- Extract `routeActions` next, which is now the largest remaining centralized block in `src/App.tsx`.
+- One more focused extraction pass should get Phase 1 much closer to the ~1,800-line target.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: useRepairMode Extraction
 
 **Done**

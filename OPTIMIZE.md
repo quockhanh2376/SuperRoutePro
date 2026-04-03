@@ -73,9 +73,9 @@ src/constants/
 - [x] Create useRepairMode hook
 - [x] Create useNetworkMonitoring hook
 - [ ] Extract routeActions
-- [ ] Extract repairActions
+- [x] Extract repairActions
 
-**Progress:** 11/13 tasks completed. App.tsx currently 1,931 lines (down 661 lines from 2,592, -25.5%). Target: ~1,800 lines for Phase 1.
+**Progress:** 12/13 tasks completed. App.tsx currently 1,914 lines (down 678 lines from 2,592, -26.2%). Target: ~1,800 lines for Phase 1.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 1,931 lines
+- ❌ App.tsx: 1,914 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (major UI/state hooks extracted; repair and route action logic still centralized)
+- ❌ Code duplication: Medium (major UI/state hooks extracted; route actions are the largest remaining centralized block)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)
