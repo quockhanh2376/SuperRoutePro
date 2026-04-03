@@ -71,11 +71,11 @@ src/constants/
 - [x] Extract constants into `src/constants/*`
 - [x] Create usePingMonitor hook
 - [ ] Create useRepairMode hook
-- [ ] Create useNetworkMonitoring hook
+- [x] Create useNetworkMonitoring hook
 - [ ] Extract routeActions
 - [ ] Extract repairActions
 
-**Progress:** 9/13 tasks completed. App.tsx currently 2,146 lines (down 446 lines from 2,592, -17.2%). Target: ~1,800 lines for Phase 1.
+**Progress:** 10/13 tasks completed. App.tsx currently 2,034 lines (down 558 lines from 2,592, -21.5%). Target: ~1,800 lines for Phase 1.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 2,146 lines
+- ❌ App.tsx: 2,034 lines
 - ❌ Test coverage: ~20% (only models tested)
 - ❌ State variables: 50+
-- ❌ Code duplication: Medium (modals, constants, and ping/progress hooks extracted; more state and action logic still centralized)
+- ❌ Code duplication: Medium (modals, constants, ping, and network monitoring hooks extracted; repair and route actions still centralized)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)

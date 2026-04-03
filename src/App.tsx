@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import {
   getNetworkSnapshot, getRoutingTable,
-  runNetworkCommand, pingHost, testTcpPort,
-  fpingScan, checkInternet,
+  runNetworkCommand, testTcpPort,
+  fpingScan,
   getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
   autoUnlockRepairMode, getRepairSessionStatus, listRepairTargets, unlockRepairMode, lockRepairMode,
   repairAddRoute, repairDeleteRoute, repairFlushRoutes, repairSetDefaultGateway,
@@ -57,6 +57,7 @@ import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/
 import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
+import { useNetworkMonitoring } from "./hooks/useNetworkMonitoring";
 import { usePingMonitor } from "./hooks/usePingMonitor";
 import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useBufferedLog } from "./hooks/useBufferedLog";
@@ -101,7 +102,6 @@ export default function App() {
   const [routes, setRoutes] = useState<RouteEntry[]>([]);
   const [selectedNic, setSelectedNic] = useState<NetworkInterface | null>(null);
   const [activeOnly, setActiveOnly] = useState(true);
-  const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [statusMsg, setStatusMsg] = useState("System Ready");
   const [routeWatcherToast, setRouteWatcherToast] = useState<RouteWatcherToast | null>(null);
   const [repairSession, setRepairSession] = useState<RepairSessionStatus>({
@@ -127,7 +127,6 @@ export default function App() {
     setMessage: setIpScanProgressText,
   } = useProgressTracker();
   const [themeLensActive, setThemeLensActive] = useState(false);
-  const [currentLatency, setCurrentLatency] = useState<number>(0);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [pingOpen, setPingOpen] = useState(false);
@@ -388,6 +387,7 @@ export default function App() {
     appendLines: appendPingLines,
     setStatusMessage: setStatusMsg,
   });
+  const { isOnline, currentLatency } = useNetworkMonitoring();
 
   const lensTimerRef = useRef<number | null>(null);
   const cacheStopRequestedRef = useRef(false);
@@ -542,118 +542,6 @@ export default function App() {
       cleanup();
     };
   }, [loadData, pushRouteWatcherToast]);
-
-  // Internet monitor with adaptive polling and cancellation-safe updates.
-  useEffect(() => {
-    let stopped = false;
-    let timerId: number | null = null;
-    let inFlight = false;
-    let successStreak = 0;
-    let failureStreak = 0;
-
-    const computeDelay = (online: boolean): number => {
-      if (!online) {
-        return Math.min(12000, 2500 + failureStreak * 1200);
-      }
-      if (successStreak >= 6) return 15000;
-      if (successStreak >= 3) return 9000;
-      return 5000;
-    };
-
-    const scheduleNext = (delayMs: number) => {
-      if (stopped) return;
-      timerId = window.setTimeout(() => {
-        void tick();
-      }, delayMs);
-    };
-
-    const tick = async () => {
-      if (stopped || inFlight) return;
-      inFlight = true;
-      let online = false;
-      try {
-        online = await checkInternet();
-        if (stopped) return;
-        setIsOnline(online);
-      } catch {
-        if (stopped) return;
-        online = false;
-        setIsOnline(false);
-      } finally {
-        if (online) {
-          successStreak += 1;
-          failureStreak = 0;
-        } else {
-          failureStreak += 1;
-          successStreak = 0;
-        }
-        inFlight = false;
-        scheduleNext(computeDelay(online));
-      }
-    };
-
-    void tick();
-    return () => {
-      stopped = true;
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-      }
-    };
-  }, []);
-
-  // Latency monitor with adaptive polling and cancellation-safe updates.
-  useEffect(() => {
-    let stopped = false;
-    let timerId: number | null = null;
-    let inFlight = false;
-    let failureStreak = 0;
-
-    const computeDelay = (success: boolean, latencyMs: number): number => {
-      if (!success) {
-        return Math.min(7000, 1800 + failureStreak * 700);
-      }
-      if (latencyMs <= 40) return 5000;
-      if (latencyMs <= 90) return 3500;
-      if (latencyMs <= 180) return 2500;
-      return 1800;
-    };
-
-    const scheduleNext = (delayMs: number) => {
-      if (stopped) return;
-      timerId = window.setTimeout(() => {
-        void tick();
-      }, delayMs);
-    };
-
-    const tick = async () => {
-      if (stopped || inFlight) return;
-      inFlight = true;
-      let success = false;
-      let latency = 0;
-      try {
-        const result = await pingHost("8.8.8.8", 1);
-        if (stopped) return;
-        success = result.success;
-        latency = success ? result.latency_ms : 0;
-        setCurrentLatency(latency);
-      } catch {
-        if (stopped) return;
-        setCurrentLatency(0);
-      } finally {
-        failureStreak = success ? 0 : failureStreak + 1;
-        inFlight = false;
-        scheduleNext(computeDelay(success, latency));
-      }
-    };
-
-    void tick();
-    return () => {
-      stopped = true;
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-      }
-    };
-  }, []);
 
   // ======================== ACTIONS ========================
 

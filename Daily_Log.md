@@ -5,6 +5,25 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-03 - Phase 1 App.tsx Optimization: useNetworkMonitoring Extraction
+
+**Done**
+- Extracted the adaptive internet-status polling and latency monitor from `src/App.tsx` into `src/hooks/useNetworkMonitoring.ts`.
+- Moved the `isOnline` and `currentLatency` state plus both cancellation-safe polling effects into the new hook while preserving the current polling behavior.
+- Kept the hook focused on live network health only, returning the same values the header UI already consumes.
+- Reduced `src/App.tsx` from 2,146 lines to 2,034 lines by removing the inline monitoring state and both monitoring effects.
+- Updated `OPTIMIZE.md` to mark `Create useNetworkMonitoring hook` complete and sync the latest App.tsx metrics.
+
+**Verification**
+- `npm run build`
+- Current `src/App.tsx` size: 2,034 lines
+
+**Next Steps**
+- Extract `useRepairMode` next to move repair session state, unlock/lock flows, and repair-target refresh logic out of `App.tsx`.
+- After that, continue with action extraction to push toward the Phase 1 target of ~1,800 lines.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: usePingMonitor Extraction
 
 **Done**
