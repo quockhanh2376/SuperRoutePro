@@ -9,16 +9,18 @@ This guide is for AI coding agents and developers working on SuperRoutePro, a ne
 SuperRoutePro uses [NotebookLM MCP server](https://github.com/PleasePrompto/notebooklm-mcp) to provide zero-hallucination documentation access via Google's NotebookLM.
 
 ### Setup
-1. The MCP server is configured in `opencode.json` and runs via `npx notebooklm-mcp@latest`
+1. The MCP server is configured in `opencode.json` and runs via `npx -y notebooklm-mcp@latest`
 2. On first use, authenticate by saying: `"Log me in to NotebookLM"`
 3. A Chrome window will open for Google authentication (one-time setup)
-4. Project documentation is synced to NotebookLM via `Daily_Log.md`
+4. Create or refresh the project notebook using `docs/notebooklm-project-setup.md`
+5. `Daily_Log.md` remains the primary source-of-truth file for notebook refreshes after each meaningful work session
 
 ### Usage
 When working on this project, you can access NotebookLM knowledge by:
 - Adding `use notebooklm` to prompts when you need project-specific documentation
 - The agent will automatically query NotebookLM for context before making changes
 - NotebookLM provides citation-backed answers with zero hallucinations
+- If the local NotebookLM library is still empty, finish the setup checklist in `docs/notebooklm-project-setup.md` first
 
 **Example:**
 ```

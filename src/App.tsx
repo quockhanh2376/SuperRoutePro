@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -10,10 +10,9 @@ import {
   getNetworkSnapshot, getRoutingTable,
   runNetworkCommand, testTcpPort,
   fpingScan,
-  getBloatwareCandidates, repairRemoveBloatware, repairClearCacheTargets, getBatterySummary,
-  getRepairSessionStatus, listRepairTargets,
+  getBatterySummary,
   persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
-  type NetworkInterface, type RouteEntry, type BloatwareItem, type FpingHostResult,
+  type NetworkInterface, type RouteEntry, type FpingHostResult,
   type BatterySummaryResult, type RepairMachineAction,
 } from "./api";
 import {
@@ -25,10 +24,6 @@ import {
   ZOOM_MIN,
   ZOOM_STEP,
 } from "./constants/app";
-import {
-  CACHE_CLEANUP_OPTIONS,
-  DEFAULT_CACHE_SELECTION,
-} from "./constants/cacheTargets";
 import { formatRoutingSnapshot } from "./constants/routeTable";
 import {
   getProfileSensitiveActionHint,
@@ -53,6 +48,8 @@ import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/
 import { IpScanModal } from "./components/IpScanModal";
 import { getBatteryWearLevel } from "./batteryUtils";
 import { useAutoScroll } from "./hooks/useAutoScroll";
+import { useBloatwareManager } from "./hooks/useBloatwareManager";
+import { useCacheCleanupManager } from "./hooks/useCacheCleanupManager";
 import { useConfirmDialog } from "./hooks/useConfirmDialog";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useNetworkMonitoring } from "./hooks/useNetworkMonitoring";
@@ -88,6 +85,25 @@ type RouteWatcherToast = {
 };
 
 type HelpLanguage = "en" | "vi";
+
+type PanelState = {
+  toolsOpen: boolean;
+  diagnosticsOpen: boolean;
+  pingOpen: boolean;
+};
+
+type DiagnosticsInputsState = {
+  host: string;
+  dnsServer: string;
+  port: string;
+};
+
+type RouteFormState = {
+  dest: string;
+  mask: string;
+  gw: string;
+  metric: string;
+};
 
 export default function App() {
   const [appVersion, setAppVersion] = useState("dev");
@@ -127,26 +143,18 @@ export default function App() {
     setMessage: setIpScanProgressText,
   } = useProgressTracker();
   const [themeLensActive, setThemeLensActive] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [pingOpen, setPingOpen] = useState(false);
-  const [diagHost, setDiagHost] = useState("google.com");
-  const [diagDnsServer, setDiagDnsServer] = useState("8.8.8.8");
-  const [diagPort, setDiagPort] = useState("443");
+  const [panels, setPanels] = useState<PanelState>({
+    toolsOpen: false,
+    diagnosticsOpen: false,
+    pingOpen: false,
+  });
+  const [diagnosticsInputs, setDiagnosticsInputs] = useState<DiagnosticsInputsState>({
+    host: "google.com",
+    dnsServer: "8.8.8.8",
+    port: "443",
+  });
   const [diagnosticView, setDiagnosticView] = useState<"command" | "routing">("command");
   const [routingOutput, setRoutingOutput] = useState("");
-  const bloatwareModal = useModal();
-  const [bloatwareLoading, setBloatwareLoading] = useState(false);
-  const [bloatwareRemoving, setBloatwareRemoving] = useState(false);
-  const [bloatwareItems, setBloatwareItems] = useState<BloatwareItem[]>([]);
-  const [selectedBloatware, setSelectedBloatware] = useState<Set<string>>(new Set());
-  const {
-    percent: removeProgressPercent,
-    text: removeProgressText,
-    update: updateRemoveProgress,
-    setMessage: setRemoveProgressText,
-    reset: resetRemoveProgress,
-  } = useProgressTracker();
   const [batteryLoading, setBatteryLoading] = useState(false);
   const [batterySummary, setBatterySummary] = useState<BatterySummaryResult | null>(null);
   const [batterySummaryError, setBatterySummaryError] = useState("");
@@ -154,23 +162,6 @@ export default function App() {
   const donateModal = useModal();
   const helpModal = useModal();
   const [helpLanguage, setHelpLanguage] = useState<HelpLanguage>("vi");
-  const cacheModal = useModal();
-  const [cacheCleaning, setCacheCleaning] = useState(false);
-  const [cacheStopPending, setCacheStopPending] = useState(false);
-  const [selectedCaches, setSelectedCaches] = useState<Set<string>>(
-    () => new Set(DEFAULT_CACHE_SELECTION)
-  );
-  const {
-    percent: cacheProgressPercent,
-    text: cacheProgressText,
-    update: updateCacheProgress,
-    setMessage: setCacheProgressText,
-    reset: resetCacheProgress,
-  } = useProgressTracker();
-  const selectedCacheTargets = useMemo(
-    () => CACHE_CLEANUP_OPTIONS.filter((option) => selectedCaches.has(option.id)),
-    [selectedCaches]
-  );
   const {
     repairSession,
     setRepairSession,
@@ -193,6 +184,12 @@ export default function App() {
     onCancelConfirm,
   } = useConfirmDialog({
     onErrorMessage: setStatusMsg,
+  });
+  const [routeForm, setRouteForm] = useState<RouteFormState>({
+    dest: "",
+    mask: "255.255.255.0",
+    gw: "",
+    metric: "10",
   });
 
   useEffect(() => {
@@ -291,12 +288,6 @@ export default function App() {
     setZoomLevel(ZOOM_DEFAULT);
   }, []);
 
-  // Form state
-  const [formDest, setFormDest] = useState("");
-  const [formMask, setFormMask] = useState("255.255.255.0");
-  const [formGw, setFormGw] = useState("");
-  const [formMetric, setFormMetric] = useState("10");
-
   const {
     version: pingLogVersion,
     text: pingOutputText,
@@ -326,7 +317,6 @@ export default function App() {
   const { isOnline, currentLatency } = useNetworkMonitoring();
 
   const lensTimerRef = useRef<number | null>(null);
-  const cacheStopRequestedRef = useRef(false);
   const ipScanStopRequestedRef = useRef(false);
   const latestLoadRequestRef = useRef(0);
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
@@ -335,6 +325,80 @@ export default function App() {
   const routeWatcherToastTimerRef = useRef<number | null>(null);
   useAutoScroll(pingOutputRef, pingLogVersion);
   useAutoScroll(commandOutputRef, commandLogVersion);
+
+  const setRouteFormField = useCallback(<K extends keyof RouteFormState,>(field: K, value: RouteFormState[K]) => {
+    setRouteForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }, []);
+
+  const setDiagnosticsField = useCallback(<K extends keyof DiagnosticsInputsState,>(
+    field: K,
+    value: DiagnosticsInputsState[K],
+  ) => {
+    setDiagnosticsInputs((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }, []);
+
+  const handleRouteDestChange = useCallback((value: string) => {
+    setRouteFormField("dest", value);
+  }, [setRouteFormField]);
+
+  const handleRouteMaskChange = useCallback((value: string) => {
+    setRouteFormField("mask", value);
+  }, [setRouteFormField]);
+
+  const handleRouteGatewayChange = useCallback((value: string) => {
+    setRouteFormField("gw", value);
+  }, [setRouteFormField]);
+
+  const handleRouteMetricChange = useCallback((value: string) => {
+    setRouteFormField("metric", value);
+  }, [setRouteFormField]);
+
+  const handleDiagHostChange = useCallback((value: string) => {
+    setDiagnosticsField("host", value);
+  }, [setDiagnosticsField]);
+
+  const handleDiagDnsServerChange = useCallback((value: string) => {
+    setDiagnosticsField("dnsServer", value);
+  }, [setDiagnosticsField]);
+
+  const handleDiagPortChange = useCallback((value: string) => {
+    setDiagnosticsField("port", value);
+  }, [setDiagnosticsField]);
+
+  const handleToggleToolsPanel = useCallback(() => {
+    setPanels((current) => ({
+      ...current,
+      toolsOpen: !current.toolsOpen,
+    }));
+  }, []);
+
+  const handleToggleDiagnosticsPanel = useCallback(() => {
+    setPanels((current) => ({
+      ...current,
+      diagnosticsOpen: !current.diagnosticsOpen,
+    }));
+  }, []);
+
+  const handleTogglePingPanel = useCallback(() => {
+    setPanels((current) => ({
+      ...current,
+      pingOpen: !current.pingOpen,
+    }));
+  }, []);
+
+  const openCommandDiagnostics = useCallback(() => {
+    setPanels((current) => ({
+      ...current,
+      diagnosticsOpen: true,
+    }));
+    setDiagnosticView("command");
+  }, []);
 
   useEffect(() => {
     latestNicsRef.current = nics;
@@ -482,31 +546,96 @@ export default function App() {
 
   // ======================== ACTIONS ========================
 
+  const appendCommandOutput = useCallback((title: string, output: string) => {
+    const stamp = new Date().toLocaleTimeString("en-GB");
+    const cleanOutput = output?.trim() ? output.trim() : "(No output returned)";
+    const lines = [`[${stamp}] ${title}`, ...cleanOutput.split(/\r?\n/), ""];
+    appendCommandLines(lines);
+  }, [appendCommandLines]);
+
+  const handleRepairCommandResult = useCallback(async (
+    title: string,
+    result: { success: boolean; output: string; requires_unlock: boolean },
+    options?: {
+      refresh?: boolean;
+      invalidateNicCache?: boolean;
+      appendOutput?: boolean;
+      successMessage?: string;
+      failureMessage?: string;
+    },
+  ) => {
+    return handleRepairCommandResultImpl({
+      appendCommandOutput,
+      setStatusMessage: setStatusMsg,
+      setRepairSession,
+      loadData,
+    }, title, result, options);
+  }, [appendCommandOutput, loadData, setRepairSession]);
+
+  const executeRepairAction = useCallback(async (
+    action: RepairMachineAction,
+    title: string,
+    options?: { refresh?: boolean; invalidateNicCache?: boolean },
+  ) => {
+    return executeRepairActionImpl({
+      appendCommandOutput,
+      setStatusMessage: setStatusMsg,
+      setRepairSession,
+      loadData,
+      setDiagnosticView,
+    }, action, title, options);
+  }, [appendCommandOutput, loadData, setRepairSession]);
+
+  const bloatwareManager = useBloatwareManager({
+    setStatusMessage: setStatusMsg,
+    appendCommandOutput,
+    openCommandDiagnostics,
+    selectedRepairTargetSid,
+    setSelectedRepairTargetSid,
+    setRepairSession,
+    loadRepairTargets,
+    openConfirm,
+  });
+
+  const cacheCleanupManager = useCacheCleanupManager({
+    setStatusMessage: setStatusMsg,
+    appendCommandOutput,
+    openCommandDiagnostics,
+    selectedRepairTargetSid,
+    setSelectedRepairTargetSid,
+    setRepairSession,
+    loadRepairTargets,
+    openConfirm,
+  });
+
   const handleSelectNic = useCallback((nic: NetworkInterface) => {
     setSelectedNic(nic);
-    setFormGw(nic.gateway);
+    setRouteForm((current) => ({
+      ...current,
+      gw: nic.gateway,
+    }));
   }, []);
 
   const handleAddRoute = useCallback(async () => {
     await executeAddRouteAction({
-      formDest,
-      formMask,
-      formGw,
-      formMetric,
+      formDest: routeForm.dest,
+      formMask: routeForm.mask,
+      formGw: routeForm.gw,
+      formMetric: routeForm.metric,
       selectedNicIndex: selectedNic?.index,
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [formDest, formGw, formMask, formMetric, handleRepairCommandResult, selectedNic?.index]);
+  }, [handleRepairCommandResult, routeForm, selectedNic?.index]);
 
   const handleDeleteRoute = useCallback(async () => {
     await executeDeleteRouteAction({
-      formDest,
-      formMask,
+      formDest: routeForm.dest,
+      formMask: routeForm.mask,
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [formDest, formMask, handleRepairCommandResult]);
+  }, [handleRepairCommandResult, routeForm.dest, routeForm.mask]);
 
   const executeSetInternet = useCallback(async () => {
     await executeSetInternetAction({
@@ -524,46 +653,6 @@ export default function App() {
       handleRepairCommandResult,
     });
   }, [handleRepairCommandResult]);
-
-  const appendCommandOutput = useCallback((title: string, output: string) => {
-    const stamp = new Date().toLocaleTimeString("en-GB");
-    const cleanOutput = output?.trim() ? output.trim() : "(No output returned)";
-    const lines = [`[${stamp}] ${title}`, ...cleanOutput.split(/\r?\n/), ""];
-    appendCommandLines(lines);
-  }, [appendCommandLines]);
-
-  async function handleRepairCommandResult(
-    title: string,
-    result: { success: boolean; output: string; requires_unlock: boolean },
-    options?: {
-      refresh?: boolean;
-      invalidateNicCache?: boolean;
-      appendOutput?: boolean;
-      successMessage?: string;
-      failureMessage?: string;
-    },
-  ) {
-    return handleRepairCommandResultImpl({
-      appendCommandOutput,
-      setStatusMessage: setStatusMsg,
-      setRepairSession,
-      loadData,
-    }, title, result, options);
-  }
-
-  async function executeRepairAction(
-    action: RepairMachineAction,
-    title: string,
-    options?: { refresh?: boolean; invalidateNicCache?: boolean }
-  ) {
-    return executeRepairActionImpl({
-      appendCommandOutput,
-      setStatusMessage: setStatusMsg,
-      setRepairSession,
-      loadData,
-      setDiagnosticView,
-    }, action, title, options);
-  }
 
   const executeNetCmd = useCallback(async (
     cmd: string,
@@ -592,7 +681,10 @@ export default function App() {
   }, [appendCommandOutput, loadData]);
 
   const handleShowRoutingOutput = useCallback(async () => {
-    setDiagnosticsOpen(true);
+    setPanels((current) => ({
+      ...current,
+      diagnosticsOpen: true,
+    }));
     setDiagnosticView("routing");
     if (routes.length > 0) {
       setRoutingOutput(formatRoutingSnapshot(routes));
@@ -667,39 +759,45 @@ export default function App() {
     batteryModal.close();
   }, [batteryModal, batteryLoading]);
 
-  const handleResetWinHttpProxy = async () => {
+  const handleResetWinHttpProxy = useCallback(() => {
     openConfirm(
       "Reset WinHTTP Proxy",
       "Reset WinHTTP proxy settings to direct access?",
-      () => executeRepairAction("ResetWinHttpProxy", "Reset WinHTTP Proxy", { refresh: true })
+      () => executeRepairAction("ResetWinHttpProxy", "Reset WinHTTP Proxy", { refresh: true }),
     );
-  };
+  }, [executeRepairAction, openConfirm]);
 
-  const handleRestartAdapters = async () => {
+  const handleRestartAdapters = useCallback(() => {
     openConfirm(
       "Restart Active Adapters",
       "Restart active physical network adapters now?",
       () => executeRepairAction("RestartActiveAdapters", "Restart Active Adapters", {
         refresh: true,
         invalidateNicCache: true,
-      })
+      }),
     );
-  };
+  }, [executeRepairAction, openConfirm]);
 
   const handleNslookupTest = useCallback(async () => {
-    const host = sanitizeHostToken(diagHost) || "google.com";
-    const dns = sanitizeDnsToken(diagDnsServer) || "8.8.8.8";
-    setDiagHost(host);
-    setDiagDnsServer(dns);
+    const host = sanitizeHostToken(diagnosticsInputs.host) || "google.com";
+    const dns = sanitizeDnsToken(diagnosticsInputs.dnsServer) || "8.8.8.8";
+    setDiagnosticsInputs((current) => ({
+      ...current,
+      host,
+      dnsServer: dns,
+    }));
     await executeNetCmd(`nslookup ${host} ${dns}`, `NSLookup ${host}`);
-  }, [diagDnsServer, diagHost, executeNetCmd, sanitizeDnsToken, sanitizeHostToken]);
+  }, [diagnosticsInputs.dnsServer, diagnosticsInputs.host, executeNetCmd, sanitizeDnsToken, sanitizeHostToken]);
 
   const handlePortConnectivityTest = useCallback(async () => {
-    const host = sanitizeHostToken(diagHost) || "google.com";
-    const portNum = Number.parseInt(diagPort, 10);
+    const host = sanitizeHostToken(diagnosticsInputs.host) || "google.com";
+    const portNum = Number.parseInt(diagnosticsInputs.port, 10);
     const port = Number.isFinite(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 443;
-    setDiagHost(host);
-    setDiagPort(String(port));
+    setDiagnosticsInputs((current) => ({
+      ...current,
+      host,
+      port: String(port),
+    }));
     setDiagnosticView("command");
     setStatusMsg(`Testing port ${host}:${port}...`);
     try {
@@ -711,7 +809,7 @@ export default function App() {
       appendCommandOutput(`Port Test ${host}:${port}`, `Error: ${msg}`);
       setStatusMsg(`Port test failed: ${msg}`);
     }
-  }, [diagHost, diagPort, appendCommandOutput, sanitizeHostToken]);
+  }, [appendCommandOutput, diagnosticsInputs.host, diagnosticsInputs.port, sanitizeHostToken]);
 
   const resolveIpScanPlan = useCallback((): IpScanPlan | null => {
     if (!selectedNic) return null;
@@ -831,340 +929,11 @@ export default function App() {
     }
   }, [appendPingLine, appendPingLines, pingTarget]);
 
-  const loadBloatwareList = useCallback(async () => {
-    setBloatwareLoading(true);
-    try {
-      const items = await getBloatwareCandidates();
-      setBloatwareItems(items);
-      setSelectedBloatware((previous) => {
-        if (previous.size === 0) return previous;
-        const available = new Set(items.map((item) => item.package_name));
-        const next = new Set<string>();
-        previous.forEach((name) => {
-          if (available.has(name)) {
-            next.add(name);
-          }
-        });
-        return next;
-      });
-    } catch (err) {
-      setStatusMsg(`Bloatware list error: ${err}`);
-    } finally {
-      setBloatwareLoading(false);
-    }
-  }, []);
-
-  const handleOpenBloatwareModal = useCallback(() => {
-    resetRemoveProgress();
-    bloatwareModal.open();
-    void loadBloatwareList();
-    void loadRepairTargets();
-  }, [bloatwareModal, loadBloatwareList, loadRepairTargets, resetRemoveProgress]);
-
-  const handleCloseBloatwareModal = useCallback(() => {
-    if (bloatwareRemoving) return;
-    bloatwareModal.close();
-  }, [bloatwareModal, bloatwareRemoving]);
-
-  const handleToggleBloatware = useCallback((packageName: string) => {
-    setSelectedBloatware((previous) => {
-      const next = new Set(previous);
-      if (next.has(packageName)) {
-        next.delete(packageName);
-      } else {
-        next.add(packageName);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleSelectInstalledBloatware = useCallback(() => {
-    const next = new Set<string>();
-    for (const item of bloatwareItems) {
-      if (item.installed) {
-        next.add(item.package_name);
-      }
-    }
-    setSelectedBloatware(next);
-  }, [bloatwareItems]);
-
-  const handleSelectAllBloatware = useCallback(() => {
-    setSelectedBloatware(new Set(bloatwareItems.map((item) => item.package_name)));
-  }, [bloatwareItems]);
-
-  const handleClearBloatwareSelection = useCallback(() => {
-    setSelectedBloatware(new Set());
-  }, []);
-
-  const executeRemoveSelectedBloatware = useCallback(async () => {
-    console.log("[BLOATWARE] executeRemoveSelectedBloatware CALLED");
-    const packages = Array.from(selectedBloatware);
-    if (!packages.length) {
-      console.log("[BLOATWARE] No packages selected, returning");
-      setStatusMsg("Select at least one app to remove");
-      return;
-    }
-
-    // Resolve target SID — use state value or auto-load repair targets
-    let targetSid = selectedRepairTargetSid;
-    console.log("[BLOATWARE] Initial targetSid from state:", targetSid);
-    if (!targetSid) {
-      console.log("[BLOATWARE] No targetSid, auto-loading repair targets...");
-      try {
-        const targets = await listRepairTargets();
-        console.log("[BLOATWARE] Loaded repair targets:", targets.length, targets);
-        if (targets.length > 0) {
-          const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
-          targetSid = activeTarget.sid;
-          setSelectedRepairTargetSid(targetSid);
-          console.log("[BLOATWARE] Auto-selected targetSid:", targetSid);
-        } else {
-          console.log("[BLOATWARE] No repair targets found!");
-          setRemoveProgressText("Error: No repair target found. Unlock Repair Mode first.");
-          return;
-        }
-      } catch (err) {
-        console.error("[BLOATWARE] Failed to load repair targets:", err);
-        setRemoveProgressText("Error: Could not load repair targets. Unlock Repair Mode first.");
-        return;
-      }
-    }
-
-    console.log("[BLOATWARE] Starting removal loop for", packages.length, "packages with SID:", targetSid);
-    setBloatwareRemoving(true);
-    setDiagnosticView("command");
-    setDiagnosticsOpen(true);
-    updateRemoveProgress(0, `Starting removal... 0/${packages.length} (0%)`);
-    setStatusMsg(`Removing ${packages.length} selected app(s)...`);
-    let successCount = 0;
-    let failedCount = 0;
-    try {
-      for (let index = 0; index < packages.length; index += 1) {
-        const packageName = packages[index];
-        const appLabel = bloatwareItems.find((item) => item.package_name === packageName)?.label ?? packageName;
-        const beforePercent = Math.round((index / packages.length) * 100);
-        updateRemoveProgress(
-          beforePercent,
-          `Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`
-        );
-
-        try {
-          console.log(`[BLOATWARE] Calling repairRemoveBloatware for ${packageName} with SID ${targetSid}`);
-          const result = await repairRemoveBloatware(
-            targetSid,
-            [packageName],
-            true
-          );
-          console.log(`[BLOATWARE] Result for ${packageName}:`, result);
-          appendCommandOutput(`Remove Apps - ${appLabel}`, result.output);
-          if (result.requires_unlock) {
-            failedCount += 1;
-            console.log("[BLOATWARE] Requires unlock! Breaking loop.");
-            setStatusMsg("Unlock Repair Mode first to remove apps");
-            setRemoveProgressText("Error: Repair Mode is locked. Unlock first, then retry.");
-            const status = await getRepairSessionStatus();
-            setRepairSession(status);
-            break;
-          } else if (result.success) {
-            successCount += 1;
-          } else {
-            failedCount += 1;
-            console.log(`[BLOATWARE] Failed for ${packageName}: ${result.output}`);
-          }
-        } catch (err) {
-          failedCount += 1;
-          console.error(`[BLOATWARE] Exception for ${packageName}:`, err);
-          appendCommandOutput(`Remove Apps - ${appLabel}`, `Error: ${err}`);
-        }
-
-        const processed = index + 1;
-        const percent = Math.round((processed / packages.length) * 100);
-        updateRemoveProgress(percent, `Processed ${processed}/${packages.length} (${percent}%)`);
-      }
-
-      console.log(`[BLOATWARE] Loop done. Success: ${successCount}, Failed: ${failedCount}`);
-      setStatusMsg(
-        failedCount === 0
-          ? `Remove Apps completed (${successCount}/${packages.length})`
-          : `Remove Apps completed with warnings (${failedCount} failed)`
-      );
-      setRemoveProgressText(`Done: ${successCount} success, ${failedCount} failed`);
-      setSelectedBloatware(new Set());
-      await loadBloatwareList();
-    } catch (err) {
-      console.error("[BLOATWARE] Outer error:", err);
-      appendCommandOutput("Remove Apps", `Error: ${err}`);
-      setStatusMsg(`Remove Apps error: ${err}`);
-      setRemoveProgressText("Removal aborted by error.");
-    } finally {
-      setBloatwareRemoving(false);
-    }
-  }, [
-    appendCommandOutput,
-    bloatwareItems,
-    loadBloatwareList,
-    selectedBloatware,
-    selectedRepairTargetSid,
-    updateRemoveProgress,
-  ]);
-
-  const handleOpenCacheModal = useCallback(() => {
-    setSelectedCaches(new Set(DEFAULT_CACHE_SELECTION));
-    resetCacheProgress();
-    setCacheStopPending(false);
-    cacheStopRequestedRef.current = false;
-    cacheModal.open();
-  }, [cacheModal, resetCacheProgress]);
-
-  const handleCloseCacheModal = useCallback(() => {
-    if (cacheCleaning) return;
-    cacheModal.close();
-  }, [cacheModal, cacheCleaning]);
-
-  const handleToggleCache = useCallback((cacheId: string) => {
-    setSelectedCaches((previous) => {
-      const next = new Set(previous);
-      if (next.has(cacheId)) {
-        next.delete(cacheId);
-      } else {
-        next.add(cacheId);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleSelectAllCaches = useCallback(() => {
-    setSelectedCaches(new Set(CACHE_CLEANUP_OPTIONS.map((option) => option.id)));
-  }, []);
-
-  const handleClearCacheSelection = useCallback(() => {
-    setSelectedCaches(new Set());
-  }, []);
-
-  const handleForceStopCacheCleanup = useCallback(() => {
-    if (!cacheCleaning || cacheStopPending) return;
-    cacheStopRequestedRef.current = true;
-    setCacheStopPending(true);
-    setStatusMsg("Force stop requested. Waiting for current task to finish...");
-    setCacheProgressText("Stopping... waiting for current task to finish.");
-  }, [cacheCleaning, cacheStopPending]);
-
-  const executeClearSelectedCaches = useCallback(async () => {
-    if (!selectedCacheTargets.length) {
-      setStatusMsg("Select at least one cache target");
-      return;
-    }
-    // Resolve target SID — use state value or auto-load repair targets
-    let cacheTargetSid = selectedRepairTargetSid;
-    if (!cacheTargetSid) {
-      try {
-        const targets = await listRepairTargets();
-        if (targets.length > 0) {
-          const activeTarget = targets.find((t) => t.is_loaded) || targets[0];
-          cacheTargetSid = activeTarget.sid;
-          setSelectedRepairTargetSid(cacheTargetSid);
-        } else {
-          setCacheProgressText("Error: No repair target found. Unlock Repair Mode first.");
-          return;
-        }
-      } catch {
-        setCacheProgressText("Error: Could not load repair targets. Unlock Repair Mode first.");
-        return;
-      }
-    }
-
-    setCacheCleaning(true);
-    setCacheStopPending(false);
-    cacheStopRequestedRef.current = false;
-    setDiagnosticView("command");
-    setDiagnosticsOpen(true);
-    updateCacheProgress(0, `Starting cleanup... 0/${selectedCacheTargets.length} (0%)`);
-    setStatusMsg(`Cleaning ${selectedCacheTargets.length} cache target(s)...`);
-    let successCount = 0;
-    let failedCount = 0;
-    let processedCount = 0;
-    try {
-      for (let index = 0; index < selectedCacheTargets.length; index += 1) {
-        if (cacheStopRequestedRef.current) {
-          break;
-        }
-
-        const target = selectedCacheTargets[index];
-        const beforePercent = Math.round((index / selectedCacheTargets.length) * 100);
-        updateCacheProgress(
-          beforePercent,
-          `Cleaning ${target.label}... ${index}/${selectedCacheTargets.length} (${beforePercent}%)`
-        );
-
-        try {
-          const result = await repairClearCacheTargets(cacheTargetSid, [target.id]);
-          appendCommandOutput(`Clear Cache - ${target.label}`, result.output);
-          if (result.requires_unlock) {
-            failedCount += 1;
-            setStatusMsg("Unlock Repair Mode first to clean profile caches");
-            const status = await getRepairSessionStatus();
-            setRepairSession(status);
-            break;
-          } else if (result.success) {
-            successCount += 1;
-          } else {
-            failedCount += 1;
-          }
-        } catch (err) {
-          failedCount += 1;
-          appendCommandOutput(`Clear Cache - ${target.label}`, `Error: ${err}`);
-        }
-
-        processedCount = index + 1;
-        const percent = Math.round((processedCount / selectedCacheTargets.length) * 100);
-        updateCacheProgress(
-          percent,
-          `Processed ${processedCount}/${selectedCacheTargets.length} (${percent}%)`
-        );
-
-        if (cacheStopRequestedRef.current) {
-          break;
-        }
-      }
-
-      const stoppedEarly = cacheStopRequestedRef.current && processedCount < selectedCacheTargets.length;
-      if (stoppedEarly) {
-        setStatusMsg(`Cleanup stopped by user (${processedCount}/${selectedCacheTargets.length})`);
-        setCacheProgressText(
-          `Stopped: processed ${processedCount}/${selectedCacheTargets.length}, success ${successCount}, failed ${failedCount}`
-        );
-      } else {
-        setStatusMsg(
-          failedCount === 0
-            ? `Clear Cache completed (${successCount}/${selectedCacheTargets.length})`
-            : `Clear Cache completed with warnings (${failedCount} failed)`
-        );
-        setCacheProgressText(
-          `Done: ${successCount} success, ${failedCount} failed`
-        );
-      }
-    } catch (err) {
-      appendCommandOutput("Clear Cache", `Error: ${err}`);
-      setStatusMsg(`Clear Cache error: ${err}`);
-      setCacheProgressText("Cleanup aborted by error.");
-    } finally {
-      setCacheCleaning(false);
-      setCacheStopPending(false);
-      cacheStopRequestedRef.current = false;
-    }
-  }, [appendCommandOutput, selectedCacheTargets, selectedRepairTargetSid, updateCacheProgress]);
-
   // ======================== RENDER ========================
 
   const diagnosticsOutputText = diagnosticView === "routing"
     ? (routingOutput || "Routing table output will appear here.")
     : (commandOutputText || "Command output will appear here.");
-  const installedBloatwareCount = useMemo(
-    () => bloatwareItems.filter((item) => item.installed).length,
-    [bloatwareItems]
-  );
-  const selectedBloatwareCount = selectedBloatware.size;
-  const selectedCacheCount = selectedCacheTargets.length;
   const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
   const profileSensitiveActionEnabled = isProfileSensitiveActionEnabled({
     locked: repairSession.locked,
@@ -1174,30 +943,6 @@ export default function App() {
     locked: repairSession.locked,
     selectedTargetSid: selectedRepairTargetSid,
   });
-
-  const handleRemoveSelectedBloatware = useCallback(() => {
-    if (selectedBloatwareCount === 0) {
-      setStatusMsg("Select at least one app to remove");
-      return;
-    }
-    openConfirm(
-      "Remove Selected Apps",
-      `Remove ${selectedBloatwareCount} selected app(s)? This operation may require Administrator privileges.`,
-      executeRemoveSelectedBloatware
-    );
-  }, [executeRemoveSelectedBloatware, selectedBloatwareCount]);
-
-  const handleStartCacheCleanup = useCallback(() => {
-    if (selectedCacheCount === 0) {
-      setStatusMsg("Select at least one cache target");
-      return;
-    }
-    openConfirm(
-      "Start Cache Cleanup",
-      `Clean ${selectedCacheCount} selected cache target(s)?`,
-      executeClearSelectedCaches
-    );
-  }, [executeClearSelectedCaches, selectedCacheCount]);
 
   useEffect(() => {
     localStorage.setItem("ui-theme", theme);
@@ -1288,8 +1033,8 @@ export default function App() {
           </button>
 
           <button
-            onClick={handleOpenBloatwareModal}
-            disabled={!profileSensitiveActionEnabled || bloatwareLoading || bloatwareRemoving}
+            onClick={bloatwareManager.handleOpenModal}
+            disabled={!profileSensitiveActionEnabled || bloatwareManager.loading || bloatwareManager.removing}
             className="header-apps-action capsule-btn"
             title={profileSensitiveActionHint || "Open app removal tools"}
           >
@@ -1298,8 +1043,8 @@ export default function App() {
           </button>
 
           <button
-            onClick={handleOpenCacheModal}
-            disabled={!profileSensitiveActionEnabled || cacheCleaning}
+            onClick={cacheCleanupManager.handleOpenModal}
+            disabled={!profileSensitiveActionEnabled || cacheCleanupManager.cleaning}
             className="header-cache-action capsule-btn"
             title={profileSensitiveActionHint || "Open cache cleanup tools"}
           >
@@ -1408,10 +1153,10 @@ export default function App() {
           {/* Config Form */}
           <div className="p-3 border-b border-slate-700/30">
             <div className="route-form-grid mb-2">
-              <Field label="Destination" value={formDest} onChange={setFormDest} placeholder="10.0.0.0" />
-              <Field label="Subnet Mask" value={formMask} onChange={setFormMask} placeholder="255.255.255.0" />
-              <Field label="Gateway" value={formGw} onChange={setFormGw} placeholder="192.168.1.1" />
-              <Field label="Metric" value={formMetric} onChange={setFormMetric} placeholder="10" />
+              <Field label="Destination" value={routeForm.dest} onChange={handleRouteDestChange} placeholder="10.0.0.0" />
+              <Field label="Subnet Mask" value={routeForm.mask} onChange={handleRouteMaskChange} placeholder="255.255.255.0" />
+              <Field label="Gateway" value={routeForm.gw} onChange={handleRouteGatewayChange} placeholder="192.168.1.1" />
+              <Field label="Metric" value={routeForm.metric} onChange={handleRouteMetricChange} placeholder="10" />
             </div>
             <div className="flex flex-wrap gap-1.5">
               <ActionBtn
@@ -1493,8 +1238,8 @@ export default function App() {
           <Section
             icon={Wrench}
             title="Network Fix Tools"
-            open={toolsOpen}
-            onToggle={() => setToolsOpen(!toolsOpen)}
+            open={panels.toolsOpen}
+            onToggle={handleToggleToolsPanel}
           >
             <div className="tool-grid">
               <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
@@ -1519,8 +1264,8 @@ export default function App() {
           <Section
             icon={Monitor}
             title="Diagnostics & Repair"
-            open={diagnosticsOpen}
-            onToggle={() => setDiagnosticsOpen(!diagnosticsOpen)}
+            open={panels.diagnosticsOpen}
+            onToggle={handleToggleDiagnosticsPanel}
           >
             <div className="tool-grid mb-2">
               <ToolBtn icon={Monitor} label="Display DNS Cache" desc="Inspect current resolver cache"
@@ -1537,15 +1282,15 @@ export default function App() {
               <div className="diag-inline">
                 <input
                   type="text"
-                  value={diagHost}
-                  onChange={(e) => setDiagHost(e.target.value)}
+                  value={diagnosticsInputs.host}
+                  onChange={(e) => handleDiagHostChange(e.target.value)}
                   placeholder="Domain or IP (e.g. google.com)"
                   className="diag-input"
                 />
                 <input
                   type="text"
-                  value={diagPort}
-                  onChange={(e) => setDiagPort(e.target.value)}
+                  value={diagnosticsInputs.port}
+                  onChange={(e) => handleDiagPortChange(e.target.value)}
                   placeholder="Port"
                   className="diag-input diag-port"
                 />
@@ -1560,8 +1305,8 @@ export default function App() {
               <div className="diag-inline diag-inline-dns">
                 <input
                   type="text"
-                  value={diagDnsServer}
-                  onChange={(e) => setDiagDnsServer(e.target.value)}
+                  value={diagnosticsInputs.dnsServer}
+                  onChange={(e) => handleDiagDnsServerChange(e.target.value)}
                   placeholder="DNS server (e.g. 8.8.8.8)"
                   className="diag-input"
                 />
@@ -1580,8 +1325,8 @@ export default function App() {
           <Section
             icon={Activity}
             title="Ping & Tracert Monitor"
-            open={pingOpen}
-            onToggle={() => setPingOpen(!pingOpen)}
+            open={panels.pingOpen}
+            onToggle={handleTogglePingPanel}
           >
             <div className="segmented-control mb-2">
               <button
@@ -1700,38 +1445,38 @@ export default function App() {
       />
 
       <CacheModal
-        open={cacheModal.isOpen}
-        cleaning={cacheCleaning}
-        stopPending={cacheStopPending}
-        options={CACHE_CLEANUP_OPTIONS}
-        selectedCaches={selectedCaches}
-        selectedCount={selectedCacheCount}
-        progressPercent={cacheProgressPercent}
-        progressText={cacheProgressText}
-        onToggleCache={handleToggleCache}
-        onSelectAll={handleSelectAllCaches}
-        onClearSelection={handleClearCacheSelection}
-        onForceStop={handleForceStopCacheCleanup}
-        onStartCleanup={handleStartCacheCleanup}
-        onClose={handleCloseCacheModal}
+        open={cacheCleanupManager.open}
+        cleaning={cacheCleanupManager.cleaning}
+        stopPending={cacheCleanupManager.stopPending}
+        options={cacheCleanupManager.options}
+        selectedCaches={cacheCleanupManager.selectedCaches}
+        selectedCount={cacheCleanupManager.selectedCount}
+        progressPercent={cacheCleanupManager.progressPercent}
+        progressText={cacheCleanupManager.progressText}
+        onToggleCache={cacheCleanupManager.handleToggleCache}
+        onSelectAll={cacheCleanupManager.handleSelectAll}
+        onClearSelection={cacheCleanupManager.handleClearSelection}
+        onForceStop={cacheCleanupManager.handleForceStop}
+        onStartCleanup={cacheCleanupManager.handleStartCleanup}
+        onClose={cacheCleanupManager.handleCloseModal}
       />
 
       <BloatwareModal
-        open={bloatwareModal.isOpen}
-        loading={bloatwareLoading}
-        removing={bloatwareRemoving}
-        items={bloatwareItems}
-        selectedPackages={selectedBloatware}
-        selectedCount={selectedBloatwareCount}
-        installedCount={installedBloatwareCount}
-        progressPercent={removeProgressPercent}
-        progressText={removeProgressText}
-        onTogglePackage={handleToggleBloatware}
-        onSelectAll={handleSelectAllBloatware}
-        onSelectInstalled={handleSelectInstalledBloatware}
-        onClearSelection={handleClearBloatwareSelection}
-        onRemoveSelected={handleRemoveSelectedBloatware}
-        onClose={handleCloseBloatwareModal}
+        open={bloatwareManager.open}
+        loading={bloatwareManager.loading}
+        removing={bloatwareManager.removing}
+        items={bloatwareManager.items}
+        selectedPackages={bloatwareManager.selectedPackages}
+        selectedCount={bloatwareManager.selectedCount}
+        installedCount={bloatwareManager.installedCount}
+        progressPercent={bloatwareManager.progressPercent}
+        progressText={bloatwareManager.progressText}
+        onTogglePackage={bloatwareManager.handleTogglePackage}
+        onSelectAll={bloatwareManager.handleSelectAll}
+        onSelectInstalled={bloatwareManager.handleSelectInstalled}
+        onClearSelection={bloatwareManager.handleClearSelection}
+        onRemoveSelected={bloatwareManager.handleRemoveSelected}
+        onClose={bloatwareManager.handleCloseModal}
       />
 
       <ConfirmDialog

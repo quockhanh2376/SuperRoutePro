@@ -5,6 +5,60 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-04 - Post-Phase-1 App.tsx Cleanup: Feature Hooks, Grouped State, And Roadmap Sync
+
+**Done**
+- Continued the optimization program immediately after the original Phase 1 extraction pass instead of jumping straight into validation-only work.
+- Extracted the remaining heavy frontend orchestration blocks for `Remove Apps` and `Clear Cache` out of `src/App.tsx` into `src/hooks/useBloatwareManager.ts` and `src/hooks/useCacheCleanupManager.ts`.
+- Moved each feature hook to own its modal lifecycle, selection state, progress state, repair-target resolution, privileged command loop, and success/failure messaging so `App.tsx` now mostly wires the UI instead of hosting the full workflows inline.
+- Grouped remaining related state inside `src/App.tsx`:
+  - route form state now lives in one `routeForm` object,
+  - diagnostics inputs now live in one `diagnosticsInputs` object,
+  - right-panel section visibility now lives in one `panels` object.
+- Converted the remaining repair wrappers (`handleRepairCommandResult` and `executeRepairAction`) to `useCallback`, keeping the orchestration layer stable after the new hook split.
+- Updated `src/hooks/useModal.ts` to return a memoized object so modal helper consumers stop getting a fresh wrapper object every render.
+- Added `tests/useModal.test.ts` into the `npm run test:node` script so the existing hook test is now part of normal frontend verification instead of being silently skipped.
+- Re-synced `OPTIMIZE.md` with the real codebase state:
+  - marked old `useModal` / `useProgressTracker` / callback tracking items complete,
+  - updated the current App baseline to the new line count,
+  - reflected that the post-Phase-1 pass pushed local App state much lower than the previous roadmap snapshot.
+
+**Verification**
+- `npm run build`
+- `npm run test:node`
+- Current `src/App.tsx` size: 1,413 lines
+- Current `src/App.tsx` local state count: 13 `useState` calls
+
+**Notes And Decisions**
+- This pass stayed frontend-only and structural: no backend/Rust behavior was changed.
+- The most valuable state grouping was not a giant reducer rewrite; it was pushing full feature orchestration behind dedicated hooks first, then grouping the remaining shell/form state that still belonged in `App.tsx`.
+- `App.tsx` is now well below the original Phase 1 target, but there is still meaningful value in later splitting more shell-level logic before the file gets near the long-term ~500-line aspiration.
+
+**Next Steps**
+- Move into the safety track from `OPTIMIZE.md`: input validation, error handling consistency, and direct component tests for `App.tsx`.
+- If another structural pass is needed before that, target the remaining app-shell/network snapshot wiring instead of re-opening already-extracted feature flows.
+
+--------------------------------------------------------------------------------
+
+## 2026-04-04 - NotebookLM MCP Verified And Project Setup Guide Added
+
+**Done**
+- Re-checked the project NotebookLM integration against the upstream `PleasePrompto/notebooklm-mcp` setup flow and confirmed `opencode.json` is already wired to `npx -y notebooklm-mcp@latest`.
+- Verified the local NotebookLM MCP package configuration is active in `full` profile mode on this workstation.
+- Triggered the one-time NotebookLM authentication flow; Chrome opened to the Google sign-in page, which confirms the MCP auth path is reachable from this machine.
+- Added `docs/notebooklm-project-setup.md` with a project-specific setup checklist, recommended notebook metadata, and the initial SuperRoutePro source-file pack to upload.
+- Updated `AGENTS.md` so future sessions follow the concrete project notebook setup guide instead of only the generic MCP login note.
+
+**Notes And Decisions**
+- NotebookLM is now integrated at the MCP/config level for this repo, but it is still not fully usable until Google sign-in finishes successfully and a shared project notebook is added to the local library.
+- `Daily_Log.md` remains the primary high-signal source file for notebook refreshes because it captures the latest validated implementation and release decisions.
+
+**Next Steps**
+- Finish the Google sign-in that is currently open in Chrome, then re-check NotebookLM health until it reports `authenticated=true`.
+- Create or reuse the `SuperRoutePro Project Knowledge` notebook, upload the recommended source pack, and add the resulting share URL to the local NotebookLM library.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-03 - Phase 1 App.tsx Optimization: Final Cleanup Hooks
 
 **Done**

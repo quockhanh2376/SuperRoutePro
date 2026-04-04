@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 
 /**
  * Custom hook for managing modal state with open/close handlers.
@@ -40,5 +40,9 @@ export function useModal(
     onClose?.();
   }, [onClose, canClose]);
 
-  return { isOpen, open, close };
+  return useMemo(() => ({
+    isOpen,
+    open,
+    close,
+  }), [close, isOpen, open]);
 }

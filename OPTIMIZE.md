@@ -75,7 +75,7 @@ src/constants/
 - [x] Extract routeActions
 - [x] Extract repairActions
 
-**Progress:** 13/13 tasks completed. App.tsx currently 1,797 lines (down 795 lines from 2,592, -30.7%). Phase 1 target achieved.
+**Progress:** 13/13 Phase 1 tasks completed. App.tsx currently 1,413 lines (down 1,179 lines from 2,592, -45.5%). Phase 1 target was exceeded during the post-Phase-1 cleanup pass.
 
 ---
 
@@ -162,12 +162,12 @@ const [state, dispatch] = useReducer(appReducer, initialState);
 **Estimate:** 3-4 days
 
 **Tracking:**
-- [ ] Group modal states
-- [ ] Group progress states
-- [ ] Group network states
-- [ ] Group form states
-- [ ] Update all setState calls
-- [ ] Test for regressions
+- [x] Group modal-heavy feature state into dedicated hooks
+- [x] Group progress states behind `useProgressTracker`
+- [x] Group diagnostics/panel states
+- [x] Group form states
+- [ ] Group remaining app-shell/network snapshot states
+- [x] Test for regressions
 
 ---
 
@@ -248,15 +248,15 @@ const executeDeleteRoute = useCallback(async (...) => { ... }, [executeNetCmd, l
 **Estimate:** 1 day
 
 **Tracking:**
-- [ ] Add useCallback to handleRepairCommandResult
-- [ ] Add useCallback to executeRepairAction
-- [ ] Add useCallback to executeNetCmd
-- [ ] Add useCallback to executeSetInternet
-- [ ] Add useCallback to executeFlush
-- [ ] Add useCallback to executeAddRoute
-- [ ] Add useCallback to executeDeleteRoute
-- [ ] Add useCallback to all modal handlers
-- [ ] Test for dependency issues
+- [x] Add useCallback to handleRepairCommandResult
+- [x] Add useCallback to executeRepairAction
+- [x] Add useCallback to executeNetCmd
+- [x] Add useCallback to executeSetInternet
+- [x] Add useCallback to executeFlush
+- [x] Add useCallback to executeAddRoute
+- [x] Add useCallback to executeDeleteRoute
+- [x] Add useCallback to all modal handlers
+- [x] Test for dependency issues
 
 ---
 
@@ -340,14 +340,14 @@ const ipScanModal = useModal({
 **Estimate:** 4 hours
 
 **Tracking:**
-- [ ] Create useModal hook
-- [ ] Refactor battery modal to use useModal
-- [ ] Refactor bloatware modal to use useModal
-- [ ] Refactor IP scan modal to use useModal
-- [ ] Refactor cache modal to use useModal
-- [ ] Refactor donate modal to use useModal
-- [ ] Refactor help modal to use useModal
-- [ ] Remove old state variables
+- [x] Create useModal hook
+- [x] Refactor battery modal to use useModal
+- [x] Refactor bloatware modal to use useModal
+- [x] Refactor IP scan modal to use useModal
+- [x] Refactor cache modal to use useModal
+- [x] Refactor donate modal to use useModal
+- [x] Refactor help modal to use useModal
+- [x] Remove old state variables from `App.tsx`
 
 ---
 
@@ -435,19 +435,19 @@ removeProgress.setError("Failed to remove package");
 **Estimate:** 3 hours
 
 **Tracking:**
-- [ ] Create useProgressTracker hook
-- [ ] Refactor IP scan to use useProgressTracker
-- [ ] Refactor cache cleanup to use useProgressTracker
-- [ ] Refactor bloatware removal to use useProgressTracker
-- [ ] Remove old progress state variables
-- [ ] Test all progress indicators
+- [x] Create useProgressTracker hook
+- [x] Refactor IP scan to use useProgressTracker
+- [x] Refactor cache cleanup to use useProgressTracker
+- [x] Refactor bloatware removal to use useProgressTracker
+- [x] Remove old progress state variables
+- [x] Test all progress indicators
 
 ---
 
-### 6. No Tests for App.tsx (2,592 Lines!)
+### 6. No Tests for App.tsx (1,413 Lines!)
 
 **Vấn đề:**
-- Main component với 2,592 dòng code KHÔNG có tests
+- Main component với 1,413 dòng code vẫn chưa có direct component tests
 - Refactoring rất nguy hiểm - không có safety net
 - Bugs trong core UI logic không được catch
 
@@ -1180,11 +1180,11 @@ import { CACHE_CLEANUP_OPTIONS, DEFAULT_CACHE_SELECTION } from "./constants/cach
 
 **Tracking:**
 - [ ] Create helpContent.ts
-- [ ] Create routeTable.ts
-- [ ] Create cacheTargets.ts
-- [ ] Update App.tsx imports
-- [ ] Remove constants from App.tsx
-- [ ] Verify no regressions
+- [x] Create routeTable.ts
+- [x] Create cacheTargets.ts
+- [x] Update App.tsx imports
+- [x] Remove constants from App.tsx
+- [x] Verify no regressions
 
 ---
 
@@ -1665,12 +1665,12 @@ useEffect(() => {
 ### Phase 2: State & Performance (Week 3-4)
 **Goal:** Improve performance and state management
 
-5. [ ] **Group related states** → reduce re-renders
-6. [ ] **Add useCallback to expensive functions** → prevent infinite loops
-7. [ ] **Fix ping loop pattern** → prevent overlapping calls
-8. [ ] **Create state management hooks** → extract business logic
+5. [x] **Group related states** → reduced App-local state from 27 `useState` calls to 13
+6. [x] **Add useCallback to expensive functions** → core orchestration callbacks are now stable
+7. [x] **Fix ping loop pattern** → overlap guard now lives in `usePingMonitor`
+8. [x] **Create state management hooks** → bloatware and cache cleanup orchestration now live outside `App.tsx`
 
-**Expected Impact:** App.tsx from ~1,800 → ~1,000 lines, better performance
+**Expected Impact:** App.tsx dropped from ~1,800 to 1,413 lines in the current pass; further decomposition is still needed before the ~1,000-line target is realistic.
 
 ---
 
@@ -1713,10 +1713,10 @@ useEffect(() => {
 ## Metrics & Goals
 
 ### Current State
-- ❌ App.tsx: 1,797 lines
-- ❌ Test coverage: ~20% (only models tested)
-- ❌ State variables: 50+
-- ❌ Code duplication: Low-Medium (major modal, hook, and action extraction complete; remaining size is mostly app-specific orchestration)
+- ❌ App.tsx: 1,413 lines
+- ❌ Test coverage: ~20-25% (models plus a small hook/documentation net; still no direct App component tests)
+- ❌ App-local state variables: 13 `useState` calls (down from 27 before the post-Phase-1 pass)
+- ❌ Code duplication: Low (feature orchestration now mostly split into hooks/modules; remaining size is concentrated app-shell wiring)
 - ❌ Documentation: Medium (roadmap and delivery log updated, limited JSDoc coverage)
 
 ### Target State (After Phase 4)
@@ -1742,5 +1742,5 @@ Use checkboxes above to track completion. Update this file as work progresses.
 
 ---
 
-*Last updated: 2026-04-03*
+*Last updated: 2026-04-04*
 *Generated by AI analysis of SuperRoutePro codebase*
