@@ -4,6 +4,11 @@ import {
   type RepairMachineAction,
   type RepairSessionStatus,
 } from "./api";
+import {
+  formatActionResultMessage,
+  formatErrorMessage,
+  formatOutputError,
+} from "./errorUtils";
 
 export interface RepairCommandResultLike {
   success: boolean;
@@ -45,9 +50,7 @@ export async function handleRepairCommandResult(
   }
 
   context.setStatusMessage(
-    result.success
-      ? (options?.successMessage ?? `${title} - Success!`)
-      : (options?.failureMessage ?? `${title} - Failed`),
+    formatActionResultMessage(title, result.success, options),
   );
 
   if (result.success && options?.refresh) {
@@ -71,8 +74,8 @@ export async function executeRepairAction(
       refresh: options?.refresh,
       invalidateNicCache: options?.invalidateNicCache,
     });
-  } catch (err) {
-    context.appendCommandOutput(title, `Error: ${err}`);
-    context.setStatusMessage(`Error: ${err}`);
+  } catch (error: unknown) {
+    context.appendCommandOutput(title, formatOutputError(error));
+    context.setStatusMessage(formatErrorMessage(`${title} failed`, error));
   }
 }

@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getVersion } from "@tauri-apps/api/app";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Globe, Flame,
@@ -7,36 +6,36 @@ import {
   ArrowDownUp, X, CircleHelp
 } from "lucide-react";
 import {
-  getNetworkSnapshot, getRoutingTable,
-  runNetworkCommand, testTcpPort,
+  getRoutingTable,
+  runNetworkCommand,
+  testTcpPort,
   fpingScan,
-  getBatterySummary,
-  persistLoadConfig, persistGetNicStableIds, invalidateNetworkAdapterCache,
-  type NetworkInterface, type RouteEntry, type FpingHostResult,
-  type BatterySummaryResult, type RepairMachineAction,
+  type FpingHostResult,
+  type NetworkInterface,
+  type RepairMachineAction,
 } from "./api";
 import {
   APP_AUTHOR,
   IP_SCAN_BATCH_SIZE,
   ROUTE_WATCHER_STATUS_EVENT,
-  ZOOM_DEFAULT,
   ZOOM_MAX,
   ZOOM_MIN,
-  ZOOM_STEP,
 } from "./constants/app";
 import { formatRoutingSnapshot } from "./constants/routeTable";
+import {
+  formatActionResultMessage,
+  formatErrorMessage,
+  formatOutputError,
+  getFirstValidationError,
+  isAdminElevationError,
+} from "./errorUtils";
 import {
   getProfileSensitiveActionHint,
   isMachineRepairEnabled,
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
-import {
-  mergeNicDescriptions,
-  stabilizeNicSnapshotDescriptions,
-  syncSelectedNicToList,
-} from "./nicDescriptionModel";
 import { getNicTableMessage } from "./nicTableModel";
-import { resolvePersistStartupEnabled } from "./persistStartupModel";
+import { validateRouteForm } from "./networkValidation";
 import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
@@ -46,13 +45,15 @@ import { DonateModal } from "./components/DonateModal";
 import { HelpModal } from "./components/HelpModal";
 import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
 import { IpScanModal } from "./components/IpScanModal";
-import { getBatteryWearLevel } from "./batteryUtils";
 import { useAutoScroll } from "./hooks/useAutoScroll";
+import { useAppShellState } from "./hooks/useAppShellState";
+import { useBatterySummary } from "./hooks/useBatterySummary";
 import { useBloatwareManager } from "./hooks/useBloatwareManager";
 import { useCacheCleanupManager } from "./hooks/useCacheCleanupManager";
 import { useConfirmDialog } from "./hooks/useConfirmDialog";
 import { buildIpScanPlan, type IpScanPlan } from "./hooks/ipScanPlan";
 import { useNetworkMonitoring } from "./hooks/useNetworkMonitoring";
+import { useNetworkSnapshot } from "./hooks/useNetworkSnapshot";
 import { usePingMonitor } from "./hooks/usePingMonitor";
 import { useProgressTracker } from "./hooks/useProgressTracker";
 import { useRepairMode } from "./hooks/useRepairMode";
@@ -84,8 +85,6 @@ type RouteWatcherToast = {
   actionLabel?: string;
 };
 
-type HelpLanguage = "en" | "vi";
-
 type PanelState = {
   toolsOpen: boolean;
   diagnosticsOpen: boolean;
@@ -105,32 +104,94 @@ type RouteFormState = {
   metric: string;
 };
 
-export default function App() {
-  const [appVersion, setAppVersion] = useState("dev");
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
-    const saved = localStorage.getItem("ui-theme");
-    return saved === "light" || saved === "dark" ? saved : "dark";
-  });
-  const [persistWanOnStartup, setPersistWanOnStartup] = useState(false);
-  const [persistWanLoading, setPersistWanLoading] = useState(true);
-  const [zoomLevel, setZoomLevel] = useState<number>(() => {
-    const saved = localStorage.getItem("app-zoom-level");
-    if (saved) {
-      const parsed = Number.parseInt(saved, 10);
-      if (Number.isFinite(parsed) && parsed >= ZOOM_MIN && parsed <= ZOOM_MAX) return parsed;
-    }
-    return ZOOM_DEFAULT;
-  });
+type RouteFormTouchedState = Record<keyof RouteFormState, boolean>;
 
-  // State
-  const [nics, setNics] = useState<NetworkInterface[]>([]);
-  const [routes, setRoutes] = useState<RouteEntry[]>([]);
-  const [selectedNic, setSelectedNic] = useState<NetworkInterface | null>(null);
-  const [activeOnly, setActiveOnly] = useState(true);
+const INITIAL_ROUTE_FORM_TOUCHED: RouteFormTouchedState = {
+  dest: false,
+  mask: false,
+  gw: false,
+  metric: false,
+};
+
+export type AppOverrides = {
+  executeAddRouteActionFn: typeof executeAddRouteAction;
+  executeDeleteRouteActionFn: typeof executeDeleteRouteAction;
+  executeFlushRoutesActionFn: typeof executeFlushRoutesAction;
+  executeRepairActionImplFn: typeof executeRepairActionImpl;
+  executeSetInternetActionFn: typeof executeSetInternetAction;
+  fpingScanFn: typeof fpingScan;
+  getRoutingTableFn: typeof getRoutingTable;
+  handleRepairCommandResultImplFn: typeof handleRepairCommandResultImpl;
+  listenToEvent: typeof listen;
+  runNetworkCommandFn: typeof runNetworkCommand;
+  testTcpPortFn: typeof testTcpPort;
+  useAppShellStateHook: typeof useAppShellState;
+  useBatterySummaryHook: typeof useBatterySummary;
+  useBloatwareManagerHook: typeof useBloatwareManager;
+  useCacheCleanupManagerHook: typeof useCacheCleanupManager;
+  useNetworkMonitoringHook: typeof useNetworkMonitoring;
+  useNetworkSnapshotHook: typeof useNetworkSnapshot;
+  usePingMonitorHook: typeof usePingMonitor;
+  useRepairModeHook: typeof useRepairMode;
+};
+
+type AppProps = {
+  overrides?: Partial<AppOverrides>;
+};
+
+export default function App({ overrides }: AppProps = {}) {
+  const executeAddRouteActionFn = overrides?.executeAddRouteActionFn ?? executeAddRouteAction;
+  const executeDeleteRouteActionFn = overrides?.executeDeleteRouteActionFn ?? executeDeleteRouteAction;
+  const executeFlushRoutesActionFn = overrides?.executeFlushRoutesActionFn ?? executeFlushRoutesAction;
+  const executeRepairActionImplFn = overrides?.executeRepairActionImplFn ?? executeRepairActionImpl;
+  const executeSetInternetActionFn = overrides?.executeSetInternetActionFn ?? executeSetInternetAction;
+  const fpingScanFn = overrides?.fpingScanFn ?? fpingScan;
+  const getRoutingTableFn = overrides?.getRoutingTableFn ?? getRoutingTable;
+  const handleRepairCommandResultImplFn =
+    overrides?.handleRepairCommandResultImplFn ?? handleRepairCommandResultImpl;
+  const listenToEvent = overrides?.listenToEvent ?? listen;
+  const runNetworkCommandFn = overrides?.runNetworkCommandFn ?? runNetworkCommand;
+  const testTcpPortFn = overrides?.testTcpPortFn ?? testTcpPort;
+  const useAppShellStateHook = overrides?.useAppShellStateHook ?? useAppShellState;
+  const useBatterySummaryHook = overrides?.useBatterySummaryHook ?? useBatterySummary;
+  const useBloatwareManagerHook = overrides?.useBloatwareManagerHook ?? useBloatwareManager;
+  const useCacheCleanupManagerHook = overrides?.useCacheCleanupManagerHook ?? useCacheCleanupManager;
+  const useNetworkMonitoringHook = overrides?.useNetworkMonitoringHook ?? useNetworkMonitoring;
+  const useNetworkSnapshotHook = overrides?.useNetworkSnapshotHook ?? useNetworkSnapshot;
+  const usePingMonitorHook = overrides?.usePingMonitorHook ?? usePingMonitor;
+  const useRepairModeHook = overrides?.useRepairModeHook ?? useRepairMode;
+
+  const {
+    appVersion,
+    helpLanguage,
+    persistWanLoading,
+    persistWanOnStartup,
+    theme,
+    themeLensActive,
+    zoomLevel,
+    handleToggleTheme,
+    handleZoomIn,
+    handleZoomOut,
+    handleZoomReset,
+    setHelpLanguage,
+    setPersistWanOnStartup,
+  } = useAppShellStateHook();
   const [statusMsg, setStatusMsg] = useState("System Ready");
   const [routeWatcherToast, setRouteWatcherToast] = useState<RouteWatcherToast | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [hasLoadedNicSnapshot, setHasLoadedNicSnapshot] = useState(false);
+  const {
+    activeOnly,
+    hasLoadedNicSnapshot,
+    loading,
+    nics,
+    routes,
+    selectedNic,
+    loadData,
+    setActiveOnly,
+    setRoutes,
+    setSelectedNic,
+  } = useNetworkSnapshotHook({
+    setStatusMessage: setStatusMsg,
+  });
   const ipScanModal = useModal();
   const [ipScanRunning, setIpScanRunning] = useState(false);
   const [ipScanStopPending, setIpScanStopPending] = useState(false);
@@ -142,7 +203,6 @@ export default function App() {
     update: updateIpScanProgress,
     setMessage: setIpScanProgressText,
   } = useProgressTracker();
-  const [themeLensActive, setThemeLensActive] = useState(false);
   const [panels, setPanels] = useState<PanelState>({
     toolsOpen: false,
     diagnosticsOpen: false,
@@ -155,13 +215,11 @@ export default function App() {
   });
   const [diagnosticView, setDiagnosticView] = useState<"command" | "routing">("command");
   const [routingOutput, setRoutingOutput] = useState("");
-  const [batteryLoading, setBatteryLoading] = useState(false);
-  const [batterySummary, setBatterySummary] = useState<BatterySummaryResult | null>(null);
-  const [batterySummaryError, setBatterySummaryError] = useState("");
-  const batteryModal = useModal();
+  const batterySummary = useBatterySummaryHook({
+    setStatusMessage: setStatusMsg,
+  });
   const donateModal = useModal();
   const helpModal = useModal();
-  const [helpLanguage, setHelpLanguage] = useState<HelpLanguage>("vi");
   const {
     repairSession,
     setRepairSession,
@@ -172,7 +230,7 @@ export default function App() {
     loadRepairTargets,
     handleUnlockRepair,
     handleLockRepair,
-  } = useRepairMode({
+  } = useRepairModeHook({
     setStatusMessage: setStatusMsg,
   });
   const {
@@ -191,102 +249,9 @@ export default function App() {
     gw: "",
     metric: "10",
   });
-
-  useEffect(() => {
-    let active = true;
-
-    const loadAppVersion = async () => {
-      try {
-        const version = await getVersion();
-        if (active) {
-          setAppVersion(version);
-        }
-      } catch {
-        if (active) {
-          setAppVersion("dev");
-        }
-      }
-    };
-
-    void loadAppVersion();
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const savedLanguage = localStorage.getItem("help-language");
-    if (savedLanguage === "en" || savedLanguage === "vi") {
-      setHelpLanguage(savedLanguage);
-    }
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const savedPreference = localStorage.getItem("wan-persist-on-startup");
-    const localPreference =
-      savedPreference === "true" ? true : savedPreference === "false" ? false : null;
-
-    const loadPersistStatus = async () => {
-      try {
-        const persistedConfigResult = await persistLoadConfig();
-        const persistedConfigEnabled =
-          persistedConfigResult ? persistedConfigResult.enabled : null;
-
-        if (active) {
-          setPersistWanOnStartup(
-            resolvePersistStartupEnabled({
-              localPreference,
-              persistedConfigEnabled,
-            }),
-          );
-        }
-      } catch {
-        if (active) {
-          setPersistWanOnStartup(
-            resolvePersistStartupEnabled({
-              localPreference,
-              persistedConfigEnabled: null,
-            }),
-          );
-        }
-      } finally {
-        if (active) {
-          setPersistWanLoading(false);
-        }
-      }
-    };
-
-    void loadPersistStatus();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const htmlEl = document.documentElement;
-    if (zoomLevel === ZOOM_DEFAULT) {
-      htmlEl.removeAttribute("data-zoom");
-      htmlEl.style.removeProperty("--zoom-level");
-    } else {
-      htmlEl.setAttribute("data-zoom", String(zoomLevel));
-      htmlEl.style.setProperty("--zoom-level", `${zoomLevel}%`);
-    }
-    localStorage.setItem("app-zoom-level", String(zoomLevel));
-  }, [zoomLevel]);
-
-  const handleZoomIn = useCallback(() => {
-    setZoomLevel((prev) => Math.min(ZOOM_MAX, prev + ZOOM_STEP));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setZoomLevel((prev) => Math.max(ZOOM_MIN, prev - ZOOM_STEP));
-  }, []);
-
-  const handleZoomReset = useCallback(() => {
-    setZoomLevel(ZOOM_DEFAULT);
-  }, []);
+  const [routeFormTouched, setRouteFormTouched] = useState<RouteFormTouchedState>(
+    INITIAL_ROUTE_FORM_TOUCHED,
+  );
 
   const {
     version: pingLogVersion,
@@ -309,28 +274,52 @@ export default function App() {
     pingRunning,
     handleStartPing,
     handleStopPing,
-  } = usePingMonitor({
+  } = usePingMonitorHook({
     appendLine: appendPingLine,
     appendLines: appendPingLines,
     setStatusMessage: setStatusMsg,
   });
-  const { isOnline, currentLatency } = useNetworkMonitoring();
+  const { isOnline, currentLatency } = useNetworkMonitoringHook();
 
-  const lensTimerRef = useRef<number | null>(null);
   const ipScanStopRequestedRef = useRef(false);
-  const latestLoadRequestRef = useRef(0);
   const pingOutputRef = useRef<HTMLPreElement | null>(null);
   const commandOutputRef = useRef<HTMLPreElement | null>(null);
-  const latestNicsRef = useRef<NetworkInterface[]>([]);
   const routeWatcherToastTimerRef = useRef<number | null>(null);
   useAutoScroll(pingOutputRef, pingLogVersion);
   useAutoScroll(commandOutputRef, commandLogVersion);
+
+  const routeFormValidation = useMemo(
+    () => validateRouteForm(routeForm),
+    [routeForm],
+  );
+  const visibleRouteFormErrors = useMemo(() => ({
+    dest: routeFormTouched.dest ? routeFormValidation.dest : undefined,
+    mask: routeFormTouched.mask ? routeFormValidation.mask : undefined,
+    gw: routeFormTouched.gw ? routeFormValidation.gw : undefined,
+    metric: routeFormTouched.metric ? routeFormValidation.metric : undefined,
+  }), [routeFormTouched, routeFormValidation]);
 
   const setRouteFormField = useCallback(<K extends keyof RouteFormState,>(field: K, value: RouteFormState[K]) => {
     setRouteForm((current) => ({
       ...current,
       [field]: value,
     }));
+  }, []);
+
+  const markRouteFieldTouched = useCallback((field: keyof RouteFormState) => {
+    setRouteFormTouched((current) => ({
+      ...current,
+      [field]: true,
+    }));
+  }, []);
+
+  const markAllRouteFieldsTouched = useCallback(() => {
+    setRouteFormTouched({
+      dest: true,
+      mask: true,
+      gw: true,
+      metric: true,
+    });
   }, []);
 
   const setDiagnosticsField = useCallback(<K extends keyof DiagnosticsInputsState,>(
@@ -400,10 +389,6 @@ export default function App() {
     setDiagnosticView("command");
   }, []);
 
-  useEffect(() => {
-    latestNicsRef.current = nics;
-  }, [nics]);
-
   const pushRouteWatcherToast = useCallback((payload: RouteWatcherStatusEventPayload) => {
     setRouteWatcherToast({
       tone: payload.status === "reapplied" ? "success" : "warning",
@@ -432,78 +417,6 @@ export default function App() {
     };
   }, []);
 
-  // ======================== DATA LOADING ========================
-
-  const loadData = useCallback(async (options?: { invalidateNicCache?: boolean }) => {
-    const requestId = latestLoadRequestRef.current + 1;
-    latestLoadRequestRef.current = requestId;
-    setLoading(true);
-    setStatusMsg("Loading data...");
-    try {
-      if (options?.invalidateNicCache) {
-        await invalidateNetworkAdapterCache();
-        if (requestId !== latestLoadRequestRef.current) {
-          return;
-        }
-      }
-      const snapshot = await getNetworkSnapshot(activeOnly);
-      if (requestId !== latestLoadRequestRef.current) {
-        return;
-      }
-      const stabilizedInterfaces = stabilizeNicSnapshotDescriptions(
-        latestNicsRef.current,
-        snapshot.interfaces,
-      );
-      latestNicsRef.current = stabilizedInterfaces;
-      setNics(stabilizedInterfaces);
-      setSelectedNic((current) => syncSelectedNicToList(current, stabilizedInterfaces));
-      setRoutes(snapshot.routes);
-      setRoutingOutput(formatRoutingSnapshot(snapshot.routes));
-      setHasLoadedNicSnapshot(true);
-      setStatusMsg(`Loaded ${stabilizedInterfaces.length} NICs, ${snapshot.routes.length} routes`);
-
-      const interfaceIndexes = stabilizedInterfaces.map((nic) => nic.index);
-      if (interfaceIndexes.length > 0) {
-        void (async () => {
-          try {
-            const stableIds = await persistGetNicStableIds(interfaceIndexes);
-            if (requestId !== latestLoadRequestRef.current) {
-              return;
-            }
-            const descriptionEntries = interfaceIndexes.map((interfaceIndex, index) => ({
-              interfaceIndex,
-              description: stableIds[index]?.description ?? "",
-            }));
-            setNics((current) => {
-              const enriched = mergeNicDescriptions(current, descriptionEntries);
-              latestNicsRef.current = enriched;
-              return enriched;
-            });
-            setSelectedNic((current) => {
-              if (!current) {
-                return current;
-              }
-              const [enrichedCurrent] = mergeNicDescriptions([current], descriptionEntries);
-              return enrichedCurrent;
-            });
-          } catch (enrichErr) {
-            console.warn("Failed to enrich NIC descriptions:", enrichErr);
-          }
-        })();
-      }
-    } catch (err) {
-      if (requestId !== latestLoadRequestRef.current) {
-        return;
-      }
-      setHasLoadedNicSnapshot(true);
-      setStatusMsg(`Error: ${err}`);
-    } finally {
-      if (requestId === latestLoadRequestRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [activeOnly]);
-
   const nicTableMessage = getNicTableMessage({
     nicCount: nics.length,
     loading,
@@ -516,10 +429,14 @@ export default function App() {
   }, [loadData]);
 
   useEffect(() => {
+    setRoutingOutput(formatRoutingSnapshot(routes));
+  }, [routes]);
+
+  useEffect(() => {
     let active = true;
     let cleanup = () => {};
 
-    void listen<RouteWatcherStatusEventPayload>(ROUTE_WATCHER_STATUS_EVENT, ({ payload }) => {
+    void listenToEvent<RouteWatcherStatusEventPayload>(ROUTE_WATCHER_STATUS_EVENT, ({ payload }) => {
       if (!active) {
         return;
       }
@@ -542,7 +459,7 @@ export default function App() {
       active = false;
       cleanup();
     };
-  }, [loadData, pushRouteWatcherToast]);
+  }, [listenToEvent, loadData, pushRouteWatcherToast]);
 
   // ======================== ACTIONS ========================
 
@@ -564,29 +481,29 @@ export default function App() {
       failureMessage?: string;
     },
   ) => {
-    return handleRepairCommandResultImpl({
+    return handleRepairCommandResultImplFn({
       appendCommandOutput,
       setStatusMessage: setStatusMsg,
       setRepairSession,
       loadData,
     }, title, result, options);
-  }, [appendCommandOutput, loadData, setRepairSession]);
+  }, [appendCommandOutput, handleRepairCommandResultImplFn, loadData, setRepairSession]);
 
   const executeRepairAction = useCallback(async (
     action: RepairMachineAction,
     title: string,
     options?: { refresh?: boolean; invalidateNicCache?: boolean },
   ) => {
-    return executeRepairActionImpl({
+    return executeRepairActionImplFn({
       appendCommandOutput,
       setStatusMessage: setStatusMsg,
       setRepairSession,
       loadData,
       setDiagnosticView,
     }, action, title, options);
-  }, [appendCommandOutput, loadData, setRepairSession]);
+  }, [appendCommandOutput, executeRepairActionImplFn, loadData, setRepairSession]);
 
-  const bloatwareManager = useBloatwareManager({
+  const bloatwareManager = useBloatwareManagerHook({
     setStatusMessage: setStatusMsg,
     appendCommandOutput,
     openCommandDiagnostics,
@@ -597,7 +514,7 @@ export default function App() {
     openConfirm,
   });
 
-  const cacheCleanupManager = useCacheCleanupManager({
+  const cacheCleanupManager = useCacheCleanupManagerHook({
     setStatusMessage: setStatusMsg,
     appendCommandOutput,
     openCommandDiagnostics,
@@ -614,10 +531,17 @@ export default function App() {
       ...current,
       gw: nic.gateway,
     }));
-  }, []);
+  }, [setSelectedNic]);
 
   const handleAddRoute = useCallback(async () => {
-    await executeAddRouteAction({
+    markAllRouteFieldsTouched();
+    const validationMessage = getFirstValidationError(routeFormValidation);
+    if (validationMessage) {
+      setStatusMsg(validationMessage);
+      return;
+    }
+
+    await executeAddRouteActionFn({
       formDest: routeForm.dest,
       formMask: routeForm.mask,
       formGw: routeForm.gw,
@@ -626,33 +550,54 @@ export default function App() {
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [handleRepairCommandResult, routeForm, selectedNic?.index]);
+  }, [
+    executeAddRouteActionFn,
+    handleRepairCommandResult,
+    markAllRouteFieldsTouched,
+    routeForm,
+    routeFormValidation,
+    selectedNic?.index,
+  ]);
 
   const handleDeleteRoute = useCallback(async () => {
-    await executeDeleteRouteAction({
+    markRouteFieldTouched("dest");
+    markRouteFieldTouched("mask");
+    await executeDeleteRouteActionFn({
       formDest: routeForm.dest,
       formMask: routeForm.mask,
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [handleRepairCommandResult, routeForm.dest, routeForm.mask]);
+  }, [
+    executeDeleteRouteActionFn,
+    handleRepairCommandResult,
+    markRouteFieldTouched,
+    routeForm.dest,
+    routeForm.mask,
+  ]);
 
   const executeSetInternet = useCallback(async () => {
-    await executeSetInternetAction({
+    await executeSetInternetActionFn({
       selectedNic,
       persistWanOnStartup,
       routes,
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [handleRepairCommandResult, persistWanOnStartup, routes, selectedNic]);
+  }, [
+    executeSetInternetActionFn,
+    handleRepairCommandResult,
+    persistWanOnStartup,
+    routes,
+    selectedNic,
+  ]);
 
   const executeFlush = useCallback(async () => {
-    await executeFlushRoutesAction({
+    await executeFlushRoutesActionFn({
       setStatusMessage: setStatusMsg,
       handleRepairCommandResult,
     });
-  }, [handleRepairCommandResult]);
+  }, [executeFlushRoutesActionFn, handleRepairCommandResult]);
 
   const executeNetCmd = useCallback(async (
     cmd: string,
@@ -662,23 +607,21 @@ export default function App() {
     setDiagnosticView("command");
     setStatusMsg(`Running ${title}...`);
     try {
-      const result = await runNetworkCommand(cmd);
+      const result = await runNetworkCommandFn(cmd);
       appendCommandOutput(title, result.output);
-      const elevationRequired =
-        /requires elevation|run as administrator|os error 740/i.test(result.output || "");
-      if (elevationRequired) {
-        setStatusMsg(`${title} requires Administrator privileges`);
+      if (isAdminElevationError(result.output)) {
+        setStatusMsg(`${title} requires Administrator privileges.`);
       } else {
-        setStatusMsg(result.success ? `${title} - Success!` : `${title} - Failed`);
+        setStatusMsg(formatActionResultMessage(title, result.success));
       }
       if (options?.refresh) {
         void loadData({ invalidateNicCache: options?.invalidateNicCache });
       }
-    } catch (err) {
-      appendCommandOutput(title, `Error: ${err}`);
-      setStatusMsg(`Error: ${err}`);
+    } catch (error: unknown) {
+      appendCommandOutput(title, formatOutputError(error));
+      setStatusMsg(formatErrorMessage(`${title} failed`, error));
     }
-  }, [appendCommandOutput, loadData]);
+  }, [appendCommandOutput, loadData, runNetworkCommandFn]);
 
   const handleShowRoutingOutput = useCallback(async () => {
     setPanels((current) => ({
@@ -694,16 +637,16 @@ export default function App() {
 
     setStatusMsg("Loading routing table snapshot...");
     try {
-      const routeData = await getRoutingTable();
+      const routeData = await getRoutingTableFn();
       setRoutes(routeData);
       setRoutingOutput(formatRoutingSnapshot(routeData));
       setStatusMsg(`Routing table snapshot loaded (${routeData.length} routes)`);
-    } catch (err) {
-      const errorText = `Error: ${err}`;
+    } catch (error: unknown) {
+      const errorText = formatErrorMessage("Routing table snapshot failed", error);
       setRoutingOutput(`Failed to load routing table snapshot.\n${errorText}`);
       setStatusMsg(errorText);
     }
-  }, [routes]);
+  }, [getRoutingTableFn, routes, setRoutes]);
 
   const handleOpenRouteWatcherToastAction = useCallback(() => {
     if (routeWatcherToastTimerRef.current !== null) {
@@ -727,37 +670,6 @@ export default function App() {
   const handleDisplayDnsCache = useCallback(async () => {
     await executeNetCmd("ipconfig /displaydns", "Display DNS Cache");
   }, [executeNetCmd]);
-
-  const loadBatterySummary = useCallback(async () => {
-    setBatteryLoading(true);
-    setBatterySummaryError("");
-    try {
-      const summary = await getBatterySummary();
-      setBatterySummary(summary);
-      if (summary.present) {
-        const wearLabel = getBatteryWearLevel(summary.wear_percent);
-        setStatusMsg(`Battery summary loaded (${wearLabel})`);
-      } else {
-        setStatusMsg("Battery summary loaded (no battery detected)");
-      }
-    } catch (err) {
-      setBatterySummary(null);
-      setBatterySummaryError(String(err));
-      setStatusMsg(`Battery summary error: ${err}`);
-    } finally {
-      setBatteryLoading(false);
-    }
-  }, []);
-
-  const handleOpenBatteryModal = useCallback(() => {
-    batteryModal.open();
-    void loadBatterySummary();
-  }, [batteryModal, loadBatterySummary]);
-
-  const handleCloseBatteryModal = useCallback(() => {
-    if (batteryLoading) return;
-    batteryModal.close();
-  }, [batteryModal, batteryLoading]);
 
   const handleResetWinHttpProxy = useCallback(() => {
     openConfirm(
@@ -801,15 +713,20 @@ export default function App() {
     setDiagnosticView("command");
     setStatusMsg(`Testing port ${host}:${port}...`);
     try {
-      const result = await testTcpPort(host, port);
+      const result = await testTcpPortFn(host, port);
       appendCommandOutput(`Port Test ${host}:${port}`, result.output);
       setStatusMsg(result.success ? `Port ${port} open on ${host}` : `Port ${port} closed on ${host}`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      appendCommandOutput(`Port Test ${host}:${port}`, `Error: ${msg}`);
-      setStatusMsg(`Port test failed: ${msg}`);
+    } catch (error: unknown) {
+      appendCommandOutput(`Port Test ${host}:${port}`, formatOutputError(error));
+      setStatusMsg(formatErrorMessage("Port test failed", error));
     }
-  }, [appendCommandOutput, diagnosticsInputs.host, diagnosticsInputs.port, sanitizeHostToken]);
+  }, [
+    appendCommandOutput,
+    diagnosticsInputs.host,
+    diagnosticsInputs.port,
+    sanitizeHostToken,
+    testTcpPortFn,
+  ]);
 
   const resolveIpScanPlan = useCallback((): IpScanPlan | null => {
     if (!selectedNic) return null;
@@ -839,7 +756,7 @@ export default function App() {
         }
 
         const batchTargets = plan.targets.slice(offset, offset + IP_SCAN_BATCH_SIZE);
-        const result = await fpingScan(batchTargets, 700);
+        const result = await fpingScanFn(batchTargets, 700);
         collected.push(...result.hosts);
         processed += batchTargets.length;
         reachable += result.received;
@@ -860,15 +777,15 @@ export default function App() {
         setStatusMsg(`Scan IP done: ${reachable}/${totalTargets} reachable`);
         setIpScanProgressText(`Done: scanned ${totalTargets} hosts, reachable ${reachable}`);
       }
-    } catch (err) {
-      setStatusMsg(`Scan IP error: ${err}`);
-      setIpScanProgressText(`Scan failed: ${err}`);
+    } catch (error: unknown) {
+      setStatusMsg(formatErrorMessage("Scan IP failed", error));
+      setIpScanProgressText(`Scan failed: ${formatErrorMessage("Error", error)}`);
     } finally {
       setIpScanRunning(false);
       setIpScanStopPending(false);
       ipScanStopRequestedRef.current = false;
     }
-  }, [ipScanRunning, updateIpScanProgress]);
+  }, [fpingScanFn, ipScanRunning, updateIpScanProgress]);
 
   const handleOpenIpScanModal = useCallback(() => {
     const plan = resolveIpScanPlan();
@@ -920,58 +837,34 @@ export default function App() {
     appendPingLine(`--- Tracert ${target} ---`);
     setStatusMsg(`Running tracert ${target}...`);
     try {
-      const result = await runNetworkCommand(`tracert -d ${target}`);
+      const result = await runNetworkCommandFn(`tracert -d ${target}`);
       appendPingLines(result.output.trim().split(/\r?\n/));
       setStatusMsg(result.success ? `Tracert ${target} done` : `Tracert ${target} failed`);
-    } catch (err) {
-      appendPingLine(`Tracert error: ${err}`);
-      setStatusMsg(`Tracert error: ${err}`);
+    } catch (error: unknown) {
+      appendPingLine(formatErrorMessage("Tracert failed", error));
+      setStatusMsg(formatErrorMessage("Tracert failed", error));
     }
-  }, [appendPingLine, appendPingLines, pingTarget]);
+  }, [appendPingLine, appendPingLines, pingTarget, runNetworkCommandFn]);
 
   // ======================== RENDER ========================
 
-  const diagnosticsOutputText = diagnosticView === "routing"
-    ? (routingOutput || "Routing table output will appear here.")
-    : (commandOutputText || "Command output will appear here.");
-  const machineRepairEnabled = isMachineRepairEnabled({ locked: repairSession.locked });
-  const profileSensitiveActionEnabled = isProfileSensitiveActionEnabled({
+  const diagnosticsOutputText = useMemo(() => (
+    diagnosticView === "routing"
+      ? (routingOutput || "Routing table output will appear here.")
+      : (commandOutputText || "Command output will appear here.")
+  ), [commandOutputText, diagnosticView, routingOutput]);
+  const machineRepairEnabled = useMemo(
+    () => isMachineRepairEnabled({ locked: repairSession.locked }),
+    [repairSession.locked],
+  );
+  const profileSensitiveActionEnabled = useMemo(() => isProfileSensitiveActionEnabled({
     locked: repairSession.locked,
     selectedTargetSid: selectedRepairTargetSid,
-  });
-  const profileSensitiveActionHint = getProfileSensitiveActionHint({
+  }), [repairSession.locked, selectedRepairTargetSid]);
+  const profileSensitiveActionHint = useMemo(() => getProfileSensitiveActionHint({
     locked: repairSession.locked,
     selectedTargetSid: selectedRepairTargetSid,
-  });
-
-  useEffect(() => {
-    localStorage.setItem("ui-theme", theme);
-  }, [theme]);
-
-  useEffect(() => {
-    localStorage.setItem("wan-persist-on-startup", persistWanOnStartup ? "true" : "false");
-  }, [persistWanOnStartup]);
-
-  useEffect(() => {
-    localStorage.setItem("help-language", helpLanguage);
-  }, [helpLanguage]);
-
-  const handleToggleTheme = () => {
-    if (lensTimerRef.current) {
-      window.clearTimeout(lensTimerRef.current);
-    }
-    setThemeLensActive(true);
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-    lensTimerRef.current = window.setTimeout(() => {
-      setThemeLensActive(false);
-    }, 650);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (lensTimerRef.current) window.clearTimeout(lensTimerRef.current);
-    };
-  }, []);
+  }), [repairSession.locked, selectedRepairTargetSid]);
 
   return (
     <div className={`app-shell ${theme === "light" ? "theme-light" : "theme-dark"} h-screen flex flex-col font-['Segoe_UI',system-ui,sans-serif] overflow-hidden select-none`}>
@@ -1000,13 +893,14 @@ export default function App() {
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
-            <span
+            <button
+              type="button"
               onClick={handleZoomReset}
               className="zoom-label-header"
               title="Reset zoom to 100%"
             >
               {zoomLevel}%
-            </span>
+            </button>
             <button
               type="button"
               onClick={handleZoomIn}
@@ -1033,6 +927,7 @@ export default function App() {
           </button>
 
           <button
+            type="button"
             onClick={bloatwareManager.handleOpenModal}
             disabled={!profileSensitiveActionEnabled || bloatwareManager.loading || bloatwareManager.removing}
             className="header-apps-action capsule-btn"
@@ -1043,6 +938,7 @@ export default function App() {
           </button>
 
           <button
+            type="button"
             onClick={cacheCleanupManager.handleOpenModal}
             disabled={!profileSensitiveActionEnabled || cacheCleanupManager.cleaning}
             className="header-cache-action capsule-btn"
@@ -1053,9 +949,11 @@ export default function App() {
           </button>
 
           <button
+            type="button"
             onClick={handleToggleTheme}
             className="theme-toggle capsule-btn flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition"
             title="Toggle light/dark mode"
+            aria-pressed={theme === "light"}
           >
             {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             {theme === "dark" ? "Light" : "Dark"}
@@ -1108,6 +1006,7 @@ export default function App() {
                   <span className="text-[0.65rem] text-slate-500">Active only</span>
                 </label>
                 <button
+                  type="button"
                   onClick={() => {
                     void loadData({ invalidateNicCache: true });
                   }}
@@ -1123,10 +1022,10 @@ export default function App() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th className="w-12">ID</th>
-                    <th className="w-28">IPv4</th>
-                    <th className="w-28">Gateway</th>
-                    <th>Device</th>
+                    <th scope="col" className="w-12">ID</th>
+                    <th scope="col" className="w-28">IPv4</th>
+                    <th scope="col" className="w-28">Gateway</th>
+                    <th scope="col">Device</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1134,6 +1033,15 @@ export default function App() {
                     <tr
                       key={nic.index}
                       onClick={() => handleSelectNic(nic)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleSelectNic(nic);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selectedNic?.index === nic.index}
                       className={selectedNic?.index === nic.index ? "selected" : ""}
                     >
                       <td className="font-mono text-blue-300">{nic.index}</td>
@@ -1153,10 +1061,43 @@ export default function App() {
           {/* Config Form */}
           <div className="p-3 border-b border-slate-700/30">
             <div className="route-form-grid mb-2">
-              <Field label="Destination" value={routeForm.dest} onChange={handleRouteDestChange} placeholder="10.0.0.0" />
-              <Field label="Subnet Mask" value={routeForm.mask} onChange={handleRouteMaskChange} placeholder="255.255.255.0" />
-              <Field label="Gateway" value={routeForm.gw} onChange={handleRouteGatewayChange} placeholder="192.168.1.1" />
-              <Field label="Metric" value={routeForm.metric} onChange={handleRouteMetricChange} placeholder="10" />
+              <Field
+                fieldId="route-destination"
+                label="Destination"
+                value={routeForm.dest}
+                onChange={handleRouteDestChange}
+                onBlur={() => markRouteFieldTouched("dest")}
+                error={visibleRouteFormErrors.dest}
+                placeholder="10.0.0.0"
+              />
+              <Field
+                fieldId="route-mask"
+                label="Subnet Mask"
+                value={routeForm.mask}
+                onChange={handleRouteMaskChange}
+                onBlur={() => markRouteFieldTouched("mask")}
+                error={visibleRouteFormErrors.mask}
+                placeholder="255.255.255.0"
+              />
+              <Field
+                fieldId="route-gateway"
+                label="Gateway"
+                value={routeForm.gw}
+                onChange={handleRouteGatewayChange}
+                onBlur={() => markRouteFieldTouched("gw")}
+                error={visibleRouteFormErrors.gw}
+                placeholder="192.168.1.1"
+              />
+              <Field
+                fieldId="route-metric"
+                label="Metric"
+                value={routeForm.metric}
+                onChange={handleRouteMetricChange}
+                onBlur={() => markRouteFieldTouched("metric")}
+                error={visibleRouteFormErrors.metric}
+                placeholder="10"
+                inputMode="numeric"
+              />
             </div>
             <div className="flex flex-wrap gap-1.5">
               <ActionBtn
@@ -1257,7 +1198,7 @@ export default function App() {
               <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
                 onClick={() => executeRepairAction("ResetFirewall", "Reset Firewall", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
               <ToolBtn icon={Monitor} label="Battery Info" desc="View battery wear and lifetime summary"
-                onClick={handleOpenBatteryModal} tone="system" />
+                onClick={batterySummary.handleOpenModal} tone="system" />
             </div>
           </Section>
 
@@ -1286,6 +1227,7 @@ export default function App() {
                   onChange={(e) => handleDiagHostChange(e.target.value)}
                   placeholder="Domain or IP (e.g. google.com)"
                   className="diag-input"
+                  aria-label="Diagnostic host"
                 />
                 <input
                   type="text"
@@ -1293,8 +1235,11 @@ export default function App() {
                   onChange={(e) => handleDiagPortChange(e.target.value)}
                   placeholder="Port"
                   className="diag-input diag-port"
+                  inputMode="numeric"
+                  aria-label="Diagnostic port"
                 />
                 <button
+                  type="button"
                   onClick={handlePortConnectivityTest}
                   className="diag-action-btn"
                 >
@@ -1309,8 +1254,10 @@ export default function App() {
                   onChange={(e) => handleDiagDnsServerChange(e.target.value)}
                   placeholder="DNS server (e.g. 8.8.8.8)"
                   className="diag-input"
+                  aria-label="Diagnostic DNS server"
                 />
                 <button
+                  type="button"
                   onClick={handleNslookupTest}
                   className="diag-action-btn diag-action-btn-alt"
                 >
@@ -1330,14 +1277,18 @@ export default function App() {
           >
             <div className="segmented-control mb-2">
               <button
+                type="button"
                 onClick={() => setPingMode("ping")}
                 className={`segment-btn ${pingMode === "ping" ? "segment-btn-active" : ""}`}
+                aria-pressed={pingMode === "ping"}
               >
                 Ping
               </button>
               <button
+                type="button"
                 onClick={() => setPingMode("fping")}
                 className={`segment-btn ${pingMode === "fping" ? "segment-btn-active" : ""}`}
+                aria-pressed={pingMode === "fping"}
               >
                 fping
               </button>
@@ -1350,8 +1301,10 @@ export default function App() {
                 onChange={(e) => setPingTarget(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleStartPing()}
                 className="diag-input"
+                aria-label="Ping target"
               />
               <button
+                type="button"
                 onClick={handleStartPing}
                 disabled={pingRunning}
                 className="ping-cmd-btn ping-cmd-start"
@@ -1359,6 +1312,7 @@ export default function App() {
                 <Send className="w-4 h-4" /> Start
               </button>
               <button
+                type="button"
                 onClick={handleStopPing}
                 disabled={!pingRunning}
                 className="ping-cmd-btn ping-cmd-stop"
@@ -1367,6 +1321,7 @@ export default function App() {
                 Stop
               </button>
               <button
+                type="button"
                 onClick={handleTracertFromTarget}
                 className="ping-cmd-btn ping-cmd-trace"
               >
@@ -1387,8 +1342,11 @@ export default function App() {
       {/* ====== FOOTER ====== */}
       <footer className="app-footer flex items-center justify-between px-5 py-1.5 border-t shrink-0">
         <div className="app-footer-left">
-          <span className="text-[0.65rem] text-slate-500">{statusMsg}</span>
+          <span className="text-[0.65rem] text-slate-500" role="status" aria-live="polite">
+            {statusMsg}
+          </span>
           <button
+            type="button"
             onClick={donateModal.open}
             className="donate-footer-btn capsule-btn"
             title="Donate to the author Zozon"
@@ -1396,6 +1354,7 @@ export default function App() {
             Donate
           </button>
           <button
+            type="button"
             onClick={helpModal.open}
             className="help-footer-btn capsule-btn"
             title="Open help"
@@ -1422,12 +1381,14 @@ export default function App() {
       />
 
       <BatteryModal
-        open={batteryModal.isOpen}
-        loading={batteryLoading}
-        summary={batterySummary}
-        error={batterySummaryError}
-        onRefresh={loadBatterySummary}
-        onClose={handleCloseBatteryModal}
+        open={batterySummary.modal.isOpen}
+        loading={batterySummary.loading}
+        summary={batterySummary.summary}
+        error={batterySummary.error}
+        onRefresh={() => {
+          void batterySummary.loadSummary();
+        }}
+        onClose={batterySummary.handleCloseModal}
       />
 
       <IpScanModal
@@ -1488,7 +1449,10 @@ export default function App() {
       />
 
       {routeWatcherToast && (
-        <div className="fixed bottom-14 right-4 z-40 w-full max-w-sm px-4 sm:px-0 pointer-events-none">
+        <div
+          className="fixed bottom-14 right-4 z-40 w-full max-w-sm px-4 sm:px-0 pointer-events-none"
+          aria-live="polite"
+        >
           <div
             className={`pointer-events-auto rounded-2xl border shadow-2xl backdrop-blur px-4 py-3 ${routeWatcherToast.tone === "success"
               ? "border-emerald-400/40 bg-slate-950/92"
@@ -1510,6 +1474,7 @@ export default function App() {
                 </div>
                 {routeWatcherToast.actionLabel && (
                   <button
+                    type="button"
                     onClick={handleOpenRouteWatcherToastAction}
                     className="mt-2 inline-flex rounded-lg border border-amber-300/35 bg-amber-400/10 px-2.5 py-1 text-[0.7rem] font-semibold text-amber-100 transition hover:bg-amber-300/15"
                   >
@@ -1518,6 +1483,7 @@ export default function App() {
                 )}
               </div>
               <button
+                type="button"
                 onClick={() => {
                   if (routeWatcherToastTimerRef.current !== null) {
                     window.clearTimeout(routeWatcherToastTimerRef.current);

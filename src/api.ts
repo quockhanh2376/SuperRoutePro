@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { toErrorMessage } from "./errorUtils";
 
 // ======================== TYPES ========================
 
@@ -150,22 +151,48 @@ export type RepairMachineAction =
 
 // ======================== API CALLS ========================
 
+async function invokeCommand<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error: unknown) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+/**
+ * Loads the filtered NIC list from the Rust backend.
+ */
 export async function getNetworkInterfaces(activeOnly: boolean): Promise<NetworkInterface[]> {
-  return invoke<NetworkInterface[]>("get_network_interfaces", { activeOnly });
+  return invokeCommand<NetworkInterface[]>("get_network_interfaces", { activeOnly });
 }
 
+/**
+ * Loads NICs and routes together so the UI can stay in sync.
+ */
 export async function getNetworkSnapshot(activeOnly: boolean): Promise<NetworkSnapshot> {
-  return invoke<NetworkSnapshot>("get_network_snapshot", { activeOnly });
+  return invokeCommand<NetworkSnapshot>("get_network_snapshot", { activeOnly });
 }
 
+/**
+ * Clears the backend NIC cache before the next snapshot refresh.
+ */
 export async function invalidateNetworkAdapterCache(): Promise<void> {
-  return invoke<void>("invalidate_network_adapter_cache");
+  return invokeCommand<void>("invalidate_network_adapter_cache");
 }
 
+/**
+ * Fetches the current Windows routing table.
+ */
 export async function getRoutingTable(): Promise<RouteEntry[]> {
-  return invoke<RouteEntry[]>("get_routing_table");
+  return invokeCommand<RouteEntry[]>("get_routing_table");
 }
 
+/**
+ * Adds a route through the non-elevated command path.
+ */
 export async function addRoute(
   destination: string,
   mask: string,
@@ -173,7 +200,7 @@ export async function addRoute(
   metric: string,
   interfaceIndex?: string
 ): Promise<CommandResult> {
-  return invoke<CommandResult>("add_route", {
+  return invokeCommand<CommandResult>("add_route", {
     destination,
     mask,
     gateway,
@@ -182,131 +209,197 @@ export async function addRoute(
   });
 }
 
+/**
+ * Deletes a route through the non-elevated command path.
+ */
 export async function deleteRoute(destination: string, mask: string): Promise<CommandResult> {
-  return invoke<CommandResult>("delete_route", { destination, mask });
+  return invokeCommand<CommandResult>("delete_route", { destination, mask });
 }
 
+/**
+ * Flushes all routes through the non-elevated command path.
+ */
 export async function flushRoutes(): Promise<CommandResult> {
-  return invoke<CommandResult>("flush_routes");
+  return invokeCommand<CommandResult>("flush_routes");
 }
 
+/**
+ * Sets a NIC gateway through the non-elevated command path.
+ */
 export async function setDefaultGateway(
   gateway: string,
   interfaceIndex: string
 ): Promise<CommandResult> {
-  return invoke<CommandResult>("set_default_gateway", { gateway, interfaceIndex });
+  return invokeCommand<CommandResult>("set_default_gateway", { gateway, interfaceIndex });
 }
 
+/**
+ * Runs an arbitrary network command and captures stdout/stderr.
+ */
 export async function runNetworkCommand(command: string): Promise<CommandResult> {
-  return invoke<CommandResult>("run_network_command", { command });
+  return invokeCommand<CommandResult>("run_network_command", { command });
 }
 
+/**
+ * Executes a single ping request.
+ */
 export async function pingHost(target: string, count?: number): Promise<PingResult> {
-  return invoke<PingResult>("ping_host", { target, count: count || null });
+  return invokeCommand<PingResult>("ping_host", { target, count: count || null });
 }
 
+/**
+ * Tests a TCP host:port from the backend so PowerShell stays centralized.
+ */
 export async function testTcpPort(host: string, port: number): Promise<CommandResult> {
-  return invoke<CommandResult>("test_tcp_port", { host, port });
+  return invokeCommand<CommandResult>("test_tcp_port", { host, port });
 }
 
+/**
+ * Runs a batch ICMP scan for one subnet chunk.
+ */
 export async function fpingScan(
   targets: string[],
   timeoutMs?: number
 ): Promise<FpingScanResult> {
-  return invoke<FpingScanResult>("fping_scan", {
+  return invokeCommand<FpingScanResult>("fping_scan", {
     targets,
     timeoutMs: timeoutMs || null,
   });
 }
 
+/**
+ * Lists speed-test targets supported by the native backend.
+ */
 export async function listSpeedTestTargets(): Promise<SpeedTestTargetOption[]> {
-  return invoke<SpeedTestTargetOption[]>("list_speed_test_targets");
+  return invokeCommand<SpeedTestTargetOption[]>("list_speed_test_targets");
 }
 
+/**
+ * Starts the native speed test.
+ */
 export async function runSpeedTest(
   downloadMb?: number,
   targetId?: string,
 ): Promise<SpeedTestResult> {
-  return invoke<SpeedTestResult>("run_speed_test", {
+  return invokeCommand<SpeedTestResult>("run_speed_test", {
     downloadMb: downloadMb || null,
     targetId: targetId || null,
   });
 }
 
+/**
+ * Checks whether the machine currently has internet access.
+ */
 export async function checkInternet(): Promise<boolean> {
-  return invoke<boolean>("check_internet");
+  return invokeCommand<boolean>("check_internet");
 }
 
+/**
+ * Loads removable Windows app candidates from the repair broker.
+ */
 export async function getBloatwareCandidates(): Promise<BloatwareItem[]> {
-  return invoke<BloatwareItem[]>("get_bloatware_candidates");
+  return invokeCommand<BloatwareItem[]>("get_bloatware_candidates");
 }
 
+/**
+ * Removes selected Windows apps for the chosen repair target user.
+ */
 export async function repairRemoveBloatware(
   targetSid: string,
   packages: string[],
   removeProvisioned: boolean,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_remove_bloatware", {
+  return invokeCommand<RepairCommandResult>("repair_remove_bloatware", {
     targetSid,
     packages,
     removeProvisioned,
   });
 }
 
+/**
+ * Clears selected cache targets for the chosen repair target user.
+ */
 export async function repairClearCacheTargets(
   targetSid: string,
   targets: string[],
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_clear_cache_targets", {
+  return invokeCommand<RepairCommandResult>("repair_clear_cache_targets", {
     targetSid,
     targets,
   });
 }
 
+/**
+ * Reads the generated battery report HTML.
+ */
 export async function getBatteryReport(): Promise<BatteryReportResult> {
-  return invoke<BatteryReportResult>("get_battery_report");
+  return invokeCommand<BatteryReportResult>("get_battery_report");
 }
 
+/**
+ * Returns the condensed battery health summary used by the modal.
+ */
 export async function getBatterySummary(): Promise<BatterySummaryResult> {
-  return invoke<BatterySummaryResult>("get_battery_summary");
+  return invokeCommand<BatterySummaryResult>("get_battery_summary");
 }
 
+/**
+ * Fetches repair service connectivity and lock state.
+ */
 export async function getRepairServiceHealth(): Promise<RepairServiceHealth> {
-  return invoke<RepairServiceHealth>("get_repair_service_health");
+  return invokeCommand<RepairServiceHealth>("get_repair_service_health");
 }
 
+/**
+ * Returns the current repair session state for this UI client.
+ */
 export async function getRepairSessionStatus(): Promise<RepairSessionStatus> {
-  return invoke<RepairSessionStatus>("get_repair_session_status");
+  return invokeCommand<RepairSessionStatus>("get_repair_session_status");
 }
 
+/**
+ * Tries to auto-unlock repair mode for the current app instance.
+ */
 export async function autoUnlockRepairMode(
   appInstanceId: string,
   connectionId: string,
 ): Promise<RepairSessionStatus> {
-  return invoke<RepairSessionStatus>("auto_unlock_repair_mode", {
+  return invokeCommand<RepairSessionStatus>("auto_unlock_repair_mode", {
     appInstanceId,
     connectionId,
   });
 }
 
+/**
+ * Lists available user targets that support profile-sensitive repair actions.
+ */
 export async function listRepairTargets(): Promise<RepairTargetUser[]> {
-  return invoke<RepairTargetUser[]>("list_repair_targets");
+  return invokeCommand<RepairTargetUser[]>("list_repair_targets");
 }
 
+/**
+ * Explicitly unlocks repair mode for the current UI client.
+ */
 export async function unlockRepairMode(
   appInstanceId: string,
   connectionId: string,
 ): Promise<RepairSessionStatus> {
-  return invoke<RepairSessionStatus>("unlock_repair_mode", {
+  return invokeCommand<RepairSessionStatus>("unlock_repair_mode", {
     appInstanceId,
     connectionId,
   });
 }
 
+/**
+ * Locks the current repair session.
+ */
 export async function lockRepairMode(): Promise<RepairSessionStatus> {
-  return invoke<RepairSessionStatus>("lock_repair_mode");
+  return invokeCommand<RepairSessionStatus>("lock_repair_mode");
 }
 
+/**
+ * Adds a route through the elevated repair broker path.
+ */
 export async function repairAddRoute(
   destination: string,
   mask: string,
@@ -314,7 +407,7 @@ export async function repairAddRoute(
   metric: string,
   interfaceIndex?: string,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_add_route", {
+  return invokeCommand<RepairCommandResult>("repair_add_route", {
     destination,
     mask,
     gateway,
@@ -323,41 +416,59 @@ export async function repairAddRoute(
   });
 }
 
+/**
+ * Deletes a route through the elevated repair broker path.
+ */
 export async function repairDeleteRoute(
   destination: string,
   mask: string,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_delete_route", { destination, mask });
+  return invokeCommand<RepairCommandResult>("repair_delete_route", { destination, mask });
 }
 
+/**
+ * Flushes routes through the elevated repair broker path.
+ */
 export async function repairFlushRoutes(): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_flush_routes");
+  return invokeCommand<RepairCommandResult>("repair_flush_routes");
 }
 
+/**
+ * Sets a NIC gateway through the elevated repair broker path.
+ */
 export async function repairSetDefaultGateway(
   gateway: string,
   interfaceIndex: string,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_set_default_gateway", {
+  return invokeCommand<RepairCommandResult>("repair_set_default_gateway", {
     gateway,
     interfaceIndex,
   });
 }
 
+/**
+ * Persists startup replay config through the repair broker.
+ */
 export async function repairSavePersistConfig(
   config: PersistConfig,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_save_persist_config", { config });
+  return invokeCommand<RepairCommandResult>("repair_save_persist_config", { config });
 }
 
+/**
+ * Clears startup replay config through the repair broker.
+ */
 export async function repairClearPersistConfig(): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_clear_persist_config");
+  return invokeCommand<RepairCommandResult>("repair_clear_persist_config");
 }
 
+/**
+ * Executes a predefined repair action on the broker.
+ */
 export async function runRepairMachineAction(
   action: RepairMachineAction,
 ): Promise<RepairCommandResult> {
-  return invoke<RepairCommandResult>("repair_run_machine_action", { action });
+  return invokeCommand<RepairCommandResult>("repair_run_machine_action", { action });
 }
 
 // ======================== PERSIST CONFIG ========================
@@ -389,24 +500,36 @@ export interface PersistConfig {
   updated_at?: string;
 }
 
+/**
+ * Writes the persisted startup config from the non-elevated frontend path.
+ */
 export async function persistSaveConfig(
   config: PersistConfig,
 ): Promise<void> {
-  return invoke<void>("persist_save_config", { config });
+  return invokeCommand<void>("persist_save_config", { config });
 }
 
+/**
+ * Reads the current persisted startup config.
+ */
 export async function persistLoadConfig(): Promise<PersistConfig | null> {
-  return invoke<PersistConfig | null>("persist_load_config");
+  return invokeCommand<PersistConfig | null>("persist_load_config");
 }
 
+/**
+ * Resolves the stable NIC identifier for one interface index.
+ */
 export async function persistGetNicStableId(
   interfaceIndex: string,
 ): Promise<NicIdentifier> {
-  return invoke<NicIdentifier>("persist_get_nic_stable_id", { interfaceIndex });
+  return invokeCommand<NicIdentifier>("persist_get_nic_stable_id", { interfaceIndex });
 }
 
+/**
+ * Resolves stable NIC identifiers for multiple interface indexes in one round-trip.
+ */
 export async function persistGetNicStableIds(
   interfaceIndexes: string[],
 ): Promise<NicIdentifier[]> {
-  return invoke<NicIdentifier[]>("persist_get_nic_stable_ids", { interfaceIndexes });
+  return invokeCommand<NicIdentifier[]>("persist_get_nic_stable_ids", { interfaceIndexes });
 }

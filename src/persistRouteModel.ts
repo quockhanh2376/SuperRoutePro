@@ -1,5 +1,8 @@
 import type { CustomRoute, NicIdentifier, RouteEntry } from "./api";
 
+/**
+ * Filters out routes that should never be written into startup persistence config.
+ */
 export function isPersistableCustomRoute(route: RouteEntry): boolean {
   return (
     route.destination !== "0.0.0.0" &&
@@ -10,6 +13,9 @@ export function isPersistableCustomRoute(route: RouteEntry): boolean {
   );
 }
 
+/**
+ * Collects the unique interface indexes referenced by persistable custom routes.
+ */
 export function getPersistRouteInterfaceIndexes(routes: RouteEntry[]): string[] {
   const uniqueIndexes = new Set<string>();
   for (const route of routes) {
@@ -20,6 +26,9 @@ export function getPersistRouteInterfaceIndexes(routes: RouteEntry[]): string[] 
   return [...uniqueIndexes];
 }
 
+/**
+ * Converts live routing rows into the persisted custom-route schema.
+ */
 export function buildPersistCustomRoutes(
   routes: RouteEntry[],
   nicByInterfaceIndex: Map<string, NicIdentifier>,

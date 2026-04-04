@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fpingScan, pingHost } from "../api";
+import { fpingScan, pingHost, type FpingScanResult, type PingResult } from "../api";
+import { formatErrorMessage } from "../errorUtils";
 
 type PingMode = "ping" | "fping";
 
@@ -9,6 +10,8 @@ interface UsePingMonitorOptions {
   appendLines: (lines: string[]) => void;
   setStatusMessage: (message: string) => void;
   initialTarget?: string;
+  fpingScanFn?: (targets: string[], timeoutMs?: number) => Promise<FpingScanResult>;
+  pingHostFn?: (target: string, count?: number) => Promise<PingResult>;
 }
 
 interface UsePingMonitorResult {
@@ -26,6 +29,8 @@ export function usePingMonitor({
   appendLines,
   setStatusMessage,
   initialTarget = "1.1.1.1",
+  fpingScanFn = fpingScan,
+  pingHostFn = pingHost,
 }: UsePingMonitorOptions): UsePingMonitorResult {
   const [pingTarget, setPingTarget] = useState(initialTarget);
   const [pingMode, setPingMode] = useState<PingMode>("ping");
@@ -73,7 +78,7 @@ export function usePingMonitor({
       pingBusyRef.current = true;
       try {
         if (pingMode === "fping") {
-          const result = await fpingScan(fpingTargets, 1200);
+          const result = await fpingScanFn(fpingTargets, 1200);
           const stamp = new Date().toLocaleTimeString("en-GB");
           pingSeqRef.current += 1;
           const lines: string[] = [
@@ -88,7 +93,7 @@ export function usePingMonitor({
           }
           appendLines(lines);
         } else {
-          const result = await pingHost(target, 1);
+          const result = await pingHostFn(target, 1);
           const stamp = new Date().toLocaleTimeString("en-GB");
           pingSeqRef.current += 1;
           if (result.success) {
@@ -97,8 +102,10 @@ export function usePingMonitor({
             appendLine(`[${stamp}] Request timed out (${target})`);
           }
         }
-      } catch (err) {
-        appendLine(`[${new Date().toLocaleTimeString("en-GB")}] Ping error: ${err}`);
+      } catch (error: unknown) {
+        appendLine(
+          `[${new Date().toLocaleTimeString("en-GB")}] ${formatErrorMessage("Ping error", error)}`,
+        );
       } finally {
         pingBusyRef.current = false;
       }
@@ -115,7 +122,7 @@ export function usePingMonitor({
         pingLoopRef.current = null;
       }
     };
-  }, [appendLine, appendLines, initialTarget, pingMode, pingRunning, pingTarget]);
+  }, [appendLine, appendLines, fpingScanFn, initialTarget, pingHostFn, pingMode, pingRunning, pingTarget]);
 
   return {
     pingTarget,

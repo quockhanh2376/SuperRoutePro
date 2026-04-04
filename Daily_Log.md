@@ -5,6 +5,41 @@ Update it after each meaningful work session so the team and NotebookLM stay ali
 
 --------------------------------------------------------------------------------
 
+## 2026-04-04 - Phase 2 Through Phase 5 Completed: Safety, Tests, Docs, Profiling, And Polish
+
+**Done**
+- Finished the remaining `Phase 2` cleanup by moving app-shell, network snapshot, and battery summary concerns out of `src/App.tsx` into `src/hooks/useAppShellState.ts`, `src/hooks/useNetworkSnapshot.ts`, and `src/hooks/useBatterySummary.ts`.
+- Added dependency-injection seams for `src/App.tsx` so direct component tests can cover loading, route validation, NIC selection, modals, error states, and repair mode without fragile module mocking.
+- Added shared safety utilities in `src/errorUtils.ts` and `src/networkValidation.ts`, then wired them through `src/App.tsx`, `src/routeActions.ts`, `src/repairActions.ts`, `src/api.ts`, and the feature hooks so validation and error reporting are now consistent.
+- Added `src/components/AppErrorBoundary.tsx` and wrapped the app with it from `src/main.tsx`.
+- Extracted `HELP_GUIDE_CONTENT` into `src/constants/helpContent.ts`.
+- Added JSDoc across the core algorithm and API surface, including `src/hooks/ipScanPlan.ts`, `src/nicDescriptionModel.ts`, `src/batteryUtils.ts`, `src/persistRouteModel.ts`, `src/hooks/useRepairMode.ts`, and `src/api.ts`.
+- Added the frontend DOM test harness in `tests/setupDom.ts` plus new tests:
+  - `tests/App.test.tsx`
+  - `tests/useModal.test.tsx`
+  - `tests/useBufferedLog.test.tsx`
+  - `tests/usePingMonitor.test.tsx`
+  - `tests/networkValidation.test.ts`
+  - `tests/errorUtils.test.ts`
+  - `tests/ipScanPlan.test.ts`
+- Added frontend profiling via `scripts/profile-frontend.ts` and checked in the first baseline at `docs/performance-baseline.md`.
+- Removed the now-unused `esmock` dependency after switching App tests to explicit override injection.
+- Re-synced `OPTIMIZE.md` so the roadmap now reflects the actual completed state instead of the pre-pass snapshot.
+
+**Verification**
+- `npm run build`
+- `npm run test:node`
+- `npm run profile:frontend`
+- Current `src/App.tsx` size: 1,396 lines
+- Current `src/App.tsx` local state count: 4 `useState` calls
+
+**Notes And Decisions**
+- This pass intentionally favored stable seams and reusable utilities over a heavyweight reducer rewrite.
+- The roadmap is now effectively completed; the remaining work is stretch-goal territory such as numeric coverage gates or another shell decomposition pass if future changes make it worth the cost.
+- Rust/backend behavior was not changed in this pass.
+
+--------------------------------------------------------------------------------
+
 ## 2026-04-04 - Post-Phase-1 App.tsx Cleanup: Feature Hooks, Grouped State, And Roadmap Sync
 
 **Done**

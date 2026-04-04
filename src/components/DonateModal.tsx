@@ -33,6 +33,7 @@ export function DonateModal({ open, onClose }: DonateModalProps) {
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="donate-close-btn capsule-btn"
             title="Close"

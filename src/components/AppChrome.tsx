@@ -44,22 +44,27 @@ export const OutputConsole = memo(function OutputConsole({
             </span>
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={onShowCommand}
                 className={`capsule-btn compact-pill console-chip console-chip-command ${
                   diagnosticView === "command" ? "console-chip-command-active" : ""
                 }`}
+                aria-pressed={diagnosticView === "command"}
               >
                 Command
               </button>
               <button
+                type="button"
                 onClick={onShowRouting}
                 className={`capsule-btn compact-pill console-chip console-chip-routing ${
                   diagnosticView === "routing" ? "console-chip-routing-active" : ""
                 }`}
+                aria-pressed={diagnosticView === "routing"}
               >
                 Routing
               </button>
               <button
+                type="button"
                 onClick={diagnosticView === "routing" ? onShowRouting : onClearCommand}
                 className="capsule-btn compact-pill console-chip console-chip-refresh"
               >
@@ -81,6 +86,7 @@ export const OutputConsole = memo(function OutputConsole({
               Ping & Tracert Output
             </span>
             <button
+              type="button"
               onClick={onClearPing}
               className="capsule-btn compact-pill output-clear-btn"
             >
@@ -103,20 +109,54 @@ type FieldProps = {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
+  fieldId?: string;
+  error?: string;
   placeholder?: string;
+  inputMode?: "text" | "numeric" | "decimal";
 };
 
-export const Field = memo(function Field({ label, value, onChange, placeholder }: FieldProps) {
+export const Field = memo(function Field({
+  label,
+  value,
+  onChange,
+  onBlur,
+  fieldId,
+  error,
+  placeholder,
+  inputMode = "text",
+}: FieldProps) {
+  const describedById = error && fieldId ? `${fieldId}-error` : undefined;
+
   return (
     <div>
-      <label className="text-[0.6rem] text-slate-500 uppercase tracking-wider font-bold">{label}</label>
+      <label
+        htmlFor={fieldId}
+        className="text-[0.6rem] text-slate-500 uppercase tracking-wider font-bold"
+      >
+        {label}
+      </label>
       <input
+        id={fieldId}
         type="text"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
-        className="w-full mt-0.5 px-2.5 py-1.5 text-xs font-mono bg-[#0c1220] border border-slate-700/50 rounded-md focus:border-blue-500/50 focus:outline-none text-slate-200 placeholder:text-slate-700"
+        inputMode={inputMode}
+        aria-invalid={Boolean(error)}
+        aria-describedby={describedById}
+        className={`w-full mt-0.5 px-2.5 py-1.5 text-xs font-mono bg-[#0c1220] border rounded-md focus:outline-none text-slate-200 placeholder:text-slate-700 ${
+          error
+            ? "border-red-500/70 focus:border-red-400"
+            : "border-slate-700/50 focus:border-blue-500/50"
+        }`}
       />
+      {error && (
+        <p id={describedById} className="mt-1 text-[0.66rem] leading-4 text-red-300">
+          {error}
+        </p>
+      )}
     </div>
   );
 });
@@ -151,6 +191,7 @@ export const ActionBtn = memo(function ActionBtn({
 
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className={`capsule-btn flex items-center justify-center font-bold text-white border transition disabled:opacity-45 disabled:cursor-not-allowed ${sizeClass} ${colors[color] || colors.blue}`}
@@ -178,8 +219,10 @@ export const Section = memo(function Section({
   return (
     <div className="bg-[#1e293b]/50 border border-slate-700/30 rounded-xl overflow-hidden">
       <button
+        type="button"
         onClick={onToggle}
         className="capsule-btn-soft flex items-center justify-between w-full px-4 py-3 hover:bg-slate-700/20 transition"
+        aria-expanded={open}
       >
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4 text-blue-400" />
@@ -214,6 +257,7 @@ export const ToolBtn = memo(function ToolBtn({
   const toneClass = tone ?? "safe";
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className={`tool-card tool-card-${toneClass} ${compact ? "tool-card-compact" : ""} disabled:opacity-45 disabled:cursor-not-allowed`}

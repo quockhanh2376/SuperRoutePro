@@ -32,6 +32,7 @@ export function CacheModal(props: CacheModalProps) {
             </p>
           </div>
           <button
+            type="button"
             onClick={props.onClose}
             disabled={props.cleaning}
             className="cache-close-btn capsule-btn"
@@ -79,6 +80,7 @@ export function CacheModal(props: CacheModalProps) {
         <div className="cache-modal-footer">
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={props.onSelectAll}
               disabled={props.cleaning}
               className="capsule-btn compact-pill cache-tool-btn"
@@ -86,6 +88,7 @@ export function CacheModal(props: CacheModalProps) {
               Select All
             </button>
             <button
+              type="button"
               onClick={props.onClearSelection}
               disabled={props.cleaning}
               className="capsule-btn compact-pill cache-tool-btn"
@@ -97,6 +100,7 @@ export function CacheModal(props: CacheModalProps) {
           <div className="flex items-center gap-2">
             {props.cleaning && (
               <button
+                type="button"
                 onClick={props.onForceStop}
                 disabled={props.stopPending}
                 className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
@@ -105,6 +109,7 @@ export function CacheModal(props: CacheModalProps) {
               </button>
             )}
             <button
+              type="button"
               onClick={props.onClose}
               disabled={props.cleaning}
               className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"
@@ -112,6 +117,7 @@ export function CacheModal(props: CacheModalProps) {
               Close
             </button>
             <button
+              type="button"
               onClick={props.onStartCleanup}
               disabled={props.cleaning || props.selectedCount === 0}
               className="capsule-btn px-3 py-1.5 border border-amber-400/60 bg-amber-600/90 hover:bg-amber-500 text-white transition"

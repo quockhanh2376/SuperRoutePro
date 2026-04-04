@@ -8,6 +8,7 @@ import {
   type RepairSessionStatus,
   unlockRepairMode,
 } from "../api";
+import { formatErrorMessage, toErrorMessage } from "../errorUtils";
 
 interface UseRepairModeOptions {
   setStatusMessage: (message: string) => void;
@@ -32,6 +33,10 @@ const INITIAL_REPAIR_SESSION: RepairSessionStatus = {
   requires_unlock: true,
 };
 
+/**
+ * Manages repair-mode session state, available targets, and unlock/lock flows for
+ * privileged machine repair actions.
+ */
 export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRepairModeResult {
   const [repairSession, setRepairSession] = useState<RepairSessionStatus>(INITIAL_REPAIR_SESSION);
   const [selectedRepairTargetSid, setSelectedRepairTargetSid] = useState<string | null>(null);
@@ -55,8 +60,8 @@ export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRe
         setSelectedRepairTargetSid(activeTarget.sid);
         console.debug("Auto-selected target user:", activeTarget.account_name, activeTarget.sid);
       }
-    } catch (err) {
-      console.warn("Could not load repair targets:", err);
+    } catch (error: unknown) {
+      console.warn("Could not load repair targets:", error);
     }
   }, []);
 
@@ -87,10 +92,9 @@ export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRe
           if (!autoUnlocked.locked) {
             setStatusMessage("Repair Mode unlocked automatically for this app session.");
           }
-        } catch (autoUnlockErr) {
-          autoUnlockFailure =
-            autoUnlockErr instanceof Error ? autoUnlockErr.message : String(autoUnlockErr);
-          console.warn("Auto-unlock repair mode skipped:", autoUnlockErr);
+        } catch (autoUnlockError: unknown) {
+          autoUnlockFailure = toErrorMessage(autoUnlockError);
+          console.warn("Auto-unlock repair mode skipped:", autoUnlockError);
         }
       }
 
@@ -104,8 +108,8 @@ export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRe
       } else if (nextRepairSession?.locked) {
         setStatusMessage("Repair Mode is locked.");
       }
-    } catch (err) {
-      setStatusMessage(`Repair context error: ${err}`);
+    } catch (error: unknown) {
+      setStatusMessage(formatErrorMessage("Repair context error", error));
     } finally {
       setRepairLoading(false);
     }
@@ -122,8 +126,8 @@ export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRe
       const status = await unlockRepairMode(repairAppInstanceId, repairConnectionId);
       setRepairSession(status);
       setStatusMessage("Repair Mode unlocked for this app session.");
-    } catch (err) {
-      setStatusMessage(`Repair unlock error: ${err}`);
+    } catch (error: unknown) {
+      setStatusMessage(formatErrorMessage("Repair unlock error", error));
     } finally {
       setRepairUnlocking(false);
     }
@@ -134,8 +138,8 @@ export function useRepairMode({ setStatusMessage }: UseRepairModeOptions): UseRe
       const status = await lockRepairMode();
       setRepairSession(status);
       setStatusMessage("Repair Mode locked.");
-    } catch (err) {
-      setStatusMessage(`Repair lock error: ${err}`);
+    } catch (error: unknown) {
+      setStatusMessage(formatErrorMessage("Repair lock error", error));
     }
   }, [setStatusMessage]);
 

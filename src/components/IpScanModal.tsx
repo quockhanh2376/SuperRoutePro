@@ -65,6 +65,7 @@ export const IpScanModal = memo(function IpScanModal({
             )}
           </div>
           <button
+            type="button"
             onClick={onClose}
             disabled={running}
             className="scan-ip-close-btn capsule-btn"
@@ -94,10 +95,10 @@ export const IpScanModal = memo(function IpScanModal({
             <table className="scan-ip-table">
               <thead>
                 <tr>
-                  <th className="w-12">#</th>
-                  <th>Host</th>
-                  <th className="w-28">Status</th>
-                  <th className="w-24">Latency</th>
+                  <th scope="col" className="w-12">#</th>
+                  <th scope="col">Host</th>
+                  <th scope="col" className="w-28">Status</th>
+                  <th scope="col" className="w-24">Latency</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,6 +140,7 @@ export const IpScanModal = memo(function IpScanModal({
 
         <div className="scan-ip-modal-footer">
           <button
+            type="button"
             onClick={onStart}
             disabled={running || !plan}
             className="capsule-btn compact-pill cache-tool-btn"
@@ -148,6 +150,7 @@ export const IpScanModal = memo(function IpScanModal({
           <div className="flex items-center gap-2">
             {running && (
               <button
+                type="button"
                 onClick={onForceStop}
                 disabled={stopPending}
                 className="cache-force-stop-btn capsule-btn px-3 py-1.5 transition"
@@ -156,6 +159,7 @@ export const IpScanModal = memo(function IpScanModal({
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
               disabled={running}
               className="cache-footer-close-btn capsule-btn px-3 py-1.5 transition"

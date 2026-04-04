@@ -8,6 +8,7 @@ import {
   type BloatwareItem,
   type RepairSessionStatus,
 } from "../api";
+import { formatErrorMessage, formatOutputError } from "../errorUtils";
 import { useModal } from "./useModal";
 import { useProgressTracker } from "./useProgressTracker";
 
@@ -81,8 +82,8 @@ export function useBloatwareManager({
         });
         return next;
       });
-    } catch (err) {
-      setStatusMessage(`Bloatware list error: ${err}`);
+    } catch (error: unknown) {
+      setStatusMessage(formatErrorMessage("Bloatware list error", error));
     } finally {
       setLoading(false);
     }
@@ -198,9 +199,9 @@ export function useBloatwareManager({
           } else {
             failedCount += 1;
           }
-        } catch (err) {
+        } catch (error: unknown) {
           failedCount += 1;
-          appendCommandOutput(`Remove Apps - ${appLabel}`, `Error: ${err}`);
+          appendCommandOutput(`Remove Apps - ${appLabel}`, formatOutputError(error));
         }
 
         const processed = index + 1;
@@ -216,9 +217,9 @@ export function useBloatwareManager({
       setProgressText(`Done: ${successCount} success, ${failedCount} failed`);
       setSelectedPackages(new Set());
       await loadBloatwareList();
-    } catch (err) {
-      appendCommandOutput("Remove Apps", `Error: ${err}`);
-      setStatusMessage(`Remove Apps error: ${err}`);
+    } catch (error: unknown) {
+      appendCommandOutput("Remove Apps", formatOutputError(error));
+      setStatusMessage(formatErrorMessage("Remove Apps error", error));
       setProgressText("Removal aborted by error.");
     } finally {
       setRemoving(false);

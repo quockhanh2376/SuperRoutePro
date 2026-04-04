@@ -32,12 +32,14 @@ export function ConfirmDialog({
         <div className="confirm-dialog-body px-4 py-4 text-sm">{message}</div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-700">
           <button
+            type="button"
             onClick={onCancel}
             className="capsule-btn px-3 py-1.5 min-w-[84px] border border-slate-500 bg-slate-700/70 text-white font-semibold hover:bg-slate-600 transition"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={onConfirm}
             className="capsule-btn px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 transition"
           >

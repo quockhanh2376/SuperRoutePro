@@ -8,6 +8,7 @@ import {
   type SpeedTestResult,
   type SpeedTestTargetOption,
 } from "./api";
+import { toErrorMessage } from "./errorUtils";
 import { formatSpeedTestError } from "./speedTestError";
 import {
   formatMetricAmount,
@@ -16,7 +17,6 @@ import {
   useSpeedTestMetricSnapshot,
 } from "./speedTestMetricDisplay";
 import { isTauriRuntime, runMockSpeedTest } from "./speedTestDemo";
-import "./SpeedTestModal.css";
 
 const SPEED_TEST_PROGRESS_EVENT = "speed-test://progress";
 const DEFAULT_PROGRESS: SpeedTestProgress = {
@@ -207,8 +207,8 @@ export function SpeedTestModal({
           targets.some((target) => target.id === current) ? current : targets[0].id,
         );
       })
-      .catch((loadErr) => {
-        console.warn("Failed to load speed test targets:", loadErr);
+      .catch((loadError: unknown) => {
+        console.warn("Failed to load speed test targets:", toErrorMessage(loadError));
       });
 
     return () => {
@@ -311,8 +311,8 @@ export function SpeedTestModal({
           ? `Speed test done: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`
           : `Speed test demo ready: ${response.download_mbps.toFixed(1)} Mbps down / ${response.upload_mbps.toFixed(1)} Mbps up`,
       );
-    } catch (err) {
-      const message = formatSpeedTestError(err);
+    } catch (error: unknown) {
+      const message = formatSpeedTestError(error);
       setError(message);
       setProgress({
         stage: "idle",

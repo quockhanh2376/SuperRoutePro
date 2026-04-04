@@ -1,3 +1,6 @@
+/**
+ * Formats battery percentages while keeping missing values readable.
+ */
 export const formatBatteryPercent = (value: number | null | undefined, fractionDigits = 1): string => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "--";
@@ -5,6 +8,9 @@ export const formatBatteryPercent = (value: number | null | undefined, fractionD
   return `${value.toFixed(fractionDigits)}%`;
 };
 
+/**
+ * Formats raw battery capacity in mWh for summary cards.
+ */
 export const formatBatteryCapacity = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "--";
@@ -12,6 +18,9 @@ export const formatBatteryCapacity = (value: number | null | undefined): string 
   return `${value.toLocaleString("en-US")} mWh`;
 };
 
+/**
+ * Converts battery runtime minutes into a short human-readable label.
+ */
 export const formatBatteryMinutes = (value: number | null | undefined): string => {
   if (value === null || value === undefined || value <= 0) {
     return "--";
@@ -24,6 +33,9 @@ export const formatBatteryMinutes = (value: number | null | undefined): string =
   return `${hours}h ${minutes}m`;
 };
 
+/**
+ * Buckets battery wear into a simple support-friendly severity label.
+ */
 export const getBatteryWearLevel = (wearPercent: number | null | undefined): string => {
   if (wearPercent === null || wearPercent === undefined || Number.isNaN(wearPercent)) {
     return "Unknown";

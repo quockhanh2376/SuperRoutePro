@@ -33,6 +33,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
             </p>
           </div>
           <button
+            type="button"
             onClick={props.onClose}
             disabled={props.removing}
             className="bloatware-close-btn capsule-btn"
@@ -45,6 +46,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
         <div className="bloatware-toolbar">
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={props.onSelectAll}
               disabled={props.loading || props.removing}
               className="capsule-btn compact-pill bloatware-tool-btn"
@@ -52,6 +54,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
               Select All
             </button>
             <button
+              type="button"
               onClick={props.onSelectInstalled}
               disabled={props.loading || props.removing}
               className="capsule-btn compact-pill bloatware-tool-btn"
@@ -59,6 +62,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
               Select Installed
             </button>
             <button
+              type="button"
               onClick={props.onClearSelection}
               disabled={props.loading || props.removing}
               className="capsule-btn compact-pill bloatware-tool-btn"
@@ -80,10 +84,10 @@ export function BloatwareModal(props: BloatwareModalProps) {
             <table className="bloatware-table">
               <thead>
                 <tr>
-                  <th className="w-14">Pick</th>
-                  <th className="w-48">Application</th>
-                  <th>Package Name</th>
-                  <th className="w-28">Status</th>
+                  <th scope="col" className="w-14">Pick</th>
+                  <th scope="col" className="w-48">Application</th>
+                  <th scope="col">Package Name</th>
+                  <th scope="col" className="w-28">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,6 +135,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
 
         <div className="bloatware-modal-footer">
           <button
+            type="button"
             onClick={props.onClose}
             disabled={props.removing}
             className="bloatware-footer-close-btn capsule-btn px-3 py-1.5 transition"
@@ -138,6 +143,7 @@ export function BloatwareModal(props: BloatwareModalProps) {
             Close
           </button>
           <button
+            type="button"
             onClick={props.onRemoveSelected}
             disabled={props.removing || props.selectedCount === 0 || props.loading}
             className="capsule-btn px-3 py-1.5 border border-rose-400/60 bg-rose-600/85 hover:bg-rose-500 text-white transition"

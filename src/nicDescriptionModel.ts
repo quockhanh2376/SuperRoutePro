@@ -17,6 +17,9 @@ function normalizeDescription(description: string): string {
   return description.trim();
 }
 
+/**
+ * Detects the generic Windows adapter labels that should be replaced by richer metadata.
+ */
 export function isGenericNicDescription(description: string): boolean {
   const normalized = normalizeDescription(description);
   if (!normalized) {
@@ -26,6 +29,9 @@ export function isGenericNicDescription(description: string): boolean {
   return GENERIC_NIC_DESCRIPTION_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+/**
+ * Chooses the richer adapter description when one side is only a generic alias.
+ */
 export function choosePreferredNicDescription(current: string, next: string): string {
   const normalizedCurrent = normalizeDescription(current);
   const normalizedNext = normalizeDescription(next);
@@ -47,6 +53,9 @@ export function choosePreferredNicDescription(current: string, next: string): st
   return normalizedNext;
 }
 
+/**
+ * Preserves previously enriched NIC labels when a later snapshot regresses to generic names.
+ */
 export function stabilizeNicSnapshotDescriptions(
   previousNics: NetworkInterface[],
   nextNics: NetworkInterface[],
@@ -71,6 +80,9 @@ export function stabilizeNicSnapshotDescriptions(
   });
 }
 
+/**
+ * Re-links the selected NIC to the latest loaded NIC list by interface index.
+ */
 export function syncSelectedNicToList(
   selectedNic: NetworkInterface | null,
   nics: NetworkInterface[],
@@ -82,6 +94,9 @@ export function syncSelectedNicToList(
   return nics.find((nic) => nic.index === selectedNic.index) ?? selectedNic;
 }
 
+/**
+ * Applies persisted description metadata onto the live NIC list when available.
+ */
 export function mergeNicDescriptions(
   nics: NetworkInterface[],
   entries: NicDescriptionEntry[],

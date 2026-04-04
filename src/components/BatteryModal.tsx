@@ -41,6 +41,7 @@ export const BatteryModal = memo(function BatteryModal({
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={onRefresh}
               disabled={loading}
               className="capsule-btn compact-pill battery-refresh-btn"
@@ -48,6 +49,7 @@ export const BatteryModal = memo(function BatteryModal({
               {loading ? "Loading..." : "Refresh"}
             </button>
             <button
+              type="button"
               onClick={onClose}
               disabled={loading}
               className="battery-close-btn capsule-btn"

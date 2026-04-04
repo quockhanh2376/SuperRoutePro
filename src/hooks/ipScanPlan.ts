@@ -55,6 +55,9 @@ const maskToPrefix = (mask: string): number | null => {
   return prefix;
 };
 
+/**
+ * Builds a bounded subnet scan plan from the selected NIC and connected routes.
+ */
 export function buildIpScanPlan(nic: NetworkInterface, routes: RouteEntry[]): IpScanPlan | null {
   const nicOctets = parseIpv4(nic.ip);
   if (!nicOctets) return null;

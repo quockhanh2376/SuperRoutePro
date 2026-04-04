@@ -10,6 +10,8 @@ import {
   type PersistConfig,
   type RouteEntry,
 } from "./api";
+import { formatErrorMessage, getFirstValidationError } from "./errorUtils";
+import { validateRouteDeleteInput, validateRouteForm } from "./networkValidation";
 import { buildPersistCustomRoutes, getPersistRouteInterfaceIndexes } from "./persistRouteModel";
 import { getPersistStartupWriteMode } from "./persistStartupModel";
 import {
@@ -48,8 +50,14 @@ interface SetInternetArgs extends RouteActionContext {
 interface FlushRoutesArgs extends RouteActionContext {}
 
 export async function executeAddRouteAction(args: AddRouteArgs): Promise<void> {
-  if (!args.formDest || !args.formGw) {
-    args.setStatusMessage("Please fill Destination and Gateway");
+  const validationError = getFirstValidationError(validateRouteForm({
+    dest: args.formDest,
+    mask: args.formMask,
+    gw: args.formGw,
+    metric: args.formMetric,
+  }));
+  if (validationError) {
+    args.setStatusMessage(validationError);
     return;
   }
 
@@ -66,16 +74,20 @@ export async function executeAddRouteAction(args: AddRouteArgs): Promise<void> {
       appendOutput: true,
       refresh: true,
       successMessage: "Route added successfully!",
-      failureMessage: "Add Route - Failed",
+      failureMessage: "Add Route failed.",
     });
-  } catch (err) {
-    args.setStatusMessage(`Error: ${err}`);
+  } catch (error: unknown) {
+    args.setStatusMessage(formatErrorMessage("Add Route failed", error));
   }
 }
 
 export async function executeDeleteRouteAction(args: DeleteRouteArgs): Promise<void> {
-  if (!args.formDest) {
-    args.setStatusMessage("Please fill Destination IP");
+  const validationError = getFirstValidationError(validateRouteDeleteInput({
+    dest: args.formDest,
+    mask: args.formMask,
+  }));
+  if (validationError) {
+    args.setStatusMessage(validationError);
     return;
   }
 
@@ -86,10 +98,10 @@ export async function executeDeleteRouteAction(args: DeleteRouteArgs): Promise<v
       appendOutput: true,
       refresh: true,
       successMessage: "Route deleted!",
-      failureMessage: "Delete Route - Failed",
+      failureMessage: "Delete Route failed.",
     });
-  } catch (err) {
-    args.setStatusMessage(`Error: ${err}`);
+  } catch (error: unknown) {
+    args.setStatusMessage(formatErrorMessage("Delete Route failed", error));
   }
 }
 
@@ -144,10 +156,10 @@ export async function executeSetInternetAction(args: SetInternetArgs): Promise<v
         await args.handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
           appendOutput: true,
           successMessage: "Default gateway set. Persist on startup enabled.",
-          failureMessage: "Persist Startup Config - Failed",
+          failureMessage: "Persist Startup Config failed.",
         });
-      } catch (persistErr) {
-        console.warn("Failed to save persist config:", persistErr);
+      } catch (persistError: unknown) {
+        console.warn("Failed to save persist config:", persistError);
       }
     } else {
       try {
@@ -155,14 +167,14 @@ export async function executeSetInternetAction(args: SetInternetArgs): Promise<v
         await args.handleRepairCommandResult("Persist Startup Config", persistConfigResult, {
           appendOutput: true,
           successMessage: "Default gateway set. Persist on startup disabled.",
-          failureMessage: "Persist Startup Config - Failed",
+          failureMessage: "Persist Startup Config failed.",
         });
-      } catch (persistErr) {
-        console.warn("Failed to disable persist config:", persistErr);
+      } catch (persistError: unknown) {
+        console.warn("Failed to disable persist config:", persistError);
       }
     }
-  } catch (err) {
-    args.setStatusMessage(`Error: ${err}`);
+  } catch (error: unknown) {
+    args.setStatusMessage(formatErrorMessage("Set Default Gateway failed", error));
   }
 }
 
@@ -174,9 +186,9 @@ export async function executeFlushRoutesAction(args: FlushRoutesArgs): Promise<v
       appendOutput: true,
       refresh: true,
       successMessage: "All routes flushed!",
-      failureMessage: "Flush Routes - Failed",
+      failureMessage: "Flush Routes failed.",
     });
-  } catch (err) {
-    args.setStatusMessage(`Error: ${err}`);
+  } catch (error: unknown) {
+    args.setStatusMessage(formatErrorMessage("Flush Routes failed", error));
   }
 }

@@ -11,6 +11,7 @@ import {
   DEFAULT_CACHE_SELECTION,
   type CacheCleanupOption,
 } from "../constants/cacheTargets";
+import { formatErrorMessage, formatOutputError } from "../errorUtils";
 import { useModal } from "./useModal";
 import { useProgressTracker } from "./useProgressTracker";
 
@@ -187,9 +188,9 @@ export function useCacheCleanupManager({
           } else {
             failedCount += 1;
           }
-        } catch (err) {
+        } catch (error: unknown) {
           failedCount += 1;
-          appendCommandOutput(`Clear Cache - ${target.label}`, `Error: ${err}`);
+          appendCommandOutput(`Clear Cache - ${target.label}`, formatOutputError(error));
         }
 
         processedCount = index + 1;
@@ -218,9 +219,9 @@ export function useCacheCleanupManager({
         );
         setProgressText(`Done: ${successCount} success, ${failedCount} failed`);
       }
-    } catch (err) {
-      appendCommandOutput("Clear Cache", `Error: ${err}`);
-      setStatusMessage(`Clear Cache error: ${err}`);
+    } catch (error: unknown) {
+      appendCommandOutput("Clear Cache", formatOutputError(error));
+      setStatusMessage(formatErrorMessage("Clear Cache error", error));
       setProgressText("Cleanup aborted by error.");
     } finally {
       setCleaning(false);

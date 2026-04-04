@@ -2332,3 +2332,4 @@ html[data-zoom] {
     backdrop-filter: blur(0px);
   }
 }
+@import "./SpeedTestModal.css";
