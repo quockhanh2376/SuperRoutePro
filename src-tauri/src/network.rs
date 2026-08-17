@@ -155,15 +155,41 @@ pub fn add_route_blocking(
     metric: String,
     interface_index: Option<String>,
 ) -> Result<CommandResult, String> {
+    add_route_blocking_with_persistence(destination, mask, gateway, metric, interface_index, true)
+}
+
+pub(crate) fn add_route_blocking_with_persistence(
+    destination: String,
+    mask: String,
+    gateway: String,
+    metric: String,
+    interface_index: Option<String>,
+    persistent: bool,
+) -> Result<CommandResult, String> {
+    let routes = read_current_routes()?;
+    if has_matching_connected_route(&routes, &destination, &mask, interface_index.as_deref()) {
+        return Ok(CommandResult {
+            success: false,
+            output: format!(
+                "Route not added: {destination}/{mask} is an OS-managed connected/on-link route. Use a more-specific route or choose a remote destination prefix."
+            ),
+        });
+    }
+
+    let delete_args =
+        build_scoped_route_delete_args(&destination, &mask, &gateway, interface_index.as_deref());
+    let delete_arg_refs: Vec<&str> = delete_args.iter().map(String::as_str).collect();
     let _ = run_cmd_blocking(
         "route",
-        &["delete", &destination, "mask", &mask],
+        &delete_arg_refs,
         Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
     );
 
-    let mut args = vec![
-        "route",
-        "-p",
+    let mut args = Vec::new();
+    if persistent {
+        args.push("-p");
+    }
+    args.extend([
         "add",
         &destination,
         "mask",
@@ -171,7 +197,7 @@ pub fn add_route_blocking(
         &gateway,
         "metric",
         &metric,
-    ];
+    ]);
 
     let if_idx;
     if let Some(ref idx) = interface_index {
@@ -183,8 +209,8 @@ pub fn add_route_blocking(
     }
 
     let result = run_cmd_blocking(
-        args[0],
-        &args[1..],
+        "route",
+        &args,
         Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
     )?;
 
@@ -192,6 +218,61 @@ pub fn add_route_blocking(
         success: true,
         output: result,
     })
+}
+
+fn is_on_link_gateway(gateway: &str) -> bool {
+    matches!(
+        gateway.trim().to_ascii_lowercase().as_str(),
+        "on-link" | "0.0.0.0"
+    )
+}
+
+fn read_current_routes() -> Result<Vec<crate::network_snapshot::RouteEntry>, String> {
+    let adapters = crate::win32_net::enumerate_adapters_basic()?;
+    crate::network_snapshot::get_routing_table_blocking_with_adapters(&adapters)
+}
+
+fn has_matching_connected_route(
+    routes: &[crate::network_snapshot::RouteEntry],
+    destination: &str,
+    mask: &str,
+    interface_index: Option<&str>,
+) -> bool {
+    routes.iter().any(|route| {
+        if route.destination != destination
+            || route.netmask != mask
+            || !is_on_link_gateway(&route.gateway)
+        {
+            return false;
+        }
+
+        match interface_index.filter(|index| !index.is_empty()) {
+            Some(index) => route.interface_index.is_empty() || route.interface_index == index,
+            None => true,
+        }
+    })
+}
+
+fn build_scoped_route_delete_args(
+    destination: &str,
+    mask: &str,
+    gateway: &str,
+    interface_index: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
+        "delete".to_string(),
+        destination.to_string(),
+        "mask".to_string(),
+        mask.to_string(),
+        gateway.to_string(),
+    ];
+
+    if let Some(index) = interface_index.filter(|index| !index.is_empty()) {
+        args.push("if".to_string());
+        args.push(index.to_string());
+    }
+
+    args
 }
 
 /// Add a persistent route
@@ -212,6 +293,16 @@ pub async fn add_route(
 
 /// Delete a route
 pub fn delete_route_blocking(destination: String, mask: String) -> Result<CommandResult, String> {
+    let routes = read_current_routes()?;
+    if has_matching_connected_route(&routes, &destination, &mask, None) {
+        return Ok(CommandResult {
+            success: false,
+            output: format!(
+                "Route not deleted: {destination}/{mask} is an OS-managed connected/on-link route."
+            ),
+        });
+    }
+
     let result = run_cmd_blocking(
         "route",
         &["delete", &destination, "mask", &mask],
@@ -606,10 +697,11 @@ pub async fn check_internet() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_process_output, command_result_from_outputs,
-        contains_disallowed_shell_metacharacters, normalize_dhcp_timeout_error,
-        validate_network_command,
+        build_scoped_route_delete_args, collect_process_output, command_result_from_outputs,
+        contains_disallowed_shell_metacharacters, has_matching_connected_route,
+        normalize_dhcp_timeout_error, validate_network_command,
     };
+    use crate::network_snapshot::RouteEntry;
     use std::os::windows::process::ExitStatusExt;
     use std::process::{ExitStatus, Output};
     use std::time::Duration;
@@ -695,6 +787,76 @@ mod tests {
     }
 
     #[test]
+    fn same_prefix_connected_route_is_preserved() {
+        let routes = vec![RouteEntry {
+            destination: "10.184.1.0".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "7".to_string(),
+        }];
+
+        assert!(has_matching_connected_route(
+            &routes,
+            "10.184.1.0",
+            "255.255.255.0",
+            Some("7")
+        ));
+    }
+
+    #[test]
+    fn remote_route_does_not_match_connected_route_guard() {
+        let routes = vec![RouteEntry {
+            destination: "10.184.1.0".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "7".to_string(),
+        }];
+
+        assert!(!has_matching_connected_route(
+            &routes,
+            "10.184.0.0",
+            "255.255.255.0",
+            Some("7")
+        ));
+    }
+
+    #[test]
+    fn custom_route_replacement_delete_is_scoped_to_gateway_and_interface() {
+        assert_eq!(
+            build_scoped_route_delete_args("10.184.0.0", "255.255.255.0", "10.184.1.1", Some("7")),
+            vec![
+                "delete",
+                "10.184.0.0",
+                "mask",
+                "255.255.255.0",
+                "10.184.1.1",
+                "if",
+                "7",
+            ]
+        );
+    }
+
+    #[test]
+    fn unrelated_connected_route_is_not_selected_for_deletion_guard() {
+        let routes = vec![RouteEntry {
+            destination: "10.184.2.0".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "7".to_string(),
+        }];
+
+        assert!(!has_matching_connected_route(
+            &routes,
+            "10.184.0.0",
+            "255.255.255.0",
+            Some("7")
+        ));
+    }
+
+    #[test]
     fn normalize_dhcp_timeout_error_rewrites_step_timeout_to_overall_budget() {
         let normalized = normalize_dhcp_timeout_error(
             "Command timed out after 12s: ipconfig /renew".to_string(),
@@ -706,5 +868,4 @@ mod tests {
             "Command timed out after 90s: ipconfig /release && ipconfig /renew"
         );
     }
-
 }

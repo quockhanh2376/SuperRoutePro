@@ -196,21 +196,21 @@ fn apply_custom_route(route: &CustomRoute, interface_index: &str) -> Result<Stri
         &route.metric
     };
 
-    let output = run_route_command(&[
-        "add",
-        &route.destination,
-        "mask",
-        &route.mask,
-        &route.gateway,
-        "metric",
-        metric,
-        "if",
-        interface_index,
-    ])?;
+    let result = crate::network::add_route_blocking_with_persistence(
+        route.destination.clone(),
+        route.mask.clone(),
+        route.gateway.clone(),
+        metric.to_string(),
+        Some(interface_index.to_string()),
+        false,
+    )?;
+    if !result.success {
+        return Err(result.output);
+    }
 
     Ok(format!(
         "Persisted route {}/{} via {} applied on interface {}. {}",
-        route.destination, route.mask, route.gateway, interface_index, output
+        route.destination, route.mask, route.gateway, interface_index, result.output
     ))
 }
 
