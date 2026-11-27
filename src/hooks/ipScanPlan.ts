@@ -55,6 +55,11 @@ const maskToPrefix = (mask: string): number | null => {
   return prefix;
 };
 
+const isOnLinkGateway = (gateway: string): boolean => {
+  const normalized = gateway.trim().toLowerCase();
+  return normalized === "0.0.0.0" || normalized === "on-link";
+};
+
 /**
  * Builds a bounded subnet scan plan from the selected NIC and connected routes.
  */
@@ -69,7 +74,7 @@ export function buildIpScanPlan(nic: NetworkInterface, routes: RouteEntry[]): Ip
 
   const connectedRoute = routes.find((route) => {
     if (route.interface_index !== nic.index) return false;
-    if (route.gateway !== "0.0.0.0") return false;
+    if (!isOnLinkGateway(route.gateway)) return false;
     if (route.destination === "0.0.0.0" || route.netmask === "255.255.255.255") return false;
     return parseIpv4(route.destination) !== null && parseIpv4(route.netmask) !== null;
   });

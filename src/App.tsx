@@ -393,9 +393,7 @@ export default function App({ overrides }: AppProps = {}) {
     setRouteWatcherToast({
       tone: payload.status === "reapplied" ? "success" : "warning",
       title: payload.title,
-      message: payload.used_repair_host
-        ? `${payload.message} Repair Mode handled the restore.`
-        : payload.message,
+      message: payload.message,
       actionLabel: payload.status === "failed" ? "Open Routing Console" : undefined,
     });
 
