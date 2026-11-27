@@ -3,9 +3,10 @@ use crate::speed_test_targets::{
     SpeedTestTarget,
 };
 use chrono::Utc;
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
@@ -29,6 +30,9 @@ const TARGET_TRANSFER_DURATION_MIN_SECS: f64 = 4.0;
 const TARGET_TRANSFER_DURATION_MAX_SECS: f64 = 6.0;
 const CALIBRATION_DOWNLOAD_FLOOR_MB: u32 = 2;
 const MEBIBYTE: usize = 1024 * 1024;
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
+static UPLOAD_CHUNK_BUFFER: [u8; UPLOAD_CHUNK_BYTES] = [0u8; UPLOAD_CHUNK_BYTES];
+static SPEED_TEST_CLIENT: OnceLock<Client> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct SpeedTestTraceMetadata {
@@ -127,8 +131,8 @@ async fn run_speed_test_internal(
     target_id: Option<&str>,
 ) -> Result<SpeedTestResult, String> {
     let target = resolve_speed_test_target(target_id)?;
-    let client = build_client()?;
-    let target_context = fetch_target_context(&client, target).await.ok();
+    let client = shared_client()?;
+    let target_context = fetch_target_context(client, target).await.ok();
     let route_fit = resolve_speed_test_route_fit(target, target_context.as_ref().and_then(|context| context.trace.as_ref()));
     let resolved_colo = target_context
         .as_ref()
@@ -152,7 +156,7 @@ async fn run_speed_test_internal(
         build_preflight_message(target, &provider_label, target_context.as_ref()),
     )?;
 
-    let latency_measurement = measure_latency(&client, target).await?;
+    let latency_measurement = measure_latency(client, target).await?;
 
     emit_progress(
         app,
@@ -167,9 +171,9 @@ async fn run_speed_test_internal(
         ),
     )?;
 
-    let download_measurement = measure_download(&client, app, target, download_mb).await?;
+    let download_measurement = measure_download(client, app, target, download_mb).await?;
     let upload_bytes = resolve_upload_bytes(target, download_measurement.bytes_transferred);
-    let upload_measurement = measure_upload(&client, app, target, upload_bytes).await?;
+    let upload_measurement = measure_upload(client, app, target, upload_bytes).await?;
 
     emit_progress(
         app,
@@ -266,6 +270,14 @@ fn build_client() -> Result<Client, String> {
         .user_agent("SuperRoutePro-SpeedTest/1.0")
         .build()
         .map_err(|error| describe_reqwest_error("Speed test client setup", &error))
+}
+
+fn shared_client() -> Result<&'static Client, String> {
+    if let Some(client) = SPEED_TEST_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = build_client()?;
+    Ok(SPEED_TEST_CLIENT.get_or_init(|| client))
 }
 
 async fn measure_latency(
@@ -471,6 +483,50 @@ async fn run_download_attempt(
     Ok(measurement)
 }
 
+fn create_upload_body_stream(
+    upload_bytes: usize,
+    started: Instant,
+    app: Option<AppHandle>,
+) -> reqwest::Body {
+    let chunk_stream = stream::unfold(
+        (0usize, Instant::now(), app),
+        move |(sent_bytes, mut last_emit, app_handle)| async move {
+            if sent_bytes >= upload_bytes {
+                return None;
+            }
+
+            let next_chunk_len = (upload_bytes - sent_bytes).min(UPLOAD_CHUNK_BYTES);
+            let next_sent = sent_bytes + next_chunk_len;
+
+            if app_handle.is_some() && last_emit.elapsed() >= EMIT_INTERVAL {
+                let elapsed = started.elapsed().as_secs_f64().max(0.001);
+                let current_speed_mbps = bytes_to_mbps(next_sent, elapsed);
+                let percent =
+                    72.0 + ((next_sent as f64 / upload_bytes as f64).clamp(0.0, 1.0) * 24.0);
+                let _ = emit_progress(
+                    app_handle.as_ref(),
+                    "upload",
+                    percent,
+                    current_speed_mbps,
+                    format!(
+                        "Uploading test payload... {} / {} MB",
+                        next_sent / MEBIBYTE,
+                        upload_bytes / MEBIBYTE,
+                    ),
+                );
+                last_emit = Instant::now();
+            }
+
+            Some((
+                Ok::<&'static [u8], std::io::Error>(&UPLOAD_CHUNK_BUFFER[..next_chunk_len]),
+                (next_sent, last_emit, app_handle),
+            ))
+        },
+    );
+
+    reqwest::Body::wrap_stream(chunk_stream)
+}
+
 async fn measure_upload(
     client: &Client,
     app: Option<&AppHandle>,
@@ -488,14 +544,20 @@ async fn measure_upload(
         ),
     )?;
 
-    let payload = vec![0u8; upload_bytes];
     let started = Instant::now();
-    build_upload_request(client, target, payload, upload_stage_timeout(upload_bytes))
-        .send()
-        .await
-        .map_err(|error| describe_reqwest_error("Upload test", &error))?
-        .error_for_status()
-        .map_err(|error| describe_reqwest_error("Upload test", &error))?;
+    let body = create_upload_body_stream(upload_bytes, started, app.cloned());
+    build_upload_request(
+        client,
+        target,
+        body,
+        upload_bytes,
+        upload_stage_timeout(upload_bytes),
+    )
+    .send()
+    .await
+    .map_err(|error| describe_reqwest_error("Upload test", &error))?
+    .error_for_status()
+    .map_err(|error| describe_reqwest_error("Upload test", &error))?;
 
     let elapsed = started.elapsed();
     let upload_mbps = bytes_to_mbps(upload_bytes, elapsed.as_secs_f64().max(0.001));
@@ -542,19 +604,21 @@ fn build_download_request_url(target: SpeedTestTarget, download_bytes: usize) ->
 fn build_upload_request(
     client: &Client,
     target: SpeedTestTarget,
-    payload: Vec<u8>,
+    body: reqwest::Body,
+    payload_len: usize,
     stage_timeout: Duration,
 ) -> reqwest::RequestBuilder {
-    let payload_len = payload.len();
     match target.backend_kind {
         SpeedTestBackendKind::CloudflareAutoEdge => client
             .post(format!("{}?bytes={payload_len}", target.upload_url))
+            .header(reqwest::header::CONTENT_LENGTH, payload_len.to_string())
             .timeout(stage_timeout)
-            .body(payload),
+            .body(body),
         SpeedTestBackendKind::LibreSpeedRegional => client
             .post(target.upload_url)
+            .header(reqwest::header::CONTENT_LENGTH, payload_len.to_string())
             .timeout(stage_timeout)
-            .body(payload),
+            .body(body),
     }
 }
 
