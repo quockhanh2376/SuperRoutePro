@@ -108,43 +108,84 @@ mod native_icmp {
         ) -> u32;
     }
 
+    pub struct IcmpHandle {
+        handle: HANDLE,
+    }
+
+    impl IcmpHandle {
+        pub fn open() -> Result<Self, String> {
+            let handle = unsafe { IcmpCreateFile() };
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                return Err("IcmpCreateFile failed".to_string());
+            }
+            Ok(Self { handle })
+        }
+
+        pub fn send_echo(
+            &self,
+            ip: std::net::Ipv4Addr,
+            timeout_ms: u32,
+        ) -> Result<(u32, u8, usize), String> {
+            let payload = b"superroute-pro";
+            let mut reply_buffer = vec![0u8; mem::size_of::<IcmpEchoReply>() + payload.len() + 16];
+            let ip_addr = super::encode_icmp_ipv4(ip);
+
+            let reply_count = unsafe {
+                IcmpSendEcho(
+                    self.handle,
+                    ip_addr,
+                    payload.as_ptr() as *const c_void,
+                    payload.len() as u16,
+                    ptr::null(),
+                    reply_buffer.as_mut_ptr() as *mut c_void,
+                    reply_buffer.len() as u32,
+                    timeout_ms,
+                )
+            };
+
+            if reply_count == 0 {
+                return Err("Request timed out".to_string());
+            }
+
+            let reply = unsafe { &*(reply_buffer.as_ptr() as *const IcmpEchoReply) };
+            if reply.status != 0 {
+                return Err(format!("ICMP error status {}", reply.status));
+            }
+
+            Ok((reply.round_trip_time, reply.options.ttl, payload.len()))
+        }
+    }
+
+    impl Drop for IcmpHandle {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = IcmpCloseHandle(self.handle);
+            }
+        }
+    }
+
     pub fn send_echo(ip: std::net::Ipv4Addr, timeout_ms: u32) -> Result<(u32, u8, usize), String> {
-        let handle = unsafe { IcmpCreateFile() };
-        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-            return Err("IcmpCreateFile failed".to_string());
-        }
+        let handle = IcmpHandle::open()?;
+        handle.send_echo(ip, timeout_ms)
+    }
+}
 
-        let payload = b"superroute-pro";
-        let mut reply_buffer = vec![0u8; mem::size_of::<IcmpEchoReply>() + payload.len() + 16];
-        let ip_addr = super::encode_icmp_ipv4(ip);
-
-        let reply_count = unsafe {
-            IcmpSendEcho(
-                handle,
-                ip_addr,
-                payload.as_ptr() as *const c_void,
-                payload.len() as u16,
-                ptr::null(),
-                reply_buffer.as_mut_ptr() as *mut c_void,
-                reply_buffer.len() as u32,
-                timeout_ms,
-            )
-        };
-
-        unsafe {
-            let _ = IcmpCloseHandle(handle);
-        }
-
-        if reply_count == 0 {
-            return Err("Request timed out".to_string());
-        }
-
-        let reply = unsafe { &*(reply_buffer.as_ptr() as *const IcmpEchoReply) };
-        if reply.status != 0 {
-            return Err(format!("ICMP error status {}", reply.status));
-        }
-
-        Ok((reply.round_trip_time, reply.options.ttl, payload.len()))
+#[cfg(target_os = "windows")]
+fn ping_once_with_handle(
+    handle: &native_icmp::IcmpHandle,
+    target: &str,
+    timeout_ms: u32,
+) -> Result<(u32, String), String> {
+    let ip = resolve_ipv4_target(target)?;
+    match handle.send_echo(ip, timeout_ms) {
+        Ok((latency_ms, ttl, payload_len)) => Ok((
+            latency_ms,
+            format!(
+                "Reply from {}: bytes={} time={}ms TTL={}",
+                ip, payload_len, latency_ms, ttl
+            ),
+        )),
+        Err(error) => Err(error),
     }
 }
 
@@ -219,6 +260,39 @@ fn run_ping_series(target: &str, count: u32, timeout_ms: u32) -> PingResult {
     }
 }
 
+const FPING_MAX_WORKERS: usize = 64;
+
+fn fping_worker_count(target_count: usize) -> usize {
+    target_count.min(FPING_MAX_WORKERS)
+}
+
+#[cfg(target_os = "windows")]
+fn ping_once_target_with_handle(
+    handle: Option<&native_icmp::IcmpHandle>,
+    target: String,
+    timeout_ms: u32,
+) -> FpingHostResult {
+    let outcome = match handle {
+        Some(shared_handle) => ping_once_with_handle(shared_handle, &target, timeout_ms),
+        None => ping_once_blocking(&target, timeout_ms),
+    };
+    match outcome {
+        Ok((latency_ms, output)) => FpingHostResult {
+            target,
+            success: true,
+            latency_ms,
+            output,
+        },
+        Err(error) => FpingHostResult {
+            target,
+            success: false,
+            latency_ms: 0,
+            output: format!("Ping failed: {error}"),
+        },
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 fn ping_once_target(target: String, timeout_ms: u32) -> FpingHostResult {
     match ping_once_blocking(&target, timeout_ms) {
         Ok((latency_ms, output)) => FpingHostResult {
@@ -236,37 +310,11 @@ fn ping_once_target(target: String, timeout_ms: u32) -> FpingHostResult {
     }
 }
 
-#[tauri::command]
-pub async fn ping_host(target: String, count: Option<u32>) -> Result<PingResult, String> {
-    let target_owned = target.trim().to_string();
-    let count = count.unwrap_or(1).clamp(1, 8);
-    tauri::async_runtime::spawn_blocking(move || run_ping_series(&target_owned, count, 2_000))
-        .await
-        .map_err(|error| format!("Ping task join error: {error}"))
-}
-
-#[tauri::command]
-pub async fn fping_scan(
-    targets: Vec<String>,
-    timeout_ms: Option<u32>,
-) -> Result<FpingScanResult, String> {
-    let timeout = timeout_ms.unwrap_or(1200).clamp(200, 10_000);
-
-    let clean_targets: Vec<String> = targets
-        .into_iter()
-        .map(|target| target.trim().to_string())
-        .filter(|target| !target.is_empty())
-        .take(512)
-        .collect();
-
-    if clean_targets.is_empty() {
-        return Err("No targets provided".to_string());
-    }
-
-    let cpu_workers = thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(4);
-    let worker_count = clean_targets.len().min(64).min(cpu_workers.max(1));
+fn run_fping_scan_blocking(
+    clean_targets: Vec<String>,
+    timeout: u32,
+) -> FpingScanResult {
+    let worker_count = fping_worker_count(clean_targets.len());
 
     let queue = Arc::new(Mutex::new(
         clean_targets
@@ -282,26 +330,35 @@ pub async fn fping_scan(
     for _ in 0..worker_count {
         let queue_ref = Arc::clone(&queue);
         let results_ref = Arc::clone(&results);
-        workers.push(thread::spawn(move || loop {
-            let job = {
-                let mut guard = match queue_ref.lock() {
+        workers.push(thread::spawn(move || {
+            #[cfg(target_os = "windows")]
+            let icmp_handle = native_icmp::IcmpHandle::open().ok();
+
+            loop {
+                let job = {
+                    let mut guard = match queue_ref.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    guard.pop_front()
+                };
+
+                let (index, target) = match job {
+                    Some(job) => job,
+                    None => break,
+                };
+
+                #[cfg(target_os = "windows")]
+                let result = ping_once_target_with_handle(icmp_handle.as_ref(), target, timeout);
+                #[cfg(not(target_os = "windows"))]
+                let result = ping_once_target(target, timeout);
+
+                let mut guard = match results_ref.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
                 };
-                guard.pop_front()
-            };
-
-            let (index, target) = match job {
-                Some(job) => job,
-                None => break,
-            };
-
-            let result = ping_once_target(target, timeout);
-            let mut guard = match results_ref.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            guard.push((index, result));
+                guard.push((index, result));
+            }
         }));
     }
 
@@ -340,7 +397,7 @@ pub async fn fping_scan(
         live_latencies.iter().sum::<u32>() / live_latencies.len() as u32
     };
 
-    Ok(FpingScanResult {
+    FpingScanResult {
         sent,
         received,
         loss_percent,
@@ -348,7 +405,39 @@ pub async fn fping_scan(
         avg_ms,
         max_ms,
         hosts,
-    })
+    }
+}
+
+#[tauri::command]
+pub async fn ping_host(target: String, count: Option<u32>) -> Result<PingResult, String> {
+    let target_owned = target.trim().to_string();
+    let count = count.unwrap_or(1).clamp(1, 8);
+    tauri::async_runtime::spawn_blocking(move || run_ping_series(&target_owned, count, 2_000))
+        .await
+        .map_err(|error| format!("Ping task join error: {error}"))
+}
+
+#[tauri::command]
+pub async fn fping_scan(
+    targets: Vec<String>,
+    timeout_ms: Option<u32>,
+) -> Result<FpingScanResult, String> {
+    let timeout = timeout_ms.unwrap_or(1200).clamp(200, 10_000);
+
+    let clean_targets: Vec<String> = targets
+        .into_iter()
+        .map(|target| target.trim().to_string())
+        .filter(|target| !target.is_empty())
+        .take(512)
+        .collect();
+
+    if clean_targets.is_empty() {
+        return Err("No targets provided".to_string());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || run_fping_scan_blocking(clean_targets, timeout))
+        .await
+        .map_err(|error| format!("Fping scan task join error: {error}"))
 }
 
 #[cfg(test)]
@@ -388,5 +477,24 @@ mod tests {
             "expected actual payload length (14 bytes), got: {}",
             result.output
         );
+    }
+
+    #[test]
+    fn fping_worker_count_scales_to_io_bound_limit() {
+        assert_eq!(super::fping_worker_count(1), 1);
+        assert_eq!(super::fping_worker_count(16), 16);
+        assert_eq!(super::fping_worker_count(254), 64);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shared_icmp_handle_reuses_handle_across_multiple_echoes() {
+        let handle = super::native_icmp::IcmpHandle::open().expect("IcmpHandle should open");
+        let first = super::ping_once_with_handle(&handle, "127.0.0.1", 2_000)
+            .expect("first echo on shared handle should succeed");
+        let second = super::ping_once_with_handle(&handle, "127.0.0.1", 2_000)
+            .expect("second echo on shared handle should succeed");
+        assert!(first.1.contains("Reply from 127.0.0.1: bytes=14 "));
+        assert!(second.1.contains("Reply from 127.0.0.1: bytes=14 "));
     }
 }
