@@ -50,6 +50,42 @@ test("usePingMonitor runs the single-host ping path immediately on start", async
   assert.ok(statuses.some((message) => message.includes("continuously")));
 });
 
+test("usePingMonitor displays the real Reply line with actual bytes and TTL from backend output", async () => {
+  const lines: string[] = [];
+  window.setInterval = (() => 1) as unknown as typeof window.setInterval;
+  window.clearInterval = (() => {}) as typeof window.clearInterval;
+
+  const { result } = renderHook(() => usePingMonitor({
+    appendLine: (line) => {
+      lines.push(line);
+    },
+    appendLines: (nextLines) => {
+      lines.push(...nextLines);
+    },
+    setStatusMessage: () => {},
+    initialTarget: "192.168.88.1",
+    pingHostFn: async () => ({
+      success: true,
+      latency_ms: 2,
+      output: [
+        "Pinging 192.168.88.1 with native ICMP...",
+        "Reply from 192.168.88.1: bytes=14 time=2ms TTL=64",
+        "",
+        "Summary: sent=1 received=1 lost=0",
+      ].join("\n"),
+    }),
+  }));
+
+  act(() => {
+    result.current.handleStartPing();
+  });
+
+  await waitFor(() => {
+    assert.ok(lines.some((line) => line.includes("Reply from 192.168.88.1: bytes=14 time=2ms TTL=64")));
+  });
+  assert.equal(lines.some((line) => line.includes("TTL=52") || line.includes("bytes=32")), false);
+});
+
 test("usePingMonitor supports fping mode with batch host output", async () => {
   const lines: string[] = [];
   window.setInterval = (() => 1) as unknown as typeof window.setInterval;
