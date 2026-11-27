@@ -48,6 +48,16 @@ foreach ($bin in $bins) {
         throw "Expected sidecar binary was not built: $sourcePath"
     }
 
+    $sourceInfo = Get-Item -LiteralPath $sourcePath
+    if ($sourceInfo.Length -le 0) {
+        throw "Built sidecar binary is empty (0 bytes): $sourcePath"
+    }
+
     $destPath = Join-Path $binariesDir "$bin-$targetTriple.exe"
     Copy-Item $sourcePath -Destination $destPath -Force
+
+    $destInfo = Get-Item -LiteralPath $destPath
+    if ($destInfo.Length -le 0) {
+        throw "Copied sidecar binary is empty (0 bytes): $destPath"
+    }
 }
