@@ -105,13 +105,24 @@ fn save_config_to_path(path: &Path, config: &PersistConfig) -> Result<(), String
         .unwrap_or(CONFIG_FILE_NAME);
     let tmp_path = path.with_file_name(format!("{file_name}.{pid}.{seq}.tmp"));
 
-    {
+    let write_result: Result<(), String> = (|| {
         let mut tmp_file = std::fs::File::create(&tmp_path)
             .map_err(|e| format!("Failed to create temp file {}: {e}", tmp_path.display()))?;
         tmp_file
             .write_all(json.as_bytes())
             .map_err(|e| format!("Failed to write temp file {}: {e}", tmp_path.display()))?;
-        let _ = tmp_file.sync_all();
+        tmp_file
+            .flush()
+            .map_err(|e| format!("Failed to flush temp file {}: {e}", tmp_path.display()))?;
+        tmp_file
+            .sync_all()
+            .map_err(|e| format!("Failed to sync temp file {}: {e}", tmp_path.display()))?;
+        Ok(())
+    })();
+
+    if let Err(err) = write_result {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(err);
     }
 
     let mut last_err = None;
