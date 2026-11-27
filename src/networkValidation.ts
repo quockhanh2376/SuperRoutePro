@@ -12,6 +12,21 @@ const IPV4_SEGMENT_COUNT = 4;
 const IPV4_OCTET_MAX = 255;
 const ROUTE_METRIC_MIN = 1;
 const ROUTE_METRIC_MAX = 9999;
+const HOSTNAME_MAX_LENGTH = 253;
+const HOSTNAME_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+/**
+ * Validates that a host target is either a valid IPv4 address or hostname (and never a CLI flag).
+ */
+export function isValidHostTarget(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("-") || trimmed.length > HOSTNAME_MAX_LENGTH) {
+    return false;
+  }
+
+  return isValidIpv4Address(trimmed) || HOSTNAME_PATTERN.test(trimmed);
+}
 
 /**
  * Parses an IPv4 string into four octets, or returns null when invalid.

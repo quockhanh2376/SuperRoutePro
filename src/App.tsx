@@ -35,7 +35,7 @@ import {
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
 import { getNicTableMessage } from "./nicTableModel";
-import { validateRouteForm } from "./networkValidation";
+import { isValidHostTarget, validateRouteForm } from "./networkValidation";
 import { SpeedTestModal } from "./SpeedTestModal";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
@@ -832,6 +832,12 @@ export default function App({ overrides }: AppProps = {}) {
       .split(/[\s,;]+/)
       .map((t) => t.trim())
       .find(Boolean) || "8.8.8.8";
+    if (!isValidHostTarget(target)) {
+      const errorMessage = `Invalid tracert target: "${target}". Enter a valid IPv4 address or hostname.`;
+      appendPingLine(errorMessage);
+      setStatusMsg(errorMessage);
+      return;
+    }
     appendPingLine(`--- Tracert ${target} ---`);
     setStatusMsg(`Running tracert ${target}...`);
     try {

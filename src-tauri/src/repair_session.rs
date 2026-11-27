@@ -1,9 +1,47 @@
 use crate::repair_protocol::{
     RepairSessionStatus, UnlockRepairSessionRequest, UnlockRepairSessionResponse,
 };
+#[cfg(not(target_os = "windows"))]
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(not(target_os = "windows"))]
 static NEXT_UNLOCK_NONCE: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(target_os = "windows")]
+fn generate_unlock_nonce() -> String {
+    use std::fmt::Write;
+    use windows_sys::Win32::Security::Cryptography::{
+        BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    };
+
+    let mut bytes = [0u8; 32];
+    let status = unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+            bytes.len() as u32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+    };
+    assert_eq!(
+        status, 0,
+        "BCryptGenRandom failed while generating repair unlock token (NTSTATUS 0x{status:08x})"
+    );
+
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut hex, "{byte:02x}");
+    }
+    hex
+}
+
+#[cfg(not(target_os = "windows"))]
+fn generate_unlock_nonce() -> String {
+    format!(
+        "unlock-{}",
+        NEXT_UNLOCK_NONCE.fetch_add(1, Ordering::Relaxed)
+    )
+}
 
 #[derive(Debug, Default)]
 pub struct RepairSessionManager {
@@ -61,10 +99,7 @@ impl RepairSessionManager {
     ) -> UnlockRepairSessionRequest {
         let app_instance_id = app_instance_id.into();
         let connection_id = connection_id.into();
-        let nonce = format!(
-            "unlock-{}",
-            NEXT_UNLOCK_NONCE.fetch_add(1, Ordering::Relaxed)
-        );
+        let nonce = generate_unlock_nonce();
 
         self.pending_app_instance_id = Some(app_instance_id.clone());
         self.pending_connection_id = Some(connection_id.clone());
@@ -116,5 +151,24 @@ impl RepairSessionManager {
             target_sid: self.target_sid.clone(),
             requires_unlock: locked,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RepairSessionManager;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn issue_unlock_request_generates_64_char_random_hex_nonce() {
+        let mut manager = RepairSessionManager::new();
+        let first = manager.issue_unlock_request("app-1", "conn-1");
+        let second = manager.issue_unlock_request("app-1", "conn-2");
+
+        assert_eq!(first.nonce.len(), 64);
+        assert!(first.nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(second.nonce.len(), 64);
+        assert!(second.nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_ne!(first.nonce, second.nonce);
     }
 }
