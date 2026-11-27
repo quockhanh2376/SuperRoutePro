@@ -97,3 +97,89 @@ fn repair_broker_request_flow_reports_health_and_shutdowns_cleanly() {
     }
     assert!(should_exit);
 }
+
+#[test]
+fn repair_broker_survives_aborted_tcp_connection_and_serves_health() {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+    use super_route_pro_lib::repair_ipc::{decode_message, encode_message};
+    use super_route_pro_lib::repair_protocol::{RepairIpcRequest, RepairIpcResponse};
+
+    let probe_listener = TcpListener::bind(("127.0.0.1", 0)).expect("should reserve ephemeral port");
+    let port = probe_listener
+        .local_addr()
+        .expect("should have local addr")
+        .port();
+    drop(probe_listener);
+
+    let auth_token = "qc-broker-test-token";
+    let mut broker = Command::new(env!("CARGO_BIN_EXE_SuperRouteRepairBroker"))
+        .args([
+            "--serve",
+            &port.to_string(),
+            auth_token,
+            "qc-app",
+            "qc-conn",
+            &std::process::id().to_string(),
+        ])
+        .spawn()
+        .expect("SuperRouteRepairBroker binary should spawn");
+
+    // 1. Connect and immediately close without sending any bytes.
+    let mut aborted = None;
+    for _ in 0..40 {
+        if let Ok(stream) = TcpStream::connect(("127.0.0.1", port)) {
+            aborted = Some(stream);
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let aborted = aborted.expect("broker should accept initial TCP connection");
+    drop(aborted);
+
+    // 2. Follow up with a valid GetServiceHealth request.
+    let send_ipc = |request: RepairServiceRequest| -> RepairServiceResponse {
+        let mut client =
+            TcpStream::connect(("127.0.0.1", port)).expect("broker should still accept connections");
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("should set read timeout");
+        let encoded = encode_message(&RepairIpcRequest {
+            auth_token: auth_token.to_string(),
+            request,
+        })
+        .expect("request should encode");
+        client.write_all(&encoded).expect("request should write");
+        client.flush().expect("request should flush");
+
+        let mut len_bytes = [0_u8; 4];
+        client
+            .read_exact(&mut len_bytes)
+            .expect("response length should read");
+        let payload_len = u32::from_le_bytes(len_bytes) as usize;
+        let mut payload = vec![0_u8; payload_len];
+        client
+            .read_exact(&mut payload)
+            .expect("response payload should read");
+        let mut framed = len_bytes.to_vec();
+        framed.extend(payload);
+        let decoded: RepairIpcResponse = decode_message(&framed).expect("response should decode");
+        decoded.response
+    };
+
+    match send_ipc(RepairServiceRequest::GetServiceHealth) {
+        RepairServiceResponse::ServiceHealth(health) => {
+            assert!(health.connected, "broker should remain healthy after aborted connection");
+            assert!(!health.requires_unlock);
+        }
+        other => panic!("expected ServiceHealth response, got: {other:?}"),
+    }
+
+    // 3. Shut down broker cleanly.
+    let _ = send_ipc(RepairServiceRequest::Shutdown);
+    let status = broker.wait().expect("broker should exit cleanly");
+    assert!(status.success(), "broker exited with {status}");
+}

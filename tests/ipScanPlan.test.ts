@@ -37,3 +37,21 @@ test("buildIpScanPlan falls back to a /24 derived from the NIC when no usable ro
   assert.equal(plan?.subnetLabel, "192.168.88.0/24");
   assert.equal(plan?.source, "fallback");
 });
+
+test("buildIpScanPlan recognizes Windows On-link connected routes for non-/24 subnets", () => {
+  const routes: RouteEntry[] = [
+    {
+      destination: "192.168.88.0",
+      netmask: "255.255.254.0",
+      gateway: "On-link",
+      metric: "266",
+      interface_index: "7",
+    },
+  ];
+
+  const plan = buildIpScanPlan(NIC, routes);
+
+  assert.ok(plan);
+  assert.equal(plan?.source, "route");
+  assert.equal(plan?.subnetLabel, "192.168.88.0/23");
+});

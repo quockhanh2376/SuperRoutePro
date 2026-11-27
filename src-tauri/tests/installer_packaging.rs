@@ -82,4 +82,36 @@ fn installer_packaging_bundles_required_sidecars() {
         installer_hooks.contains("SuperRouteProRouteService"),
         "installer hooks should stop or delete the installed route service during update/uninstall"
     );
+    assert!(
+        installer_hooks.contains("SuperRouteRepairBroker.exe"),
+        "installer hooks should terminate SuperRouteRepairBroker.exe before replacing or removing files"
+    );
+    assert!(
+        installer_hooks.contains("!insertmacro STOP_REPAIR_AND_ROUTE_SERVICE preinstall")
+            && installer_hooks.contains("!insertmacro STOP_REPAIR_AND_ROUTE_SERVICE preuninstall"),
+        "installer hooks should stop broker and poll service stop with distinct labels in both PREINSTALL and PREUNINSTALL"
+    );
+    assert!(
+        installer_hooks.contains("IntCmp $R0 20"),
+        "installer hooks should bound service stop polling to 10 seconds (20 x 500ms)"
+    );
+
+    let release_csp = tauri_config["app"]["security"]["csp"]
+        .as_str()
+        .expect("release security.csp should be a non-null string");
+    assert!(
+        release_csp.contains("default-src 'self'") && release_csp.contains("connect-src"),
+        "release CSP should restrict default-src and allow Tauri IPC connect-src"
+    );
+    assert!(
+        !release_csp.contains("localhost:1420") && !release_csp.contains("ws://"),
+        "devCsp origins must not leak into release CSP"
+    );
+
+    let prepare_ps1 = std::fs::read_to_string("../scripts/prepare-repair-sidecars.ps1")
+        .expect("prepare-repair-sidecars.ps1 should be readable");
+    assert!(
+        prepare_ps1.contains("Length -le 0"),
+        "prepare-repair-sidecars.ps1 must fail when a built or staged sidecar is 0 bytes"
+    );
 }

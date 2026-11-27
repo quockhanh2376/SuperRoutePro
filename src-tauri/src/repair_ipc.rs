@@ -14,10 +14,25 @@ use std::time::{Duration, Instant};
 static REPAIR_SESSION_MANAGER: OnceLock<Mutex<RepairSessionManager>> = OnceLock::new();
 static ACTIVE_REPAIR_HOST: OnceLock<Mutex<Option<RepairHostConnection>>> = OnceLock::new();
 
-const REPAIR_HOST_TIMEOUT: Duration = Duration::from_secs(15);
+const REPAIR_HOST_CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
+const REPAIR_HOST_ACTION_TIMEOUT: Duration = Duration::from_secs(120);
+const REPAIR_HOST_APPX_TIMEOUT: Duration = Duration::from_secs(300);
 const REPAIR_HOST_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const REPAIR_HOST_UNLOCK_WAIT: Duration = Duration::from_secs(12);
 const REPAIR_HOST_UNLOCK_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+fn timeout_for_request(request: &RepairServiceRequest) -> Duration {
+    match request {
+        RepairServiceRequest::GetServiceHealth
+        | RepairServiceRequest::GetRepairSessionStatus
+        | RepairServiceRequest::UnlockRepairSession(_)
+        | RepairServiceRequest::LockRepairSession
+        | RepairServiceRequest::Shutdown => REPAIR_HOST_CONTROL_TIMEOUT,
+        RepairServiceRequest::RunMachineAction(_)
+        | RepairServiceRequest::RunProfileCleanup(_) => REPAIR_HOST_ACTION_TIMEOUT,
+        RepairServiceRequest::RunAppxRemoval(_) => REPAIR_HOST_APPX_TIMEOUT,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct RepairHostConnection {
@@ -146,10 +161,11 @@ fn send_request_to_host(
     let socket_address = address
         .parse()
         .map_err(|err| format!("Invalid repair host address {address}: {err}"))?;
+    let request_timeout = timeout_for_request(&request);
     let mut stream = TcpStream::connect_timeout(&socket_address, REPAIR_HOST_CONNECT_TIMEOUT)
         .map_err(|err| format!("Unable to connect to the repair host on {address}: {err}"))?;
-    let _ = stream.set_read_timeout(Some(REPAIR_HOST_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(REPAIR_HOST_TIMEOUT));
+    let _ = stream.set_read_timeout(Some(request_timeout));
+    let _ = stream.set_write_timeout(Some(request_timeout));
 
     let envelope = RepairIpcRequest {
         auth_token: host.auth_token.clone(),
@@ -428,8 +444,13 @@ pub fn run_appx_removal(request: AppxRemovalRequest) -> Result<RepairCommandResu
 mod tests {
     use super::{
         auto_unlock_local_session_with_check, local_session_can_run_privileged_actions_with,
+        timeout_for_request, REPAIR_HOST_ACTION_TIMEOUT, REPAIR_HOST_APPX_TIMEOUT,
+        REPAIR_HOST_CONTROL_TIMEOUT,
     };
-    use crate::repair_protocol::RepairSessionStatus;
+    use crate::repair_protocol::{
+        AppxRemovalRequest, ProfileCleanupRequest, RepairMachineAction, RepairServiceRequest,
+        RepairSessionStatus,
+    };
 
     #[test]
     fn local_session_requires_elevation_and_unlocked_state() {
@@ -477,5 +498,42 @@ mod tests {
                 .expect("standard process should return a status");
 
         assert!(status.locked, "non-elevated sessions should stay locked");
+    }
+
+    #[test]
+    fn timeout_for_request_scales_by_operation_type() {
+        assert_eq!(
+            timeout_for_request(&RepairServiceRequest::GetServiceHealth),
+            REPAIR_HOST_CONTROL_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_request(&RepairServiceRequest::GetRepairSessionStatus),
+            REPAIR_HOST_CONTROL_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_request(&RepairServiceRequest::RunMachineAction(
+                RepairMachineAction::RenewDhcpLease
+            )),
+            REPAIR_HOST_ACTION_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_request(&RepairServiceRequest::RunProfileCleanup(
+                ProfileCleanupRequest {
+                    target_sid: "S-1-5-21-1-2-3-1001".to_string(),
+                    targets: vec!["windows_update_cache".to_string()],
+                }
+            )),
+            REPAIR_HOST_ACTION_TIMEOUT
+        );
+        assert_eq!(
+            timeout_for_request(&RepairServiceRequest::RunAppxRemoval(
+                AppxRemovalRequest {
+                    target_sid: "S-1-5-21-1-2-3-1001".to_string(),
+                    packages: vec!["Microsoft.BingNews".to_string()],
+                    remove_provisioned: true,
+                }
+            )),
+            REPAIR_HOST_APPX_TIMEOUT
+        );
     }
 }

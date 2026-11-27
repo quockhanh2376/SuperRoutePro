@@ -10,12 +10,19 @@ export type IpScanPlan = {
 const IP_SCAN_MAX_TARGETS = 512;
 const FALLBACK_IP_SCAN_PREFIX = 24;
 
+const DECIMAL_OCTET_PATTERN = /^\d+$/;
+
 const parseIpv4 = (value: string): number[] | null => {
   const parts = value.trim().split(".");
   if (parts.length !== 4) return null;
-  const octets = parts.map((part) => Number.parseInt(part, 10));
-  if (octets.some((octet) => !Number.isFinite(octet) || octet < 0 || octet > 255)) {
-    return null;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!DECIMAL_OCTET_PATTERN.test(part)) return null;
+    const octet = Number.parseInt(part, 10);
+    if (!Number.isFinite(octet) || octet < 0 || octet > 255) {
+      return null;
+    }
+    octets.push(octet);
   }
   return octets;
 };
@@ -55,6 +62,11 @@ const maskToPrefix = (mask: string): number | null => {
   return prefix;
 };
 
+const isOnLinkGateway = (gateway: string): boolean => {
+  const normalized = gateway.trim().toLowerCase();
+  return normalized === "0.0.0.0" || normalized === "on-link";
+};
+
 /**
  * Builds a bounded subnet scan plan from the selected NIC and connected routes.
  */
@@ -69,7 +81,7 @@ export function buildIpScanPlan(nic: NetworkInterface, routes: RouteEntry[]): Ip
 
   const connectedRoute = routes.find((route) => {
     if (route.interface_index !== nic.index) return false;
-    if (route.gateway !== "0.0.0.0") return false;
+    if (!isOnLinkGateway(route.gateway)) return false;
     if (route.destination === "0.0.0.0" || route.netmask === "255.255.255.255") return false;
     return parseIpv4(route.destination) !== null && parseIpv4(route.netmask) !== null;
   });

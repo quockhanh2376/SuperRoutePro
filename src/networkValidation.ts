@@ -12,6 +12,23 @@ const IPV4_SEGMENT_COUNT = 4;
 const IPV4_OCTET_MAX = 255;
 const ROUTE_METRIC_MIN = 1;
 const ROUTE_METRIC_MAX = 9999;
+const HOSTNAME_MAX_LENGTH = 253;
+const HOSTNAME_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+/**
+ * Validates that a host target is either a valid IPv4 address or hostname (and never a CLI flag).
+ */
+export function isValidHostTarget(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("-") || trimmed.length > HOSTNAME_MAX_LENGTH) {
+    return false;
+  }
+
+  return isValidIpv4Address(trimmed) || HOSTNAME_PATTERN.test(trimmed);
+}
+
+const DECIMAL_OCTET_PATTERN = /^\d+$/;
 
 /**
  * Parses an IPv4 string into four octets, or returns null when invalid.
@@ -22,19 +39,16 @@ export function parseIpv4(value: string): number[] | null {
     return null;
   }
 
-  const octets = segments.map((segment) => Number.parseInt(segment, 10));
-  if (
-    octets.some((octet, index) => {
-      const segment = segments[index];
-      return (
-        segment.trim() === "" ||
-        !Number.isInteger(octet) ||
-        octet < 0 ||
-        octet > IPV4_OCTET_MAX
-      );
-    })
-  ) {
-    return null;
+  const octets: number[] = [];
+  for (const segment of segments) {
+    if (!DECIMAL_OCTET_PATTERN.test(segment)) {
+      return null;
+    }
+    const octet = Number.parseInt(segment, 10);
+    if (!Number.isInteger(octet) || octet < 0 || octet > IPV4_OCTET_MAX) {
+      return null;
+    }
+    octets.push(octet);
   }
 
   return octets;

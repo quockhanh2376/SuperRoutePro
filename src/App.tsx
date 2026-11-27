@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
-  Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Globe, Flame,
-  Activity, Send, Wrench, Monitor, Sun, Moon, OctagonAlert, Search,
-  ArrowDownUp, X, CircleHelp
+  Zap, Wifi, WifiOff, RefreshCw, Plus, Minus, Trash2, Flame,
+  Sun, Moon, OctagonAlert,
+  X, CircleHelp
 } from "lucide-react";
 import {
   getRoutingTable,
@@ -35,16 +35,18 @@ import {
   isProfileSensitiveActionEnabled,
 } from "./repairModeModel";
 import { getNicTableMessage } from "./nicTableModel";
-import { validateRouteForm } from "./networkValidation";
-import { SpeedTestModal } from "./SpeedTestModal";
+import { isValidHostTarget, validateRouteForm } from "./networkValidation";
 import { BatteryModal } from "./components/BatteryModal";
 import { BloatwareModal } from "./components/BloatwareModal";
 import { CacheModal } from "./components/CacheModal";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DonateModal } from "./components/DonateModal";
 import { HelpModal } from "./components/HelpModal";
-import { ActionBtn, Field, OutputConsole, Section, ToolBtn } from "./components/AppChrome";
+import { OutputConsole } from "./components/AppChrome";
 import { IpScanModal } from "./components/IpScanModal";
+import { NicTablePanel } from "./components/NicTablePanel";
+import { RightToolsPanel } from "./components/RightToolsPanel";
+import { RouteConfigPanel } from "./components/RouteConfigPanel";
 import { useAutoScroll } from "./hooks/useAutoScroll";
 import { useAppShellState } from "./hooks/useAppShellState";
 import { useBatterySummary } from "./hooks/useBatterySummary";
@@ -393,9 +395,7 @@ export default function App({ overrides }: AppProps = {}) {
     setRouteWatcherToast({
       tone: payload.status === "reapplied" ? "success" : "warning",
       title: payload.title,
-      message: payload.used_repair_host
-        ? `${payload.message} Repair Mode handled the restore.`
-        : payload.message,
+      message: payload.message,
       actionLabel: payload.status === "failed" ? "Open Routing Console" : undefined,
     });
 
@@ -834,6 +834,12 @@ export default function App({ overrides }: AppProps = {}) {
       .split(/[\s,;]+/)
       .map((t) => t.trim())
       .find(Boolean) || "8.8.8.8";
+    if (!isValidHostTarget(target)) {
+      const errorMessage = `Invalid tracert target: "${target}". Enter a valid IPv4 address or hostname.`;
+      appendPingLine(errorMessage);
+      setStatusMsg(errorMessage);
+      return;
+    }
     appendPingLine(`--- Tracert ${target} ---`);
     setStatusMsg(`Running tracert ${target}...`);
     try {
@@ -988,175 +994,48 @@ export default function App({ overrides }: AppProps = {}) {
       <div className="content-grid flex-1 overflow-hidden">
         {/* --- LEFT PANEL --- */}
         <div className="left-panel flex flex-col border-r overflow-hidden">
-          {/* NIC List */}
-          <div className="p-3 border-b border-slate-700/30">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Monitor className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Network Interfaces</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={activeOnly}
-                    onChange={(e) => setActiveOnly(e.target.checked)}
-                    className="w-3 h-3 rounded accent-blue-500"
-                  />
-                  <span className="text-[0.65rem] text-slate-500">Active only</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void loadData({ invalidateNicCache: true });
-                  }}
-                  disabled={loading}
-                  className="capsule-btn p-1.5 hover:bg-slate-700/50 text-slate-400 hover:text-white transition disabled:opacity-50"
-                  title="Refresh"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-                </button>
-              </div>
-            </div>
-            <div className="overflow-auto max-h-[140px] rounded-lg border border-slate-700/50 bg-[#0c1220]">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th scope="col" className="w-12">ID</th>
-                    <th scope="col" className="w-28">IPv4</th>
-                    <th scope="col" className="w-28">Gateway</th>
-                    <th scope="col">Device</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nics.map((nic) => (
-                    <tr
-                      key={nic.index}
-                      onClick={() => handleSelectNic(nic)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleSelectNic(nic);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={selectedNic?.index === nic.index}
-                      className={selectedNic?.index === nic.index ? "selected" : ""}
-                    >
-                      <td className="font-mono text-blue-300">{nic.index}</td>
-                      <td className="font-mono">{nic.ip}</td>
-                      <td className="font-mono text-slate-400">{nic.gateway || "-"}</td>
-                      <td className="truncate max-w-[150px]" title={nic.description}>{nic.description}</td>
-                    </tr>
-                  ))}
-                  {nicTableMessage && (
-                    <tr><td colSpan={4} className="text-center text-slate-600 py-4">{nicTableMessage}</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <NicTablePanel
+            activeOnly={activeOnly}
+            loading={loading}
+            nics={nics}
+            selectedNic={selectedNic}
+            nicTableMessage={nicTableMessage}
+            onActiveOnlyChange={(nextValue) => {
+              setActiveOnly(nextValue);
+              void loadData({ activeOnlyOverride: nextValue });
+            }}
+            onRefresh={() => {
+              void loadData({ invalidateNicCache: true });
+            }}
+            onSelectNic={handleSelectNic}
+          />
 
-          {/* Config Form */}
-          <div className="p-3 border-b border-slate-700/30">
-            <div className="route-form-grid mb-2">
-              <Field
-                fieldId="route-destination"
-                label="Destination"
-                value={routeForm.dest}
-                onChange={handleRouteDestChange}
-                onBlur={() => markRouteFieldTouched("dest")}
-                error={visibleRouteFormErrors.dest}
-                placeholder="10.0.0.0"
-              />
-              <Field
-                fieldId="route-mask"
-                label="Subnet Mask"
-                value={routeForm.mask}
-                onChange={handleRouteMaskChange}
-                onBlur={() => markRouteFieldTouched("mask")}
-                error={visibleRouteFormErrors.mask}
-                placeholder="255.255.255.0"
-              />
-              <Field
-                fieldId="route-gateway"
-                label="Gateway"
-                value={routeForm.gw}
-                onChange={handleRouteGatewayChange}
-                onBlur={() => markRouteFieldTouched("gw")}
-                error={visibleRouteFormErrors.gw}
-                placeholder="192.168.1.1"
-              />
-              <Field
-                fieldId="route-metric"
-                label="Metric"
-                value={routeForm.metric}
-                onChange={handleRouteMetricChange}
-                onBlur={() => markRouteFieldTouched("metric")}
-                error={visibleRouteFormErrors.metric}
-                placeholder="10"
-                inputMode="numeric"
-              />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <ActionBtn
-                icon={Plus}
-                label="ADD"
-                color="emerald"
-                onClick={handleAddRoute}
-                disabled={!machineRepairEnabled}
-                compact
-              />
-              <ActionBtn
-                icon={Trash2}
-                label="DEL"
-                color="red"
-                onClick={handleDeleteRoute}
-                disabled={!machineRepairEnabled}
-                compact
-              />
-              <ActionBtn
-                icon={Globe}
-                label="WAN"
-                color="blue"
-                disabled={!machineRepairEnabled}
-                compact
-                onClick={() => openConfirm(
-                  "Set Default Gateway",
-                  `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?\nPersist on startup: ${persistWanOnStartup ? "ON" : "OFF"}.`,
-                  executeSetInternet
-                )}
-              />
-              <ActionBtn
-                icon={Flame}
-                label="FLUSH"
-                color="orange"
-                disabled={!machineRepairEnabled}
-                compact
-                onClick={() => openConfirm(
-                  "Clear All Routes",
-                  "Clear ALL routes? This action is dangerous.",
-                  executeFlush
-                )}
-              />
-            </div>
-            <div className="wan-persist-row">
-              <label className="wan-persist-option">
-                <input
-                  type="checkbox"
-                  checked={persistWanOnStartup}
-                  onChange={(event) => setPersistWanOnStartup(event.target.checked)}
-                  disabled={persistWanLoading}
-                  className="w-3.5 h-3.5 rounded accent-blue-500"
-                />
-                <span>Persist on startup</span>
-              </label>
-              <span className="wan-persist-hint">
-                Save or clear one unified startup replay config when you click WAN
-              </span>
-            </div>
-          </div>
+          <RouteConfigPanel
+            routeForm={routeForm}
+            visibleRouteFormErrors={visibleRouteFormErrors}
+            machineRepairEnabled={machineRepairEnabled}
+            selectedNic={selectedNic}
+            persistWanOnStartup={persistWanOnStartup}
+            persistWanLoading={persistWanLoading}
+            onDestChange={handleRouteDestChange}
+            onMaskChange={handleRouteMaskChange}
+            onGatewayChange={handleRouteGatewayChange}
+            onMetricChange={handleRouteMetricChange}
+            onBlurField={markRouteFieldTouched}
+            onAddRoute={handleAddRoute}
+            onDeleteRoute={handleDeleteRoute}
+            onSetWan={() => openConfirm(
+              "Set Default Gateway",
+              `Route all traffic through ${selectedNic?.description ?? "selected NIC"}?\nPersist on startup: ${persistWanOnStartup ? "ON" : "OFF"}.`,
+              executeSetInternet
+            )}
+            onFlushRoutes={() => openConfirm(
+              "Clear All Routes",
+              "Clear ALL routes? This action is dangerous.",
+              executeFlush
+            )}
+            onPersistWanChange={setPersistWanOnStartup}
+          />
 
           {/* Unified Output Console */}
           <OutputConsole
@@ -1174,169 +1053,39 @@ export default function App({ overrides }: AppProps = {}) {
         </div>
 
         {/* --- RIGHT PANEL --- */}
-        <div className="right-panel overflow-y-auto p-3 space-y-2.5">
-          {/* Network Fix Tools */}
-          <Section
-            icon={Wrench}
-            title="Network Fix Tools"
-            open={panels.toolsOpen}
-            onToggle={handleToggleToolsPanel}
-          >
-            <div className="tool-grid">
-              <ToolBtn icon={Zap} label="Flush DNS" desc="Clear resolver cache"
-                onClick={() => executeRepairAction("FlushDns", "Flush DNS")} tone="safe" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={RefreshCw} label="Renew IP" desc="Release and renew DHCP"
-                onClick={() => executeRepairAction("RenewDhcpLease", "Renew IP", { refresh: true, invalidateNicCache: true })} tone="safe" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={Wifi} label="Wi-Fi Info" desc="Show WLAN interface details"
-                onClick={() => executeNetCmd("netsh wlan show interface", "Wi-Fi Info")} tone="system" />
-              <ToolBtn icon={Trash2} label="Clear ARP" desc="Flush ARP cache"
-                onClick={() => executeRepairAction("ClearArpCache", "Clear ARP", { refresh: true })} tone="system" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={Globe} label="Reset TCP/IP" desc="Reset network stack"
-                onClick={() => executeRepairAction("ResetTcpIp", "Reset TCP/IP", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={OctagonAlert} label="Reset Winsock" desc="Reset socket catalog"
-                onClick={() => executeRepairAction("ResetWinsock", "Reset Winsock", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={Flame} label="Reset Firewall" desc="Reset firewall to defaults"
-                onClick={() => executeRepairAction("ResetFirewall", "Reset Firewall", { refresh: true })} tone="danger" disabled={!machineRepairEnabled} />
-              <ToolBtn icon={Monitor} label="Battery Info" desc="View battery wear and lifetime summary"
-                onClick={batterySummary.handleOpenModal} tone="system" />
-            </div>
-          </Section>
-
-          <Section
-            icon={Monitor}
-            title="Diagnostics & Repair"
-            open={panels.diagnosticsOpen}
-            onToggle={handleToggleDiagnosticsPanel}
-          >
-            <div className="tool-grid mb-2">
-              <ToolBtn icon={Monitor} label="Display DNS Cache" desc="Inspect current resolver cache"
-                onClick={handleDisplayDnsCache} tone="safe" compact />
-              <ToolBtn icon={Wrench} label="Reset WinHTTP Proxy" desc="Clear system proxy settings"
-                onClick={handleResetWinHttpProxy} tone="system" compact disabled={!machineRepairEnabled} />
-              <ToolBtn icon={RefreshCw} label="Restart Adapters" desc="Restart active adapters"
-                onClick={handleRestartAdapters} tone="system" compact disabled={!machineRepairEnabled} />
-              <ToolBtn icon={Search} label="Scan IP" desc="Scan active subnet hosts"
-                onClick={handleOpenIpScanModal} tone="safe" compact />
-            </div>
-
-            <div className="diag-group">
-              <div className="diag-inline">
-                <input
-                  type="text"
-                  value={diagnosticsInputs.host}
-                  onChange={(e) => handleDiagHostChange(e.target.value)}
-                  placeholder="Domain or IP (e.g. google.com)"
-                  className="diag-input"
-                  aria-label="Diagnostic host"
-                />
-                <input
-                  type="text"
-                  value={diagnosticsInputs.port}
-                  onChange={(e) => handleDiagPortChange(e.target.value)}
-                  placeholder="Port"
-                  className="diag-input diag-port"
-                  inputMode="numeric"
-                  aria-label="Diagnostic port"
-                />
-                <button
-                  type="button"
-                  onClick={handlePortConnectivityTest}
-                  className="diag-action-btn"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  Port Test
-                </button>
-              </div>
-              <div className="diag-inline diag-inline-dns">
-                <input
-                  type="text"
-                  value={diagnosticsInputs.dnsServer}
-                  onChange={(e) => handleDiagDnsServerChange(e.target.value)}
-                  placeholder="DNS server (e.g. 8.8.8.8)"
-                  className="diag-input"
-                  aria-label="Diagnostic DNS server"
-                />
-                <button
-                  type="button"
-                  onClick={handleNslookupTest}
-                  className="diag-action-btn diag-action-btn-alt"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  NSLookup
-                </button>
-              </div>
-            </div>
-          </Section>
-
-          {/* Ping & Monitor */}
-          <Section
-            icon={Activity}
-            title="Ping & Tracert Monitor"
-            open={panels.pingOpen}
-            onToggle={handleTogglePingPanel}
-          >
-            <div className="segmented-control mb-2">
-              <button
-                type="button"
-                onClick={() => setPingMode("ping")}
-                className={`segment-btn ${pingMode === "ping" ? "segment-btn-active" : ""}`}
-                aria-pressed={pingMode === "ping"}
-              >
-                Ping
-              </button>
-              <button
-                type="button"
-                onClick={() => setPingMode("fping")}
-                className={`segment-btn ${pingMode === "fping" ? "segment-btn-active" : ""}`}
-                aria-pressed={pingMode === "fping"}
-              >
-                fping
-              </button>
-            </div>
-            <div className="ping-action-row mb-3">
-              <input
-                type="text"
-                placeholder={pingMode === "fping" ? "8.8.8.8 1.1.1.1 192.168.1.1" : "google.com or 8.8.8.8"}
-                value={pingTarget}
-                onChange={(e) => setPingTarget(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleStartPing()}
-                className="diag-input"
-                aria-label="Ping target"
-              />
-              <button
-                type="button"
-                onClick={handleStartPing}
-                disabled={pingRunning}
-                className="ping-cmd-btn ping-cmd-start"
-              >
-                <Send className="w-4 h-4" /> Start
-              </button>
-              <button
-                type="button"
-                onClick={handleStopPing}
-                disabled={!pingRunning}
-                className="ping-cmd-btn ping-cmd-stop"
-              >
-                <OctagonAlert className="w-4 h-4" />
-                Stop
-              </button>
-              <button
-                type="button"
-                onClick={handleTracertFromTarget}
-                className="ping-cmd-btn ping-cmd-trace"
-              >
-                <ArrowDownUp className="w-4 h-4" />
-                Tracert
-              </button>
-            </div>
-
-            <div className="text-[0.66rem] text-slate-500">
-              Ping and tracert logs are shown in the left Output Console.
-            </div>
-          </Section>
-
-          <SpeedTestModal onStatusChange={setStatusMsg} />
-        </div>
+        <RightToolsPanel
+          toolsOpen={panels.toolsOpen}
+          diagnosticsOpen={panels.diagnosticsOpen}
+          pingOpen={panels.pingOpen}
+          machineRepairEnabled={machineRepairEnabled}
+          diagnosticsHost={diagnosticsInputs.host}
+          diagnosticsPort={diagnosticsInputs.port}
+          diagnosticsDnsServer={diagnosticsInputs.dnsServer}
+          pingMode={pingMode}
+          pingTarget={pingTarget}
+          pingRunning={pingRunning}
+          onToggleToolsPanel={handleToggleToolsPanel}
+          onToggleDiagnosticsPanel={handleToggleDiagnosticsPanel}
+          onTogglePingPanel={handleTogglePingPanel}
+          onExecuteRepairAction={executeRepairAction}
+          onExecuteNetCmd={executeNetCmd}
+          onOpenBatteryModal={batterySummary.handleOpenModal}
+          onDisplayDnsCache={handleDisplayDnsCache}
+          onResetWinHttpProxy={handleResetWinHttpProxy}
+          onRestartAdapters={handleRestartAdapters}
+          onOpenIpScanModal={handleOpenIpScanModal}
+          onDiagHostChange={handleDiagHostChange}
+          onDiagPortChange={handleDiagPortChange}
+          onDiagDnsServerChange={handleDiagDnsServerChange}
+          onPortConnectivityTest={handlePortConnectivityTest}
+          onNslookupTest={handleNslookupTest}
+          onPingModeChange={setPingMode}
+          onPingTargetChange={setPingTarget}
+          onStartPing={handleStartPing}
+          onStopPing={handleStopPing}
+          onTracertFromTarget={handleTracertFromTarget}
+          onStatusChange={setStatusMsg}
+        />
       </div>
 
       {/* ====== FOOTER ====== */}

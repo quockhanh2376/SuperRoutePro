@@ -34,7 +34,10 @@ interface UseNetworkSnapshotResult {
   nics: NetworkInterface[];
   routes: RouteEntry[];
   selectedNic: NetworkInterface | null;
-  loadData: (options?: { invalidateNicCache?: boolean }) => Promise<void>;
+  loadData: (options?: {
+    invalidateNicCache?: boolean;
+    activeOnlyOverride?: boolean;
+  }) => Promise<void>;
   setActiveOnly: (activeOnly: boolean) => void;
   setRoutes: (value: RouteEntry[] | ((current: RouteEntry[]) => RouteEntry[])) => void;
   setSelectedNic: (
@@ -58,10 +61,12 @@ export function useNetworkSnapshot({
   setStatusMessage,
 }: UseNetworkSnapshotOptions): UseNetworkSnapshotResult {
   const [snapshot, setSnapshot] = useState<SnapshotState>(INITIAL_SNAPSHOT_STATE);
+  const activeOnlyRef = useRef(INITIAL_SNAPSHOT_STATE.activeOnly);
   const latestLoadRequestRef = useRef(0);
   const latestNicsRef = useRef<NetworkInterface[]>([]);
 
   const setActiveOnly = useCallback((activeOnly: boolean) => {
+    activeOnlyRef.current = activeOnly;
     setSnapshot((current) => ({
       ...current,
       activeOnly,
@@ -93,7 +98,10 @@ export function useNetworkSnapshot({
     }));
   }, []);
 
-  const loadData = useCallback(async (options?: { invalidateNicCache?: boolean }) => {
+  const loadData = useCallback(async (options?: {
+    invalidateNicCache?: boolean;
+    activeOnlyOverride?: boolean;
+  }) => {
     const requestId = latestLoadRequestRef.current + 1;
     latestLoadRequestRef.current = requestId;
     setSnapshot((current) => ({
@@ -110,7 +118,7 @@ export function useNetworkSnapshot({
         }
       }
 
-      const currentActiveOnly = snapshot.activeOnly;
+      const currentActiveOnly = options?.activeOnlyOverride ?? activeOnlyRef.current;
       const networkSnapshot = await getNetworkSnapshot(currentActiveOnly);
       if (requestId !== latestLoadRequestRef.current) {
         return;
@@ -180,7 +188,7 @@ export function useNetworkSnapshot({
       }));
       setStatusMessage(formatErrorMessage("Loading network snapshot failed", error));
     }
-  }, [setStatusMessage, snapshot.activeOnly]);
+  }, [setStatusMessage]);
 
   return {
     activeOnly: snapshot.activeOnly,

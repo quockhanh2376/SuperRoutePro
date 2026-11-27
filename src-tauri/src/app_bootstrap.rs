@@ -216,15 +216,22 @@ fn read_registry_string(
         return None;
     }
 
-    let mut buffer: Vec<u8> = vec![0u8; data_size as usize];
+    if data_size == 0 {
+        unsafe { RegCloseKey(hkey) };
+        return Some(String::new());
+    }
+
+    let wide_capacity = (data_size as usize).div_ceil(2);
+    let mut buffer: Vec<u16> = vec![0u16; wide_capacity];
+    let mut byte_len = (buffer.len() * std::mem::size_of::<u16>()) as u32;
     let status = unsafe {
         RegQueryValueExW(
             hkey,
             value_wide.as_ptr(),
             std::ptr::null(),
             &mut data_type,
-            buffer.as_mut_ptr(),
-            &mut data_size,
+            buffer.as_mut_ptr() as *mut u8,
+            &mut byte_len,
         )
     };
     unsafe { RegCloseKey(hkey) };
@@ -233,10 +240,8 @@ fn read_registry_string(
         return None;
     }
 
-    let wide_slice = unsafe {
-        std::slice::from_raw_parts(buffer.as_ptr() as *const u16, data_size as usize / 2)
-    };
-    let trimmed = wide_slice
+    let wide_len = (byte_len as usize / 2).min(buffer.len());
+    let trimmed = buffer[..wide_len]
         .iter()
         .copied()
         .take_while(|&c| c != 0)

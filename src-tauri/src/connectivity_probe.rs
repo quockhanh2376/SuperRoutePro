@@ -1,4 +1,5 @@
 use reqwest::{redirect::Policy, Client, StatusCode};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,8 @@ struct ConnectivityProbeTarget {
 }
 
 const CONNECTIVITY_PROBE_TIMEOUT_SECS: u64 = 2;
+const CONNECTIVITY_PROBE_MAX_BODY_BYTES: usize = 4 * 1024;
+static CONNECTIVITY_PROBE_CLIENT: OnceLock<Client> = OnceLock::new();
 const CONNECTIVITY_PROBE_USER_AGENT: &str =
     concat!("SuperRoutePro/", env!("CARGO_PKG_VERSION"), " ConnectivityProbe");
 const CONNECTIVITY_PROBE_TARGETS: [ConnectivityProbeTarget; 2] = [
@@ -64,6 +67,41 @@ fn build_connectivity_probe_client() -> Result<Client, String> {
         .map_err(|error| format!("Failed to build internet probe client: {error}"))
 }
 
+fn shared_connectivity_probe_client() -> Result<&'static Client, String> {
+    if let Some(client) = CONNECTIVITY_PROBE_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = build_connectivity_probe_client()?;
+    Ok(CONNECTIVITY_PROBE_CLIENT.get_or_init(|| client))
+}
+
+fn append_bounded_chunk(buffer: &mut Vec<u8>, chunk: &[u8], max_bytes: usize) -> bool {
+    let remaining = max_bytes.saturating_sub(buffer.len());
+    if remaining == 0 {
+        return true;
+    }
+    let to_copy = remaining.min(chunk.len());
+    buffer.extend_from_slice(&chunk[..to_copy]);
+    buffer.len() >= max_bytes
+}
+
+async fn read_bounded_response_body(
+    mut response: reqwest::Response,
+    target_url: &str,
+) -> Result<String, String> {
+    let mut buffer = Vec::with_capacity(CONNECTIVITY_PROBE_MAX_BODY_BYTES);
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("Connectivity probe body read failed for {target_url}: {error}"))?
+    {
+        if append_bounded_chunk(&mut buffer, &chunk, CONNECTIVITY_PROBE_MAX_BODY_BYTES) {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&buffer).into_owned())
+}
+
 async fn probe_connectivity_target(
     client: &Client,
     target: ConnectivityProbeTarget,
@@ -74,22 +112,19 @@ async fn probe_connectivity_target(
         .await
         .map_err(|error| format!("Connectivity probe request failed for {}: {error}", target.url))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| format!("Connectivity probe body read failed for {}: {error}", target.url))?;
+    if !connectivity_probe_status_matches(target.kind, status) {
+        return Ok(false);
+    }
+    let body = read_bounded_response_body(response, target.url).await?;
 
-    Ok(
-        connectivity_probe_status_matches(target.kind, status)
-            && connectivity_probe_body_matches(target.kind, &body),
-    )
+    Ok(connectivity_probe_body_matches(target.kind, &body))
 }
 
 pub(crate) async fn check_connectivity() -> Result<bool, String> {
-    let client = build_connectivity_probe_client()?;
+    let client = shared_connectivity_probe_client()?;
 
     for target in CONNECTIVITY_PROBE_TARGETS {
-        match probe_connectivity_target(&client, target).await {
+        match probe_connectivity_target(client, target).await {
             Ok(true) => return Ok(true),
             Ok(false) | Err(_) => continue,
         }
@@ -182,5 +217,29 @@ mod tests {
         assert!(CONNECTIVITY_PROBE_USER_AGENT.starts_with("SuperRoutePro/"));
         assert!(CONNECTIVITY_PROBE_USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
         assert!(CONNECTIVITY_PROBE_USER_AGENT.ends_with(" ConnectivityProbe"));
+    }
+
+    #[test]
+    fn connectivity_probe_caps_response_body_at_4kb() {
+        let mut buf = Vec::new();
+        let chunk = vec![b'x'; 3000];
+        assert!(!super::append_bounded_chunk(
+            &mut buf,
+            &chunk,
+            super::CONNECTIVITY_PROBE_MAX_BODY_BYTES
+        ));
+        assert!(super::append_bounded_chunk(
+            &mut buf,
+            &chunk,
+            super::CONNECTIVITY_PROBE_MAX_BODY_BYTES
+        ));
+        assert_eq!(buf.len(), 4096);
+    }
+
+    #[test]
+    fn connectivity_probe_reuses_static_http_client() {
+        let first = super::shared_connectivity_probe_client().expect("client should initialize");
+        let second = super::shared_connectivity_probe_client().expect("client should reuse");
+        assert!(std::ptr::eq(first, second));
     }
 }

@@ -44,14 +44,7 @@ pub struct BloatwareItem {
 // ======================== HELPERS ========================
 
 fn collect_process_output(output: &Output) -> String {
-    [
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        String::from_utf8_lossy(&output.stderr).trim().to_string(),
-    ]
-    .into_iter()
-    .filter(|entry| !entry.is_empty())
-    .collect::<Vec<_>>()
-    .join("\n")
+    crate::process_exec::collect_output(output)
 }
 
 fn command_result_from_outputs(
@@ -112,42 +105,6 @@ fn adapter_enable_fallbacks(enabled: bool) -> (&'static str, &'static str) {
     }
 }
 
-fn cleanup_default_routes_blocking() -> String {
-    let mut outputs: Vec<String> = Vec::new();
-
-    for _ in 0..6 {
-        match run_cmd_blocking(
-            "route",
-            &["delete", "0.0.0.0"],
-            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-        ) {
-            Ok(output) => {
-                let trimmed = output.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                outputs.push(trimmed.to_string());
-            }
-            Err(err) => {
-                if outputs.is_empty() {
-                    return "No stale routes to remove.".to_string();
-                }
-                let trimmed = err.trim();
-                if !trimmed.is_empty() {
-                    outputs.push(trimmed.to_string());
-                }
-                break;
-            }
-        }
-    }
-
-    if outputs.is_empty() {
-        "No stale routes to remove.".to_string()
-    } else {
-        outputs.join("\n")
-    }
-}
-
 pub fn add_route_blocking(
     destination: String,
     mask: String,
@@ -155,7 +112,15 @@ pub fn add_route_blocking(
     metric: String,
     interface_index: Option<String>,
 ) -> Result<CommandResult, String> {
-    add_route_blocking_with_persistence(destination, mask, gateway, metric, interface_index, true)
+    add_route_blocking_with_persistence(
+        destination,
+        mask,
+        gateway,
+        metric,
+        interface_index,
+        true,
+        true,
+    )
 }
 
 pub(crate) fn add_route_blocking_with_persistence(
@@ -165,6 +130,7 @@ pub(crate) fn add_route_blocking_with_persistence(
     metric: String,
     interface_index: Option<String>,
     persistent: bool,
+    validate_gateway: bool,
 ) -> Result<CommandResult, String> {
     let routes = read_current_routes()?;
     if has_matching_connected_route(&routes, &destination, &mask, interface_index.as_deref()) {
@@ -174,6 +140,17 @@ pub(crate) fn add_route_blocking_with_persistence(
                 "Route not added: {destination}/{mask} is an OS-managed connected/on-link route. Use a more-specific route or choose a remote destination prefix."
             ),
         });
+    }
+
+    if validate_gateway {
+        if let Err(reason) =
+            validate_gateway_on_connected_subnet(&routes, &gateway, interface_index.as_deref())
+        {
+            return Ok(CommandResult {
+                success: false,
+                output: reason,
+            });
+        }
     }
 
     let delete_args =
@@ -230,6 +207,93 @@ fn is_on_link_gateway(gateway: &str) -> bool {
 fn read_current_routes() -> Result<Vec<crate::network_snapshot::RouteEntry>, String> {
     let adapters = crate::win32_net::enumerate_adapters_basic()?;
     crate::network_snapshot::get_routing_table_blocking_with_adapters(&adapters)
+}
+
+fn parse_contiguous_mask_prefix(mask: std::net::Ipv4Addr) -> Option<u32> {
+    let bits = u32::from(mask);
+    let prefix = bits.leading_ones();
+    let expected = if prefix == 0 {
+        0
+    } else {
+        !0u32 << (32 - prefix)
+    };
+    if bits == expected && (1..=31).contains(&prefix) {
+        Some(prefix)
+    } else {
+        None
+    }
+}
+
+fn validate_gateway_on_connected_subnet(
+    routes: &[crate::network_snapshot::RouteEntry],
+    gateway: &str,
+    interface_index: Option<&str>,
+) -> Result<(), String> {
+    let trimmed_gw = gateway.trim();
+    if is_on_link_gateway(trimmed_gw) {
+        return Ok(());
+    }
+
+    let gw_ip = trimmed_gw
+        .parse::<std::net::Ipv4Addr>()
+        .map_err(|_| format!("Route not added: gateway '{trimmed_gw}' is not a valid IPv4 address."))?;
+    let gw_bits = u32::from(gw_ip);
+    let selected_if = interface_index.map(str::trim).filter(|idx| !idx.is_empty());
+
+    let mut candidate_subnets: Vec<String> = Vec::new();
+    for route in routes {
+        if !is_on_link_gateway(&route.gateway) {
+            continue;
+        }
+        if let Some(target_if) = selected_if {
+            if route.interface_index.trim() != target_if {
+                continue;
+            }
+        }
+        if route.destination == "0.0.0.0" || route.netmask == "255.255.255.255" {
+            continue;
+        }
+
+        let Ok(dest_ip) = route.destination.trim().parse::<std::net::Ipv4Addr>() else {
+            continue;
+        };
+        if dest_ip.is_loopback() || dest_ip.is_multicast() || dest_ip.is_broadcast() {
+            continue;
+        }
+        let Ok(mask_ip) = route.netmask.trim().parse::<std::net::Ipv4Addr>() else {
+            continue;
+        };
+        let Some(prefix) = parse_contiguous_mask_prefix(mask_ip) else {
+            continue;
+        };
+
+        let mask_bits = u32::from(mask_ip);
+        let network_bits = u32::from(dest_ip) & mask_bits;
+        if (gw_bits & mask_bits) == network_bits {
+            return Ok(());
+        }
+
+        let subnet_label = format!("{}/{prefix}", std::net::Ipv4Addr::from(network_bits));
+        if !candidate_subnets.contains(&subnet_label) {
+            candidate_subnets.push(subnet_label);
+        }
+    }
+
+    candidate_subnets.sort();
+    let subnets_text = if candidate_subnets.is_empty() {
+        "none found".to_string()
+    } else {
+        candidate_subnets.join(", ")
+    };
+
+    match selected_if {
+        Some(target_if) => Err(format!(
+            "Route not added: gateway {trimmed_gw} is not in any connected subnet of interface #{target_if} ({subnets_text}). Select the matching adapter or use a gateway within its subnet."
+        )),
+        None => Err(format!(
+            "Route not added: gateway {trimmed_gw} is not in any connected subnet of any interface ({subnets_text})."
+        )),
+    }
 }
 
 fn has_matching_connected_route(
@@ -351,29 +415,32 @@ pub fn set_default_gateway_blocking(
         .map_err(|_| "Invalid interface index".to_string())?;
     let interface_index = target_interface_index.to_string();
 
-    // Clean up stale default routes using native `route delete`
-    let cleanup_output = cleanup_default_routes_blocking();
-
-    let result = run_cmd_blocking(
-        "route",
-        &[
-            "-p",
-            "add",
-            "0.0.0.0",
-            "mask",
-            "0.0.0.0",
-            &gateway,
-            "metric",
-            "1",
-            "if",
-            &interface_index,
-        ],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    let output_lines = crate::route_apply::apply_default_gateway_with_rollback(
+        &gateway,
+        "1",
+        &interface_index,
+        read_current_routes,
+        crate::route_apply::clear_default_routes,
+        |gw, metric, if_idx| {
+            run_cmd_blocking(
+                "route",
+                &[
+                    "-p", "add", "0.0.0.0", "mask", "0.0.0.0", gw, "metric", metric, "if", if_idx,
+                ],
+                Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+            )
+        },
+        |saved| crate::route_apply::restore_saved_default_route(saved, true),
     )?;
 
     Ok(CommandResult {
         success: true,
-        output: format!("{}\n{}", cleanup_output.trim(), result.trim()),
+        output: output_lines
+            .into_iter()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
     })
 }
 
@@ -867,5 +934,182 @@ mod tests {
             normalized,
             "Command timed out after 90s: ipconfig /release && ipconfig /renew"
         );
+    }
+
+    #[test]
+    fn validate_gateway_rejects_gateway_outside_selected_card_subnet() {
+        let routes = vec![RouteEntry {
+            destination: "192.168.88.0".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "12".to_string(),
+        }];
+
+        let err = super::validate_gateway_on_connected_subnet(&routes, "10.184.5.3", Some("12"))
+            .expect_err("gateway outside card subnet must be rejected");
+        assert!(err.contains("10.184.5.3"), "error should mention gateway: {err}");
+        assert!(err.contains("#12"), "error should mention interface: {err}");
+        assert!(
+            err.contains("192.168.88.0/24"),
+            "error should mention card subnet: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_gateway_accepts_gateway_inside_selected_card_subnet() {
+        let routes = vec![RouteEntry {
+            destination: "192.168.88.0".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "12".to_string(),
+        }];
+
+        super::validate_gateway_on_connected_subnet(&routes, "192.168.88.1", Some("12"))
+            .expect("gateway inside card subnet should be accepted");
+    }
+
+    #[test]
+    fn validate_gateway_supports_non_24_subnet_masks() {
+        let routes = vec![RouteEntry {
+            destination: "10.184.4.0".to_string(),
+            netmask: "255.255.254.0".to_string(),
+            gateway: "On-link".to_string(),
+            metric: "281".to_string(),
+            interface_index: "7".to_string(),
+        }];
+
+        super::validate_gateway_on_connected_subnet(&routes, "10.184.5.3", Some("7"))
+            .expect("10.184.5.3 is inside 10.184.4.0/23");
+        let err = super::validate_gateway_on_connected_subnet(&routes, "10.184.6.1", Some("7"))
+            .expect_err("10.184.6.1 is outside 10.184.4.0/23");
+        assert!(err.contains("10.184.4.0/23"), "error should show /23 subnet: {err}");
+    }
+
+    #[test]
+    fn validate_gateway_without_interface_checks_any_connected_card_and_allows_on_link() {
+        let routes = vec![
+            RouteEntry {
+                destination: "192.168.88.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "10.184.4.0".to_string(),
+                netmask: "255.255.254.0".to_string(),
+                gateway: "0.0.0.0".to_string(),
+                metric: "281".to_string(),
+                interface_index: "7".to_string(),
+            },
+        ];
+
+        super::validate_gateway_on_connected_subnet(&routes, "10.184.5.3", None)
+            .expect("gateway matching any connected card should pass when interface is omitted");
+        super::validate_gateway_on_connected_subnet(&routes, "0.0.0.0", Some("12"))
+            .expect("0.0.0.0 gateway should not be blocked");
+        super::validate_gateway_on_connected_subnet(&routes, "On-link", Some("12"))
+            .expect("On-link gateway should not be blocked");
+
+        let err = super::validate_gateway_on_connected_subnet(&routes, "172.16.0.1", None)
+            .expect_err("gateway outside all connected subnets must be rejected");
+        assert!(err.contains("172.16.0.1"));
+        assert!(err.contains("10.184.4.0/23"));
+        assert!(err.contains("192.168.88.0/24"));
+    }
+
+    #[test]
+    fn validate_gateway_ignores_loopback_multicast_host_and_non_contiguous_routes() {
+        let routes = vec![
+            RouteEntry {
+                destination: "127.0.0.0".to_string(),
+                netmask: "255.0.0.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "331".to_string(),
+                interface_index: "1".to_string(),
+            },
+            RouteEntry {
+                destination: "224.0.0.0".to_string(),
+                netmask: "240.0.0.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "192.168.88.63".to_string(),
+                netmask: "255.255.255.255".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "10.20.30.0".to_string(),
+                netmask: "255.0.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "192.168.88.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+        ];
+
+        let loopback_err = super::validate_gateway_on_connected_subnet(&routes, "127.0.0.1", None)
+            .expect_err("loopback gateway must be rejected");
+        assert!(!loopback_err.contains("127.0.0.0/8"), "loopback must not appear in hints: {loopback_err}");
+        assert!(!loopback_err.contains("224.0.0.0/4"), "multicast must not appear in hints: {loopback_err}");
+
+        let multicast_err =
+            super::validate_gateway_on_connected_subnet(&routes, "224.0.0.1", Some("12"))
+                .expect_err("multicast gateway must be rejected");
+        assert!(!multicast_err.contains("224.0.0.0/4"));
+        assert!(multicast_err.contains("192.168.88.0/24"));
+
+        let non_contiguous_err =
+            super::validate_gateway_on_connected_subnet(&routes, "10.20.30.1", Some("12"))
+                .expect_err("non-contiguous mask route must be ignored");
+        assert!(non_contiguous_err.contains("192.168.88.0/24"));
+    }
+
+    #[test]
+    fn validate_gateway_supports_multi_subnet_card_and_rejects_non_ipv4_gateway() {
+        let routes = vec![
+            RouteEntry {
+                destination: "192.168.88.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "10.10.0.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+        ];
+
+        super::validate_gateway_on_connected_subnet(&routes, "192.168.88.1", Some("12"))
+            .expect("first subnet on card should match");
+        super::validate_gateway_on_connected_subnet(&routes, "10.10.0.1", Some("12"))
+            .expect("second subnet on card should match");
+
+        let outside_err =
+            super::validate_gateway_on_connected_subnet(&routes, "172.16.1.1", Some("12"))
+                .expect_err("gateway outside both subnets should be rejected");
+        assert!(outside_err.contains("10.10.0.0/24"));
+        assert!(outside_err.contains("192.168.88.0/24"));
+
+        let invalid_err =
+            super::validate_gateway_on_connected_subnet(&routes, "not-an-ip", Some("12"))
+                .expect_err("non-IPv4 gateway must be rejected");
+        assert!(invalid_err.contains("not a valid IPv4 address"));
     }
 }

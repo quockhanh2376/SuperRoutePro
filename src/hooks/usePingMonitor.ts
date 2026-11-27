@@ -97,7 +97,15 @@ export function usePingMonitor({
           const stamp = new Date().toLocaleTimeString("en-GB");
           pingSeqRef.current += 1;
           if (result.success) {
-            appendLine(`[${stamp}] Reply from ${target}: bytes=32 time=${result.latency_ms}ms TTL=52`);
+            const replyLine = result.output
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .find((line) => /^Reply from /i.test(line));
+            appendLine(
+              replyLine
+                ? `[${stamp}] ${replyLine}`
+                : `[${stamp}] Reply from ${target}: time=${result.latency_ms}ms`,
+            );
           } else {
             appendLine(`[${stamp}] Request timed out (${target})`);
           }

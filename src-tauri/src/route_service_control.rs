@@ -249,15 +249,7 @@ fn run_service_command(args: &[&str]) -> Result<ServiceCommandStatus, String> {
 
 #[cfg(target_os = "windows")]
 fn service_command_output(output: &std::process::Output) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-
-    match (stdout.is_empty(), stderr.is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => stdout,
-        (true, false) => stderr,
-        (false, false) => format!("{stdout}\n{stderr}"),
-    }
+    crate::process_exec::collect_output(output)
 }
 
 #[cfg(target_os = "windows")]

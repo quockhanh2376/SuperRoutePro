@@ -120,6 +120,7 @@ export async function executeSetInternetAction(args: SetInternetArgs): Promise<v
       gatewayResult,
       {
         appendOutput: true,
+        refresh: true,
         successMessage: "Default gateway set.",
         failureMessage: "Set Default Gateway - Failed",
       },
@@ -160,6 +161,9 @@ export async function executeSetInternetAction(args: SetInternetArgs): Promise<v
         });
       } catch (persistError: unknown) {
         console.warn("Failed to save persist config:", persistError);
+        args.setStatusMessage(
+          formatErrorMessage("Default gateway set, but failed to save persist config", persistError),
+        );
       }
     } else {
       try {
@@ -171,6 +175,9 @@ export async function executeSetInternetAction(args: SetInternetArgs): Promise<v
         });
       } catch (persistError: unknown) {
         console.warn("Failed to disable persist config:", persistError);
+        args.setStatusMessage(
+          formatErrorMessage("Default gateway set, but failed to disable persist config", persistError),
+        );
       }
     }
   } catch (error: unknown) {

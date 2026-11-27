@@ -98,7 +98,7 @@ pub fn start<R: tauri::Runtime>(_app_handle: tauri::AppHandle<R>) -> Result<(), 
 }
 
 #[cfg(target_os = "windows")]
-pub fn stop() {
+pub fn stop_async() {
     let handle = watcher_handle()
         .lock()
         .expect("route watcher handle mutex should not be poisoned")
@@ -106,12 +106,12 @@ pub fn stop() {
 
     if let Some(handle) = handle {
         handle.stop_requested.store(true, Ordering::Relaxed);
-        let _ = handle.join_handle.join();
+        drop(handle.join_handle);
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn stop() {}
+pub fn stop_async() {}
 
 #[cfg(target_os = "windows")]
 fn run_loop(stop_requested: Arc<AtomicBool>, emit_event: EmitRouteWatcherEvent) {

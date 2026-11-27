@@ -3,8 +3,10 @@
 
 use std::io::ErrorKind;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
+
+const BROKER_STREAM_IO_TIMEOUT: Duration = Duration::from_secs(15);
 
 use super_route_pro_lib::repair_actions::{
     clear_profile_caches_blocking, remove_appx_for_target_blocking, run_machine_action_blocking,
@@ -80,27 +82,47 @@ fn run() -> Result<(), String> {
             }
         };
 
-        let request = read_request(&mut stream)?;
-        let response = if request.auth_token != auth_token {
-            unauthorized_response(&request.request)
-        } else {
-            handle_request(
-                &mut session_manager,
-                port,
-                request.request,
-                &mut should_exit,
-            )
-        };
-
-        let framed = encode_message(&RepairIpcResponse { response })?;
-        stream
-            .write_all(&framed)
-            .map_err(|err| format!("Repair host response write failed: {err}"))?;
-        stream
-            .flush()
-            .map_err(|err| format!("Repair host response flush failed: {err}"))?;
+        if let Err(err) = handle_connection(
+            &mut stream,
+            &auth_token,
+            &mut session_manager,
+            port,
+            &mut should_exit,
+        ) {
+            eprintln!("Repair host connection warning: {err}");
+        }
     }
 
+    Ok(())
+}
+
+fn handle_connection(
+    stream: &mut TcpStream,
+    auth_token: &str,
+    session_manager: &mut RepairSessionManager,
+    port: u16,
+    should_exit: &mut bool,
+) -> Result<(), String> {
+    stream
+        .set_nonblocking(false)
+        .map_err(|err| format!("Unable to set repair host stream to blocking mode: {err}"))?;
+    let _ = stream.set_read_timeout(Some(BROKER_STREAM_IO_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(BROKER_STREAM_IO_TIMEOUT));
+
+    let request = read_request(stream)?;
+    let response = if request.auth_token != auth_token {
+        unauthorized_response(&request.request)
+    } else {
+        handle_request(session_manager, port, request.request, should_exit)
+    };
+
+    let framed = encode_message(&RepairIpcResponse { response })?;
+    stream
+        .write_all(&framed)
+        .map_err(|err| format!("Repair host response write failed: {err}"))?;
+    stream
+        .flush()
+        .map_err(|err| format!("Repair host response flush failed: {err}"))?;
     Ok(())
 }
 
@@ -273,8 +295,16 @@ impl ParentProcessMonitor {
 
 #[cfg(test)]
 mod tests {
-    use super::ParentProcessMonitor;
+    use super::{handle_connection, ParentProcessMonitor};
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
     use std::process::Command;
+    use std::thread;
+    use super_route_pro_lib::repair_ipc::{decode_message, encode_message};
+    use super_route_pro_lib::repair_protocol::{
+        RepairIpcRequest, RepairIpcResponse, RepairServiceRequest, RepairServiceResponse,
+    };
+    use super_route_pro_lib::repair_session::RepairSessionManager;
 
     #[test]
     fn parent_process_monitor_treats_the_current_process_as_alive() {
@@ -301,5 +331,91 @@ mod tests {
             !monitor.is_running(),
             "the broker should self-terminate once the launching app process has exited"
         );
+    }
+
+    #[test]
+    fn broker_survives_empty_aborted_connection_and_serves_next_health_request() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        listener
+            .set_nonblocking(true)
+            .expect("listener should enter nonblocking mode");
+        let port = listener
+            .local_addr()
+            .expect("listener should have local addr")
+            .port();
+
+        let server = thread::spawn(move || {
+            let mut session_manager = RepairSessionManager::new();
+            session_manager.unlock("app-1".to_string(), "conn-1".to_string());
+            let mut should_exit = false;
+            let mut handled = 0;
+
+            while handled < 2 {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let result = handle_connection(
+                            &mut stream,
+                            "secret-token",
+                            &mut session_manager,
+                            port,
+                            &mut should_exit,
+                        );
+                        if handled == 0 {
+                            assert!(
+                                result.is_err(),
+                                "empty aborted connection should return an error without crashing the loop"
+                            );
+                        } else {
+                            assert!(
+                                result.is_ok(),
+                                "subsequent valid request should succeed: {result:?}"
+                            );
+                        }
+                        handled += 1;
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(err) => panic!("unexpected accept error: {err}"),
+                }
+            }
+        });
+
+        // 1. Connect and immediately close without sending any bytes.
+        let aborted = TcpStream::connect(("127.0.0.1", port)).expect("aborted client should connect");
+        drop(aborted);
+
+        // 2. Follow up with a valid GetServiceHealth request.
+        let mut client =
+            TcpStream::connect(("127.0.0.1", port)).expect("health client should connect");
+        let request = RepairIpcRequest {
+            auth_token: "secret-token".to_string(),
+            request: RepairServiceRequest::GetServiceHealth,
+        };
+        let encoded = encode_message(&request).expect("request should encode");
+        client.write_all(&encoded).expect("request should write");
+        client.flush().expect("request should flush");
+
+        let mut len_bytes = [0_u8; 4];
+        client
+            .read_exact(&mut len_bytes)
+            .expect("response length should read");
+        let payload_len = u32::from_le_bytes(len_bytes) as usize;
+        let mut payload = vec![0_u8; payload_len];
+        client
+            .read_exact(&mut payload)
+            .expect("response payload should read");
+        let mut framed = len_bytes.to_vec();
+        framed.extend(payload);
+
+        let decoded: RepairIpcResponse = decode_message(&framed).expect("response should decode");
+        match decoded.response {
+            RepairServiceResponse::ServiceHealth(health) => {
+                assert!(health.connected, "broker should remain connected and healthy");
+            }
+            other => panic!("expected ServiceHealth response, got: {other:?}"),
+        }
+
+        server.join().expect("server thread should finish cleanly");
     }
 }

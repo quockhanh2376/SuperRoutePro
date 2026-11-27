@@ -44,57 +44,75 @@ pub(crate) fn handle_main_window_event<R: tauri::Runtime>(
         event,
         tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
     ) {
-        crate::route_watcher::stop();
-        let _ = lock_repair_mode_state();
+        crate::route_watcher::stop_async();
+        std::thread::spawn(|| {
+            let _ = lock_repair_mode_state();
+        });
     }
 }
 
 #[tauri::command]
-pub(crate) fn get_repair_service_health() -> RepairServiceHealth {
-    read_repair_service_health()
+pub(crate) async fn get_repair_service_health() -> RepairServiceHealth {
+    tauri::async_runtime::spawn_blocking(read_repair_service_health)
+        .await
+        .unwrap_or_else(|_| RepairServiceHealth::service_unavailable())
 }
 
 #[tauri::command]
-pub(crate) fn get_repair_session_status() -> RepairSessionStatus {
-    read_repair_session_status()
+pub(crate) async fn get_repair_session_status() -> RepairSessionStatus {
+    tauri::async_runtime::spawn_blocking(read_repair_session_status)
+        .await
+        .unwrap_or_else(|_| RepairSessionStatus::service_unavailable())
 }
 
 #[tauri::command]
-pub(crate) fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
-    read_repair_targets()
+pub(crate) async fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
+    tauri::async_runtime::spawn_blocking(read_repair_targets)
+        .await
+        .map_err(|err| format!("List repair targets task join error: {err}"))?
 }
 
 #[tauri::command]
-pub(crate) fn auto_unlock_repair_mode(
+pub(crate) async fn auto_unlock_repair_mode(
     app_instance_id: String,
     connection_id: String,
 ) -> Result<RepairSessionStatus, String> {
-    match resolve_auto_unlock_strategy(current_privilege_context()?) {
-        AutoUnlockStrategy::UnlockLocalSession => {
-            auto_unlock_local_session(&app_instance_id, &connection_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        match resolve_auto_unlock_strategy(current_privilege_context()?) {
+            AutoUnlockStrategy::UnlockLocalSession => {
+                auto_unlock_local_session(&app_instance_id, &connection_id)
+            }
+            AutoUnlockStrategy::PromptForElevation => {
+                unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
+            }
+            AutoUnlockStrategy::LeaveLocked => Ok(read_repair_session_status()),
         }
-        AutoUnlockStrategy::PromptForElevation => {
-            unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
-        }
-        AutoUnlockStrategy::LeaveLocked => Ok(read_repair_session_status()),
-    }
+    })
+    .await
+    .map_err(|err| format!("Auto unlock task join error: {err}"))?
 }
 
 #[tauri::command]
-pub(crate) fn unlock_repair_mode(
+pub(crate) async fn unlock_repair_mode(
     app_instance_id: String,
     connection_id: String,
 ) -> Result<RepairSessionStatus, String> {
-    if crate::privilege::is_process_elevated()? {
-        return auto_unlock_local_session(&app_instance_id, &connection_id);
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        if crate::privilege::is_process_elevated()? {
+            return auto_unlock_local_session(&app_instance_id, &connection_id);
+        }
 
-    unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
+        unlock_repair_mode_via_broker(&app_instance_id, &connection_id)
+    })
+    .await
+    .map_err(|err| format!("Unlock repair mode task join error: {err}"))?
 }
 
 #[tauri::command]
-pub(crate) fn lock_repair_mode() -> RepairSessionStatus {
-    lock_repair_mode_state()
+pub(crate) async fn lock_repair_mode() -> RepairSessionStatus {
+    tauri::async_runtime::spawn_blocking(lock_repair_mode_state)
+        .await
+        .unwrap_or_else(|_| RepairSessionStatus::service_unavailable())
 }
 
 #[tauri::command]
@@ -105,15 +123,19 @@ pub(crate) async fn repair_add_route(
     metric: String,
     interface_index: Option<String>,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::AddRoute(
-        crate::repair_protocol::AddRouteRequest {
-            destination,
-            mask,
-            gateway,
-            metric,
-            interface_index,
-        },
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        dispatch_repair_machine_action(RepairMachineAction::AddRoute(
+            crate::repair_protocol::AddRouteRequest {
+                destination,
+                mask,
+                gateway,
+                metric,
+                interface_index,
+            },
+        ))
+    })
+    .await
+    .map_err(|err| format!("Repair add route task join error: {err}"))?
 }
 
 #[tauri::command]
@@ -121,14 +143,22 @@ pub(crate) async fn repair_delete_route(
     destination: String,
     mask: String,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::DeleteRoute(
-        crate::repair_protocol::DeleteRouteRequest { destination, mask },
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        dispatch_repair_machine_action(RepairMachineAction::DeleteRoute(
+            crate::repair_protocol::DeleteRouteRequest { destination, mask },
+        ))
+    })
+    .await
+    .map_err(|err| format!("Repair delete route task join error: {err}"))?
 }
 
 #[tauri::command]
 pub(crate) async fn repair_flush_routes() -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::FlushRoutes)
+    tauri::async_runtime::spawn_blocking(|| {
+        dispatch_repair_machine_action(RepairMachineAction::FlushRoutes)
+    })
+    .await
+    .map_err(|err| format!("Repair flush routes task join error: {err}"))?
 }
 
 #[tauri::command]
@@ -136,33 +166,52 @@ pub(crate) async fn repair_set_default_gateway(
     gateway: String,
     interface_index: String,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::SetDefaultGateway(
-        crate::repair_protocol::SetDefaultGatewayRequest {
-            gateway,
-            interface_index,
-        },
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        dispatch_repair_machine_action(RepairMachineAction::SetDefaultGateway(
+            crate::repair_protocol::SetDefaultGatewayRequest {
+                gateway,
+                interface_index,
+            },
+        ))
+    })
+    .await
+    .map_err(|err| format!("Repair set default gateway task join error: {err}"))?
 }
 
 #[tauri::command]
 pub(crate) async fn repair_save_persist_config(
     config: crate::route_persist::PersistConfig,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::SavePersistConfig(
-        PersistConfigRequest { config },
-    ))
+    let should_stop_watcher = config.enabled;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        dispatch_repair_machine_action(RepairMachineAction::SavePersistConfig(
+            PersistConfigRequest { config },
+        ))
+    })
+    .await
+    .map_err(|err| format!("Repair save persist config task join error: {err}"))??;
+    if result.success && should_stop_watcher {
+        crate::route_watcher::stop_async();
+    }
+    Ok(result)
 }
 
 #[tauri::command]
 pub(crate) async fn repair_clear_persist_config() -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::ClearPersistConfig)
+    tauri::async_runtime::spawn_blocking(|| {
+        dispatch_repair_machine_action(RepairMachineAction::ClearPersistConfig)
+    })
+    .await
+    .map_err(|err| format!("Repair clear persist config task join error: {err}"))?
 }
 
 #[tauri::command]
 pub(crate) async fn repair_run_machine_action(
     action: RepairMachineAction,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(action)
+    tauri::async_runtime::spawn_blocking(move || dispatch_repair_machine_action(action))
+        .await
+        .map_err(|err| format!("Repair machine action task join error: {err}"))?
 }
 
 #[tauri::command]
@@ -170,10 +219,14 @@ pub(crate) async fn repair_clear_cache_targets(
     target_sid: String,
     targets: Vec<String>,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_profile_cleanup(ProfileCleanupRequest {
-        target_sid,
-        targets,
+    tauri::async_runtime::spawn_blocking(move || {
+        dispatch_profile_cleanup(ProfileCleanupRequest {
+            target_sid,
+            targets,
+        })
     })
+    .await
+    .map_err(|err| format!("Repair profile cleanup task join error: {err}"))?
 }
 
 #[tauri::command]
@@ -182,11 +235,15 @@ pub(crate) async fn repair_remove_bloatware(
     packages: Vec<String>,
     remove_provisioned: bool,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_appx_removal(AppxRemovalRequest {
-        target_sid,
-        packages,
-        remove_provisioned,
+    tauri::async_runtime::spawn_blocking(move || {
+        dispatch_appx_removal(AppxRemovalRequest {
+            target_sid,
+            packages,
+            remove_provisioned,
+        })
     })
+    .await
+    .map_err(|err| format!("Repair appx removal task join error: {err}"))?
 }
 
 fn unlock_repair_mode_via_broker(

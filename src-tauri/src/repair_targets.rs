@@ -71,17 +71,126 @@ pub fn normalize_profile_root(raw_path: &str) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
-    use windows_sys::Win32::System::Registry::*;
+fn encode_wide_nul(input: &str) -> Vec<u16> {
+    input.encode_utf16().chain(std::iter::once(0)).collect()
+}
 
-    const PROFILE_LIST_PATH: &[u8] =
-        b"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\0";
+#[cfg(target_os = "windows")]
+fn decode_wide_nul(buffer: &[u16]) -> String {
+    let end = buffer.iter().position(|&unit| unit == 0).unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..end])
+}
+
+#[cfg(target_os = "windows")]
+fn read_registry_wide_string(
+    root: windows_sys::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, KEY_READ, REG_EXPAND_SZ, REG_SZ,
+    };
+
+    let subkey_wide = encode_wide_nul(subkey);
+    let value_wide = encode_wide_nul(value_name);
+
+    let mut hkey: HKEY = std::ptr::null_mut();
+    let open_result =
+        unsafe { RegOpenKeyExW(root, subkey_wide.as_ptr(), 0, KEY_READ, &mut hkey) };
+    if open_result != 0 {
+        return None;
+    }
+
+    let mut value_type: u32 = 0;
+    let mut byte_len: u32 = 0;
+    let size_result = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_wide.as_ptr(),
+            std::ptr::null_mut(),
+            &mut value_type,
+            std::ptr::null_mut(),
+            &mut byte_len,
+        )
+    };
+    if size_result != 0 || (value_type != REG_SZ && value_type != REG_EXPAND_SZ) {
+        unsafe {
+            let _ = RegCloseKey(hkey);
+        }
+        return None;
+    }
+
+    if byte_len == 0 {
+        unsafe {
+            let _ = RegCloseKey(hkey);
+        }
+        return Some(String::new());
+    }
+
+    let mut wide_buf = vec![0u16; (byte_len as usize).div_ceil(2)];
+    let mut query_len = (wide_buf.len() * std::mem::size_of::<u16>()) as u32;
+    let query_result = unsafe {
+        RegQueryValueExW(
+            hkey,
+            value_wide.as_ptr(),
+            std::ptr::null_mut(),
+            &mut value_type,
+            wide_buf.as_mut_ptr() as *mut u8,
+            &mut query_len,
+        )
+    };
+    unsafe {
+        let _ = RegCloseKey(hkey);
+    }
+
+    if query_result != 0 {
+        return None;
+    }
+
+    let wide_len = (query_len as usize / 2).min(wide_buf.len());
+    Some(decode_wide_nul(&wide_buf[..wide_len]))
+}
+
+#[cfg(target_os = "windows")]
+fn expand_environment_wide(raw_path: &str) -> String {
+    use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
+
+    let raw_wide = encode_wide_nul(raw_path);
+    let required = unsafe { ExpandEnvironmentStringsW(raw_wide.as_ptr(), std::ptr::null_mut(), 0) };
+    if required == 0 {
+        return raw_path.to_string();
+    }
+
+    let mut expand_buf = vec![0u16; required as usize];
+    let expanded_len = unsafe {
+        ExpandEnvironmentStringsW(
+            raw_wide.as_ptr(),
+            expand_buf.as_mut_ptr(),
+            expand_buf.len() as u32,
+        )
+    };
+    if expanded_len > 0 && (expanded_len as usize) <= expand_buf.len() {
+        decode_wide_nul(&expand_buf[..(expanded_len as usize)])
+    } else {
+        raw_path.to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, HKEY_USERS, KEY_READ,
+    };
+
+    const PROFILE_LIST_SUBKEY: &str =
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
+    let profile_list_wide = encode_wide_nul(PROFILE_LIST_SUBKEY);
 
     unsafe {
         let mut hkey: HKEY = std::ptr::null_mut();
-        let result = RegOpenKeyExA(
+        let result = RegOpenKeyExW(
             HKEY_LOCAL_MACHINE,
-            PROFILE_LIST_PATH.as_ptr(),
+            profile_list_wide.as_ptr(),
             0,
             KEY_READ,
             &mut hkey,
@@ -94,11 +203,11 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
 
         let mut targets: Vec<RepairTargetUser> = Vec::new();
         let mut index = 0u32;
-        let mut name_buf = [0u8; 256];
+        let mut name_buf = [0u16; 256];
 
         loop {
             let mut name_len = name_buf.len() as u32;
-            let enum_result = RegEnumKeyExA(
+            let enum_result = RegEnumKeyExW(
                 hkey,
                 index,
                 name_buf.as_mut_ptr(),
@@ -113,7 +222,7 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
             }
             index += 1;
 
-            let sid = String::from_utf8_lossy(&name_buf[..name_len as usize]).to_string();
+            let sid = String::from_utf16_lossy(&name_buf[..name_len as usize]);
 
             // Only include real user profiles (S-1-5-21-*)
             if !sid.starts_with("S-1-5-21-") {
@@ -124,62 +233,20 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
                 continue;
             }
 
-            // Read ProfileImagePath from the subkey
-            let subkey_path =
-                format!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\{sid}\0");
-            let mut subkey: HKEY = std::ptr::null_mut();
-            let open_result = RegOpenKeyExA(
-                HKEY_LOCAL_MACHINE,
-                subkey_path.as_ptr(),
-                0,
-                KEY_READ,
-                &mut subkey,
-            );
-            if open_result != 0 {
+            // Read ProfileImagePath from the subkey using UTF-16 Registry APIs
+            let subkey_path = format!("{PROFILE_LIST_SUBKEY}\\{sid}");
+            let Some(raw_path) =
+                read_registry_wide_string(HKEY_LOCAL_MACHINE, &subkey_path, "ProfileImagePath")
+            else {
                 continue;
-            }
-
-            let mut path_buf = [0u8; 512];
-            let mut path_len = path_buf.len() as u32;
-            let mut value_type: u32 = 0;
-            let value_name = b"ProfileImagePath\0";
-            let query_result = RegQueryValueExA(
-                subkey,
-                value_name.as_ptr(),
-                std::ptr::null_mut(),
-                &mut value_type,
-                path_buf.as_mut_ptr(),
-                &mut path_len,
-            );
-            let _ = RegCloseKey(subkey);
-
-            if query_result != 0 || path_len == 0 {
-                continue;
-            }
-
-            // Remove trailing null byte if present
-            let actual_len = if path_len > 0 && path_buf[path_len as usize - 1] == 0 {
-                (path_len - 1) as usize
-            } else {
-                path_len as usize
             };
-            let raw_path = String::from_utf8_lossy(&path_buf[..actual_len]).to_string();
+            if raw_path.is_empty() {
+                continue;
+            }
 
             // Expand %SystemDrive% etc.
             let expanded_path = if raw_path.contains('%') {
-                let mut expand_buf = [0u8; 512];
-                let raw_cstr = format!("{raw_path}\0");
-                let expanded_len =
-                    windows_sys::Win32::System::Environment::ExpandEnvironmentStringsA(
-                        raw_cstr.as_ptr(),
-                        expand_buf.as_mut_ptr(),
-                        expand_buf.len() as u32,
-                    );
-                if expanded_len > 0 && (expanded_len as usize) <= expand_buf.len() {
-                    String::from_utf8_lossy(&expand_buf[..(expanded_len as usize - 1)]).to_string()
-                } else {
-                    raw_path
-                }
+                expand_environment_wide(&raw_path)
             } else {
                 raw_path
             };
@@ -201,10 +268,10 @@ pub fn list_repair_targets() -> Result<Vec<RepairTargetUser>, String> {
                 .to_string();
 
             // Check if profile is loaded by checking if the SID hive is loaded in HKU
-            let hku_path = format!("{sid}\0");
+            let hku_path_wide = encode_wide_nul(&sid);
             let mut hku_test: HKEY = std::ptr::null_mut();
             let is_loaded =
-                RegOpenKeyExA(HKEY_USERS, hku_path.as_ptr(), 0, KEY_READ, &mut hku_test) == 0;
+                RegOpenKeyExW(HKEY_USERS, hku_path_wide.as_ptr(), 0, KEY_READ, &mut hku_test) == 0;
             if is_loaded {
                 let _ = RegCloseKey(hku_test);
             }
@@ -291,5 +358,22 @@ mod tests {
         assert_eq!(normalize_profile_root(r"C:\Users\demo\..\Admin"), None);
         assert_eq!(normalize_profile_root(r"\\server\share\demo"), None);
         assert_eq!(normalize_profile_root(r"C:\Users\demo\Desktop"), None);
+    }
+
+    #[test]
+    fn normalize_profile_root_preserves_unicode_user_profile_paths() {
+        assert_eq!(
+            normalize_profile_root(r"C:\Users\Quốc Khánh\"),
+            Some(PathBuf::from(r"C:\Users\Quốc Khánh"))
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wide_string_helpers_preserve_unicode_and_handle_empty_registry_values() {
+        let encoded = super::encode_wide_nul(r"C:\Users\Quốc Khánh");
+        assert_eq!(super::decode_wide_nul(&encoded), r"C:\Users\Quốc Khánh");
+        assert_eq!(super::decode_wide_nul(&[0u16]), "");
+        assert_eq!(super::decode_wide_nul(&[]), "");
     }
 }
