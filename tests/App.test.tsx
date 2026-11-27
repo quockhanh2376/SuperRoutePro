@@ -2,7 +2,7 @@ import "./setupDom.ts";
 
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import App, { type AppOverrides } from "../src/App.tsx";
@@ -383,4 +383,82 @@ test("App rejects CLI flag targets when running tracert", async () => {
     assert.match(screen.getByRole("status").textContent ?? "", /Invalid tracert target/);
   });
   assert.equal(networkCommands.length, 0);
+});
+
+test("App registers route-watcher listener once and reloads NICs when toggling Active only", async () => {
+  const inactiveNic: NetworkInterface = {
+    index: "12",
+    ip: "",
+    gateway: "",
+    description: "Offline Virtual Adapter",
+  };
+  let listenerRegistrations = 0;
+  const loadCalls: Array<boolean | undefined> = [];
+
+  render(
+    <App
+      overrides={{
+        ...buildOverrides(),
+        listenToEvent: async (eventName) => {
+          if (eventName === "route-watcher://status") {
+            listenerRegistrations += 1;
+          }
+          return () => {};
+        },
+        useNetworkSnapshotHook: ({ setStatusMessage }) => {
+          const [activeOnly, setActiveOnlyState] = useState(true);
+          const [nics, setNics] = useState<NetworkInterface[]>([DEFAULT_NIC]);
+          const activeOnlyRef = useRef(true);
+
+          const setActiveOnly = useCallback((next: boolean) => {
+            activeOnlyRef.current = next;
+            setActiveOnlyState(next);
+          }, []);
+
+          const loadData = useCallback(async (options?: {
+            invalidateNicCache?: boolean;
+            activeOnlyOverride?: boolean;
+          }) => {
+            const effectiveActiveOnly = options?.activeOnlyOverride ?? activeOnlyRef.current;
+            loadCalls.push(effectiveActiveOnly);
+            const nextNics = effectiveActiveOnly ? [DEFAULT_NIC] : [DEFAULT_NIC, inactiveNic];
+            setNics(nextNics);
+            setStatusMessage(`Loaded ${nextNics.length} NICs, ${DEFAULT_ROUTES.length} routes`);
+          }, [setStatusMessage]);
+
+          return {
+            activeOnly,
+            hasLoadedNicSnapshot: true,
+            loading: false,
+            nics,
+            routes: DEFAULT_ROUTES,
+            selectedNic: nics[0] ?? null,
+            loadData,
+            setActiveOnly,
+            setRoutes: () => {},
+            setSelectedNic: () => {},
+          };
+        },
+      }}
+    />,
+  );
+
+  await screen.findByText("Intel Test Adapter");
+  assert.equal(listenerRegistrations, 1);
+  assert.equal(screen.queryByText("Offline Virtual Adapter"), null);
+
+  const activeOnlyCheckbox = screen.getByRole("checkbox", { name: "Active only" });
+  fireEvent.click(activeOnlyCheckbox);
+
+  await screen.findByText("Offline Virtual Adapter");
+  assert.equal(listenerRegistrations, 1);
+  assert.deepEqual(loadCalls, [true, false]);
+
+  fireEvent.click(activeOnlyCheckbox);
+
+  await waitFor(() => {
+    assert.equal(screen.queryByText("Offline Virtual Adapter"), null);
+  });
+  assert.equal(listenerRegistrations, 1);
+  assert.deepEqual(loadCalls, [true, false, true]);
 });
