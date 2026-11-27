@@ -1,11 +1,14 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super_route_pro_lib::route_persist::{
     self, CustomRoute, NicIdentifier, PersistConfig, WanConfig,
 };
+
+static PROGRAM_DATA_LOCK: Mutex<()> = Mutex::new(());
 
 fn unique_program_data_dir() -> std::path::PathBuf {
     let stamp = SystemTime::now()
@@ -48,6 +51,7 @@ impl Drop for ProgramDataGuard {
 
 #[test]
 fn persist_config_save_load_and_clear_roundtrip() {
+    let _lock = PROGRAM_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let guard = ProgramDataGuard::new(unique_program_data_dir());
 
     let config = PersistConfig {
@@ -94,4 +98,68 @@ fn persist_config_save_load_and_clear_roundtrip() {
     );
 
     route_persist::delete_config().expect("delete should be idempotent");
+}
+
+#[test]
+fn persist_config_concurrent_reads_and_writes_never_expose_corrupt_json_or_leftover_tmp() {
+    let _lock = PROGRAM_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = ProgramDataGuard::new(unique_program_data_dir());
+
+    let base_config = PersistConfig {
+        schema_version: 1,
+        enabled: true,
+        nic: NicIdentifier {
+            description: "Intel(R) Wi-Fi 6 AX201 160MHz".to_string(),
+            mac_address: "A4:B1:C2:D3:E4:F5".to_string(),
+        },
+        wan: Some(WanConfig {
+            gateway: "192.168.1.1".to_string(),
+            metric: "1".to_string(),
+        }),
+        custom_routes: Vec::new(),
+        updated_at: Some("2026-11-27T00:00:00Z".to_string()),
+    };
+    route_persist::save_config(&base_config).expect("initial config should save");
+
+    let writer = std::thread::spawn(move || {
+        for i in 0..30 {
+            let mut cfg = base_config.clone();
+            cfg.updated_at = Some(format!("2026-11-27T00:00:{i:02}Z"));
+            route_persist::save_config(&cfg).expect("atomic save should succeed");
+        }
+    });
+
+    let reader = std::thread::spawn(move || {
+        for _ in 0..60 {
+            match route_persist::load_config() {
+                Ok(Some(cfg)) => assert_eq!(cfg.schema_version, 1),
+                Ok(None) => {}
+                Err(err) => {
+                    assert!(
+                        !err.contains("Failed to parse"),
+                        "concurrent reader must never observe truncated/corrupt JSON: {err}"
+                    );
+                }
+            }
+        }
+    });
+
+    writer.join().expect("writer thread should succeed");
+    reader.join().expect("reader thread should succeed");
+
+    let config_dir = guard.path().join("SuperRoutePro");
+    let leftover_tmp: Vec<_> = fs::read_dir(&config_dir)
+        .expect("config dir should exist")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        })
+        .collect();
+    assert!(
+        leftover_tmp.is_empty(),
+        "no .tmp files should remain after atomic saves, found: {leftover_tmp:?}"
+    );
 }
