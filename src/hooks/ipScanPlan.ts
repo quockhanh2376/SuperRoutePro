@@ -10,12 +10,19 @@ export type IpScanPlan = {
 const IP_SCAN_MAX_TARGETS = 512;
 const FALLBACK_IP_SCAN_PREFIX = 24;
 
+const DECIMAL_OCTET_PATTERN = /^\d+$/;
+
 const parseIpv4 = (value: string): number[] | null => {
   const parts = value.trim().split(".");
   if (parts.length !== 4) return null;
-  const octets = parts.map((part) => Number.parseInt(part, 10));
-  if (octets.some((octet) => !Number.isFinite(octet) || octet < 0 || octet > 255)) {
-    return null;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!DECIMAL_OCTET_PATTERN.test(part)) return null;
+    const octet = Number.parseInt(part, 10);
+    if (!Number.isFinite(octet) || octet < 0 || octet > 255) {
+      return null;
+    }
+    octets.push(octet);
   }
   return octets;
 };

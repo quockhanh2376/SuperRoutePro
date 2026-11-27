@@ -28,6 +28,8 @@ export function isValidHostTarget(value: string): boolean {
   return isValidIpv4Address(trimmed) || HOSTNAME_PATTERN.test(trimmed);
 }
 
+const DECIMAL_OCTET_PATTERN = /^\d+$/;
+
 /**
  * Parses an IPv4 string into four octets, or returns null when invalid.
  */
@@ -37,19 +39,16 @@ export function parseIpv4(value: string): number[] | null {
     return null;
   }
 
-  const octets = segments.map((segment) => Number.parseInt(segment, 10));
-  if (
-    octets.some((octet, index) => {
-      const segment = segments[index];
-      return (
-        segment.trim() === "" ||
-        !Number.isInteger(octet) ||
-        octet < 0 ||
-        octet > IPV4_OCTET_MAX
-      );
-    })
-  ) {
-    return null;
+  const octets: number[] = [];
+  for (const segment of segments) {
+    if (!DECIMAL_OCTET_PATTERN.test(segment)) {
+      return null;
+    }
+    const octet = Number.parseInt(segment, 10);
+    if (!Number.isInteger(octet) || octet < 0 || octet > IPV4_OCTET_MAX) {
+      return null;
+    }
+    octets.push(octet);
   }
 
   return octets;
