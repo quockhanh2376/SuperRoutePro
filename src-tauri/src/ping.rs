@@ -59,6 +59,11 @@ fn resolve_ipv4_target(target: &str) -> Result<Ipv4Addr, String> {
         .ok_or_else(|| "No IPv4 address resolved for target.".to_string())
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn encode_icmp_ipv4(ip: Ipv4Addr) -> u32 {
+    u32::from_ne_bytes(ip.octets())
+}
+
 #[cfg(target_os = "windows")]
 mod native_icmp {
     use std::ffi::c_void;
@@ -103,7 +108,7 @@ mod native_icmp {
         ) -> u32;
     }
 
-    pub fn send_echo(ip: std::net::Ipv4Addr, timeout_ms: u32) -> Result<(u32, u8), String> {
+    pub fn send_echo(ip: std::net::Ipv4Addr, timeout_ms: u32) -> Result<(u32, u8, usize), String> {
         let handle = unsafe { IcmpCreateFile() };
         if handle.is_null() || handle == INVALID_HANDLE_VALUE {
             return Err("IcmpCreateFile failed".to_string());
@@ -111,7 +116,7 @@ mod native_icmp {
 
         let payload = b"superroute-pro";
         let mut reply_buffer = vec![0u8; mem::size_of::<IcmpEchoReply>() + payload.len() + 16];
-        let ip_addr = u32::from_be_bytes(ip.octets());
+        let ip_addr = super::encode_icmp_ipv4(ip);
 
         let reply_count = unsafe {
             IcmpSendEcho(
@@ -139,7 +144,7 @@ mod native_icmp {
             return Err(format!("ICMP error status {}", reply.status));
         }
 
-        Ok((reply.round_trip_time, reply.options.ttl))
+        Ok((reply.round_trip_time, reply.options.ttl, payload.len()))
     }
 }
 
@@ -147,11 +152,11 @@ mod native_icmp {
 fn ping_once_blocking(target: &str, timeout_ms: u32) -> Result<(u32, String), String> {
     let ip = resolve_ipv4_target(target)?;
     match native_icmp::send_echo(ip, timeout_ms) {
-        Ok((latency_ms, ttl)) => Ok((
+        Ok((latency_ms, ttl, payload_len)) => Ok((
             latency_ms,
             format!(
-                "Reply from {}: bytes=32 time={}ms TTL={}",
-                ip, latency_ms, ttl
+                "Reply from {}: bytes={} time={}ms TTL={}",
+                ip, payload_len, latency_ms, ttl
             ),
         )),
         Err(error) => Err(error),
@@ -348,11 +353,40 @@ pub async fn fping_scan(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_ipv4_target;
+    use super::{encode_icmp_ipv4, resolve_ipv4_target};
+    use std::net::Ipv4Addr;
 
     #[test]
     fn resolve_ipv4_target_accepts_literal_ipv4() {
         let target = resolve_ipv4_target("8.8.8.8").expect("literal IPv4 should resolve");
         assert_eq!(target.octets(), [8, 8, 8, 8]);
+    }
+
+    #[test]
+    fn encode_icmp_ipv4_preserves_network_byte_order() {
+        assert_eq!(
+            encode_icmp_ipv4(Ipv4Addr::new(192, 168, 1, 1)).to_ne_bytes(),
+            [192, 168, 1, 1]
+        );
+        assert_eq!(
+            encode_icmp_ipv4(Ipv4Addr::new(127, 0, 0, 1)).to_ne_bytes(),
+            [127, 0, 0, 1]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn ping_loopback_uses_correct_ipv4_and_payload_length() {
+        let result = super::run_ping_series("127.0.0.1", 1, 2_000);
+        assert!(
+            result.success,
+            "ping to 127.0.0.1 should succeed, got: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("Reply from 127.0.0.1: bytes=14 "),
+            "expected actual payload length (14 bytes), got: {}",
+            result.output
+        );
     }
 }
