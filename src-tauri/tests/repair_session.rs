@@ -105,3 +105,17 @@ fn unlock_nonce_transitions_session_from_locked_to_unlocked() {
         "successful nonce verification should clear the unlock gate"
     );
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn unlock_nonce_is_64_char_random_hex_and_unique_across_calls() {
+    let mut manager = RepairSessionManager::new();
+    let first = manager.issue_unlock_request("app-1", "conn-1");
+    let second = manager.issue_unlock_request("app-1", "conn-2");
+
+    assert_eq!(first.nonce.len(), 64);
+    assert!(first.nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(second.nonce.len(), 64);
+    assert!(second.nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_ne!(first.nonce, second.nonce);
+}

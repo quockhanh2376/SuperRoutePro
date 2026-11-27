@@ -79,3 +79,27 @@ fn target_cleanup_resolves_profile_sensitive_paths_from_target_user() {
         "cleanup paths must come from the selected target profile, not the current process profile"
     );
 }
+
+#[test]
+fn repair_targets_preserve_unicode_profile_paths_in_cleanup_plan() {
+    let normalized = normalize_profile_root(r"C:\Users\Quốc Khánh\")
+        .expect("Unicode profile root should normalize");
+    assert_eq!(normalized, PathBuf::from(r"C:\Users\Quốc Khánh"));
+
+    let request = ProfileCleanupRequest {
+        target_sid: "S-1-5-21-1002".to_string(),
+        targets: vec!["user_temp".to_string()],
+    };
+    let target_user = RepairTargetUser {
+        sid: "S-1-5-21-1002".to_string(),
+        account_name: "Quốc Khánh".to_string(),
+        profile_path: r"C:\Users\Quốc Khánh".to_string(),
+        is_loaded: true,
+    };
+
+    let plan = build_profile_cleanup_plan_for_target(&target_user, &request)
+        .expect("Unicode target profile should resolve cleanup paths");
+    assert!(plan
+        .iter()
+        .any(|path| path == r"C:\Users\Quốc Khánh\AppData\Local\Temp"));
+}

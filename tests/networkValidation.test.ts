@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   isNetworkAddress,
   isValidCidrNotation,
+  isValidHostTarget,
   isValidIpv4Address,
   isValidSubnetMask,
   validateRouteDeleteInput,
@@ -54,4 +55,12 @@ test("route delete validation requires a valid destination and mask", () => {
 test("detects when a destination is already the network address for its mask", () => {
   assert.equal(isNetworkAddress("10.10.20.0", "255.255.255.0"), true);
   assert.equal(isNetworkAddress("10.10.20.5", "255.255.255.0"), false);
+});
+
+test("isValidHostTarget accepts valid IPv4/hostnames and rejects CLI flags or extra args", () => {
+  assert.equal(isValidHostTarget("8.8.8.8"), true);
+  assert.equal(isValidHostTarget("example.com"), true);
+  assert.equal(isValidHostTarget("-h"), false);
+  assert.equal(isValidHostTarget("8.8.8.8 -w 1"), false);
+  assert.equal(isValidHostTarget(""), false);
 });
