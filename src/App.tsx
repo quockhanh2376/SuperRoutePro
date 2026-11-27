@@ -1004,7 +1004,11 @@ export default function App({ overrides }: AppProps = {}) {
                   <input
                     type="checkbox"
                     checked={activeOnly}
-                    onChange={(e) => setActiveOnly(e.target.checked)}
+                    onChange={(e) => {
+                      const nextValue = e.target.checked;
+                      setActiveOnly(nextValue);
+                      void loadData({ activeOnlyOverride: nextValue });
+                    }}
                     className="w-3 h-3 rounded accent-blue-500"
                   />
                   <span className="text-[0.65rem] text-slate-500">Active only</span>
