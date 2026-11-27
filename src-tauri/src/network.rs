@@ -44,14 +44,7 @@ pub struct BloatwareItem {
 // ======================== HELPERS ========================
 
 fn collect_process_output(output: &Output) -> String {
-    [
-        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        String::from_utf8_lossy(&output.stderr).trim().to_string(),
-    ]
-    .into_iter()
-    .filter(|entry| !entry.is_empty())
-    .collect::<Vec<_>>()
-    .join("\n")
+    crate::process_exec::collect_output(output)
 }
 
 fn command_result_from_outputs(
@@ -109,42 +102,6 @@ fn adapter_enable_fallbacks(enabled: bool) -> (&'static str, &'static str) {
         ("Adapter enabled.", "Adapter enable failed.")
     } else {
         ("Adapter disabled.", "Adapter disable failed.")
-    }
-}
-
-fn cleanup_default_routes_blocking() -> String {
-    let mut outputs: Vec<String> = Vec::new();
-
-    for _ in 0..6 {
-        match run_cmd_blocking(
-            "route",
-            &["delete", "0.0.0.0"],
-            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
-        ) {
-            Ok(output) => {
-                let trimmed = output.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                outputs.push(trimmed.to_string());
-            }
-            Err(err) => {
-                if outputs.is_empty() {
-                    return "No stale routes to remove.".to_string();
-                }
-                let trimmed = err.trim();
-                if !trimmed.is_empty() {
-                    outputs.push(trimmed.to_string());
-                }
-                break;
-            }
-        }
-    }
-
-    if outputs.is_empty() {
-        "No stale routes to remove.".to_string()
-    } else {
-        outputs.join("\n")
     }
 }
 
@@ -356,7 +313,7 @@ pub fn set_default_gateway_blocking(
         "1",
         &interface_index,
         read_current_routes,
-        || vec![cleanup_default_routes_blocking()],
+        crate::route_apply::clear_default_routes,
         |gw, metric, if_idx| {
             run_cmd_blocking(
                 "route",

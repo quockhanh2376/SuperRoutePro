@@ -167,6 +167,17 @@ pub fn ps_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
 }
 
+pub fn collect_output(output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (false, false) => format!("{stdout}\n{stderr}"),
+    }
+}
+
 fn format_command_failure(stdout: &str, stderr: &str, status: ExitStatus) -> String {
     let stdout_trimmed = stdout.trim();
     let stderr_trimmed = stderr.trim();

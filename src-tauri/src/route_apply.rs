@@ -302,7 +302,7 @@ pub fn resolve_custom_route_interface_index(
     }
 }
 
-fn clear_default_routes() -> Vec<String> {
+pub(crate) fn clear_default_routes() -> Vec<String> {
     let mut outputs = Vec::new();
     for _ in 0..6 {
         match run_route_command(&["delete", "0.0.0.0"]) {
