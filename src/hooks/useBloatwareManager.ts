@@ -166,55 +166,48 @@ export function useBloatwareManager({
 
     setRemoving(true);
     openCommandDiagnostics();
-    updateProgress(0, `Starting removal... 0/${packages.length} (0%)`);
+    updateProgress(10, `Removing ${packages.length} selected app(s)...`);
     setStatusMessage(`Removing ${packages.length} selected app(s)...`);
 
-    let successCount = 0;
-    let failedCount = 0;
-
     try {
-      for (let index = 0; index < packages.length; index += 1) {
-        const packageName = packages[index];
-        const appLabel = items.find((item) => item.package_name === packageName)?.label ?? packageName;
-        const beforePercent = Math.round((index / packages.length) * 100);
-        updateProgress(
-          beforePercent,
-          `Removing ${appLabel}... ${index}/${packages.length} (${beforePercent}%)`,
-        );
+      const result = await repairRemoveBloatware(targetSid, packages, true);
+      appendCommandOutput(`Remove Apps (${packages.length})`, result.output);
 
-        try {
-          const result = await repairRemoveBloatware(targetSid, [packageName], true);
-          appendCommandOutput(`Remove Apps - ${appLabel}`, result.output);
-          if (result.requires_unlock) {
-            failedCount += 1;
-            setStatusMessage("Unlock Repair Mode first to remove apps");
-            setProgressText("Error: Repair Mode is locked. Unlock first, then retry.");
-            const status = await getRepairSessionStatus();
-            setRepairSession(status);
-            break;
-          }
-
-          if (result.success) {
-            successCount += 1;
-          } else {
-            failedCount += 1;
-          }
-        } catch (error: unknown) {
-          failedCount += 1;
-          appendCommandOutput(`Remove Apps - ${appLabel}`, formatOutputError(error));
-        }
-
-        const processed = index + 1;
-        const percent = Math.round((processed / packages.length) * 100);
-        updateProgress(percent, `Processed ${processed}/${packages.length} (${percent}%)`);
+      if (result.requires_unlock) {
+        setStatusMessage("Unlock Repair Mode first to remove apps");
+        setProgressText("Error: Repair Mode is locked. Unlock first, then retry.");
+        const status = await getRepairSessionStatus();
+        setRepairSession(status);
+        return;
       }
 
+      const summaryMatch = result.output.match(/Summary:\s*removed=(\d+)\s+skipped=(\d+)\s+failed=(\d+)/i);
+      let successCount = 0;
+      let failedCount = 0;
+
+      if (summaryMatch) {
+        const removedCount = Number.parseInt(summaryMatch[1], 10);
+        const skippedCount = Number.parseInt(summaryMatch[2], 10);
+        failedCount = Number.parseInt(summaryMatch[3], 10);
+        successCount = removedCount + skippedCount;
+      } else {
+        const failedPackages = new Set<string>();
+        for (const line of result.output.split(/\r?\n/)) {
+          const failMatch = line.trim().match(/^\[FAIL\]\s+(\S+)/);
+          if (failMatch) {
+            failedPackages.add(failMatch[1]);
+          }
+        }
+        failedCount = failedPackages.size || (result.success ? 0 : packages.length);
+        successCount = Math.max(0, packages.length - failedCount);
+      }
+
+      updateProgress(100, `Done: ${successCount} success, ${failedCount} failed`);
       setStatusMessage(
         failedCount === 0
           ? `Remove Apps completed (${successCount}/${packages.length})`
           : `Remove Apps completed with warnings (${failedCount} failed)`,
       );
-      setProgressText(`Done: ${successCount} success, ${failedCount} failed`);
       setSelectedPackages(new Set());
       await loadBloatwareList();
     } catch (error: unknown) {
@@ -226,7 +219,6 @@ export function useBloatwareManager({
     }
   }, [
     appendCommandOutput,
-    items,
     loadBloatwareList,
     openCommandDiagnostics,
     resolveTargetSid,

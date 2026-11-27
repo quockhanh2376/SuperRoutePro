@@ -357,105 +357,40 @@ pub fn remove_appx_for_target_blocking(
         ),
         String::new(),
     ];
-    let mut removed = 0u32;
-    let mut skipped = 0u32;
-    let mut failed = 0u32;
+    let script = build_batch_appx_removal_script(
+        &selected,
+        &request.target_sid,
+        request.remove_provisioned,
+    );
+    let timeout = appx_removal_timeout(selected.len());
 
-    for package_name in selected {
-        let escaped_name = ps_escape_single_quoted(&package_name);
-        let escaped_sid = ps_escape_single_quoted(&request.target_sid);
-        let remove_provisioned = if request.remove_provisioned {
-            "$true"
-        } else {
-            "$false"
-        };
-        let script = format!(
-            r#"
-$pkgName = '{escaped_name}'
-$targetSid = '{escaped_sid}'
-$removeProvisioned = {remove_provisioned}
-$hasFailure = $false
-$removedInstalled = 0
-$removedProvisioned = 0
-
-$installedMatches = Get-AppxPackage -User $targetSid -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -eq $pkgName }}
-foreach ($pkg in $installedMatches) {{
-  try {{
-    Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction Stop | Out-Null
-    $removedInstalled++
-  }} catch {{
-    $hasFailure = $true
-    Write-Output "[FAIL] $pkgName installed remove error: $($_.Exception.Message)"
-  }}
-}}
-
-if ($removeProvisioned) {{
-  try {{
-    $provisionedMatches = Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object {{ $_.DisplayName -eq $pkgName }}
-    foreach ($prov in $provisionedMatches) {{
-      try {{
-        Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null
-        $removedProvisioned++
-      }} catch {{
-        $hasFailure = $true
-        Write-Output "[FAIL] $pkgName provisioned remove error: $($_.Exception.Message)"
-      }}
-    }}
-  }} catch {{
-    $hasFailure = $true
-    Write-Output "[FAIL] $pkgName provisioned query error: $($_.Exception.Message)"
-  }}
-}}
-
-if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
-  Write-Output "[OK] $pkgName removed installed=$removedInstalled provisioned=$removedProvisioned"
-}} elseif ($hasFailure) {{
-  Write-Output "[WARN] $pkgName no removal completed"
-}} else {{
-  Write-Output "[SKIP] $pkgName not installed for target user"
-}}
-"#
-        );
-
-        match run_powershell_blocking(
-            &script,
-            Duration::from_secs(DEFAULT_POWERSHELL_TIMEOUT_SECS),
-        ) {
-            Ok(script_output) => {
-                let clean_output = script_output.trim();
-                if clean_output.is_empty() {
-                    skipped += 1;
+    let (removed, skipped, failed) = match run_powershell_blocking(&script, timeout) {
+        Ok(script_output) => {
+            let clean_output = script_output.trim();
+            if clean_output.is_empty() {
+                for package_name in &selected {
                     output_lines.push(format!("[SKIP] {package_name} no output returned"));
-                } else {
-                    output_lines
-                        .extend(clean_output.lines().map(|line| line.trim_end().to_string()));
-                    let has_fail = clean_output.contains("[FAIL]");
-                    let has_ok = clean_output.contains("[OK]");
-                    let has_skip = clean_output.contains("[SKIP]");
-                    if has_fail {
-                        failed += 1;
-                    } else if has_ok {
-                        removed += 1;
-                    } else if has_skip {
-                        skipped += 1;
-                    } else {
-                        skipped += 1;
-                    }
                 }
+                (0, selected.len() as u32, 0)
+            } else {
+                output_lines
+                    .extend(clean_output.lines().map(|line| line.trim_end().to_string()));
+                summarize_batch_appx_output(&selected, clean_output)
             }
-            Err(err) => {
-                failed += 1;
+        }
+        Err(err) => {
+            for package_name in &selected {
                 output_lines.push(format!(
                     "[FAIL] {} command execution failed: {}",
                     package_name,
                     err.trim()
                 ));
             }
+            (0, 0, selected.len() as u32)
         }
+    };
 
-        output_lines.push(String::new());
-    }
-
+    output_lines.push(String::new());
     output_lines.push(format!(
         "Summary: removed={} skipped={} failed={}",
         removed, skipped, failed
@@ -466,6 +401,131 @@ if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
         output: output_lines.join("\n"),
         requires_unlock: false,
     })
+}
+
+const APPX_REMOVAL_TIMEOUT_BASE_SECS: u64 = 30;
+const APPX_REMOVAL_TIMEOUT_PER_PACKAGE_SECS: u64 = 20;
+const APPX_REMOVAL_TIMEOUT_MAX_SECS: u64 = 280;
+
+fn appx_removal_timeout(package_count: usize) -> Duration {
+    let scaled = APPX_REMOVAL_TIMEOUT_BASE_SECS
+        .saturating_add((package_count as u64).saturating_mul(APPX_REMOVAL_TIMEOUT_PER_PACKAGE_SECS));
+    Duration::from_secs(scaled.clamp(DEFAULT_POWERSHELL_TIMEOUT_SECS, APPX_REMOVAL_TIMEOUT_MAX_SECS))
+}
+
+fn summarize_batch_appx_output(selected: &[String], script_output: &str) -> (u32, u32, u32) {
+    let mut removed = 0u32;
+    let mut skipped = 0u32;
+    let mut failed = 0u32;
+
+    for package_name in selected {
+        let fail_prefix = format!("[FAIL] {package_name} ");
+        let ok_prefix = format!("[OK] {package_name} ");
+        let skip_prefix = format!("[SKIP] {package_name} ");
+
+        let mut pkg_failed = false;
+        let mut pkg_ok = false;
+        let mut pkg_skip = false;
+
+        for line in script_output.lines().map(str::trim) {
+            if line.starts_with(&fail_prefix) {
+                pkg_failed = true;
+            } else if line.starts_with(&ok_prefix) {
+                pkg_ok = true;
+            } else if line.starts_with(&skip_prefix) {
+                pkg_skip = true;
+            }
+        }
+
+        if pkg_failed {
+            failed += 1;
+        } else if pkg_ok {
+            removed += 1;
+        } else if pkg_skip {
+            skipped += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    (removed, skipped, failed)
+}
+
+fn build_batch_appx_removal_script(
+    selected: &[String],
+    target_sid: &str,
+    remove_provisioned: bool,
+) -> String {
+    let escaped_sid = ps_escape_single_quoted(target_sid);
+    let remove_provisioned_literal = if remove_provisioned { "$true" } else { "$false" };
+    let package_literals = selected
+        .iter()
+        .map(|name| format!("'{}'", ps_escape_single_quoted(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        r#"
+$targetSid = '{escaped_sid}'
+$removeProvisioned = {remove_provisioned_literal}
+$packages = @({package_literals})
+
+$allInstalled = @(Get-AppxPackage -User $targetSid -ErrorAction SilentlyContinue)
+$allProvisioned = @()
+$provisionedQueryError = $null
+
+if ($removeProvisioned) {{
+  try {{
+    $allProvisioned = @(Get-AppxProvisionedPackage -Online -ErrorAction Stop)
+  }} catch {{
+    $provisionedQueryError = $_.Exception.Message
+  }}
+}}
+
+foreach ($pkgName in $packages) {{
+  $hasFailure = $false
+  $removedInstalled = 0
+  $removedProvisioned = 0
+
+  $installedMatches = @($allInstalled | Where-Object {{ $_.Name -eq $pkgName }})
+  foreach ($pkg in $installedMatches) {{
+    try {{
+      Remove-AppxPackage -Package $pkg.PackageFullName -ErrorAction Stop | Out-Null
+      $removedInstalled++
+    }} catch {{
+      $hasFailure = $true
+      Write-Output "[FAIL] $pkgName installed remove error: $($_.Exception.Message)"
+    }}
+  }}
+
+  if ($removeProvisioned) {{
+    if ($null -ne $provisionedQueryError) {{
+      $hasFailure = $true
+      Write-Output "[FAIL] $pkgName provisioned query error: $provisionedQueryError"
+    }} else {{
+      $provisionedMatches = @($allProvisioned | Where-Object {{ $_.DisplayName -eq $pkgName }})
+      foreach ($prov in $provisionedMatches) {{
+        try {{
+          Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null
+          $removedProvisioned++
+        }} catch {{
+          $hasFailure = $true
+          Write-Output "[FAIL] $pkgName provisioned remove error: $($_.Exception.Message)"
+        }}
+      }}
+    }}
+  }}
+
+  if ($removedInstalled -gt 0 -or $removedProvisioned -gt 0) {{
+    Write-Output "[OK] $pkgName removed installed=$removedInstalled provisioned=$removedProvisioned"
+  }} elseif ($hasFailure) {{
+    Write-Output "[WARN] $pkgName no removal completed"
+  }} else {{
+    Write-Output "[SKIP] $pkgName not installed for target user"
+  }}
+}}
+"#
+    )
 }
 
 pub async fn remove_appx_for_target(
@@ -611,5 +671,30 @@ mod tests {
 
         let selected = selected_appx_packages(&request);
         assert_eq!(selected, vec!["Microsoft.SkypeApp"]);
+    }
+
+    #[test]
+    fn appx_removal_timeout_scales_with_package_count_within_ipc_budget() {
+        use std::time::Duration;
+        assert_eq!(super::appx_removal_timeout(1), Duration::from_secs(50));
+        assert_eq!(super::appx_removal_timeout(5), Duration::from_secs(130));
+        assert_eq!(super::appx_removal_timeout(20), Duration::from_secs(280));
+        assert!(super::appx_removal_timeout(100) < Duration::from_secs(300));
+    }
+
+    #[test]
+    fn summarize_batch_appx_output_counts_ok_skip_and_fail_per_package() {
+        let selected = vec![
+            "Microsoft.BingNews".to_string(),
+            "Microsoft.SkypeApp".to_string(),
+            "Microsoft.GamingApp".to_string(),
+        ];
+        let output = "\
+[OK] Microsoft.BingNews removed installed=1 provisioned=1
+[SKIP] Microsoft.SkypeApp not installed for target user
+[FAIL] Microsoft.GamingApp installed remove error: Access denied
+[WARN] Microsoft.GamingApp no removal completed";
+
+        assert_eq!(super::summarize_batch_appx_output(&selected, output), (1, 1, 1));
     }
 }
