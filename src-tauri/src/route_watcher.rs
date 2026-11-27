@@ -110,8 +110,24 @@ pub fn stop() {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn stop_async() {
+    let handle = watcher_handle()
+        .lock()
+        .expect("route watcher handle mutex should not be poisoned")
+        .take();
+
+    if let Some(handle) = handle {
+        handle.stop_requested.store(true, Ordering::Relaxed);
+        drop(handle.join_handle);
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn stop() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn stop_async() {}
 
 #[cfg(target_os = "windows")]
 fn run_loop(stop_requested: Arc<AtomicBool>, emit_event: EmitRouteWatcherEvent) {

@@ -351,29 +351,32 @@ pub fn set_default_gateway_blocking(
         .map_err(|_| "Invalid interface index".to_string())?;
     let interface_index = target_interface_index.to_string();
 
-    // Clean up stale default routes using native `route delete`
-    let cleanup_output = cleanup_default_routes_blocking();
-
-    let result = run_cmd_blocking(
-        "route",
-        &[
-            "-p",
-            "add",
-            "0.0.0.0",
-            "mask",
-            "0.0.0.0",
-            &gateway,
-            "metric",
-            "1",
-            "if",
-            &interface_index,
-        ],
-        Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+    let output_lines = crate::route_apply::apply_default_gateway_with_rollback(
+        &gateway,
+        "1",
+        &interface_index,
+        read_current_routes,
+        || vec![cleanup_default_routes_blocking()],
+        |gw, metric, if_idx| {
+            run_cmd_blocking(
+                "route",
+                &[
+                    "-p", "add", "0.0.0.0", "mask", "0.0.0.0", gw, "metric", metric, "if", if_idx,
+                ],
+                Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+            )
+        },
+        |saved| crate::route_apply::restore_saved_default_route(saved, true),
     )?;
 
     Ok(CommandResult {
         success: true,
-        output: format!("{}\n{}", cleanup_output.trim(), result.trim()),
+        output: output_lines
+            .into_iter()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
     })
 }
 

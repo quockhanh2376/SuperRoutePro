@@ -10,6 +10,13 @@ use std::ffi::OsString;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 #[cfg(target_os = "windows")]
 use std::time::Duration;
+
+fn log_service_message(message: &str) {
+    let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
+    let formatted = format!("[{timestamp}] [SuperRouteService] {message}");
+    eprintln!("{formatted}");
+    route_persist::append_service_log_line(&formatted);
+}
 use super_route_pro_lib::route_apply::{
     apply_persist_config_with_adapters, resolve_nic_interface_index_from_adapters,
 };
@@ -67,7 +74,7 @@ impl RouteServiceState {
 
 fn main() {
     if let Err(err) = run_entrypoint() {
-        eprintln!("[SuperRouteService] {err}");
+        log_service_message(&err);
         std::process::exit(1);
     }
 }
@@ -93,7 +100,7 @@ fn run_entrypoint() -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn route_service_main(_arguments: Vec<OsString>) {
     if let Err(err) = run_windows_service() {
-        eprintln!("[SuperRouteService] {err}");
+        log_service_message(&err);
     }
 }
 
@@ -103,7 +110,7 @@ fn run_windows_service() -> Result<(), String> {
     let status_handle = service_control_handler::register(
         ROUTE_SERVICE_NAME,
         move |control_event| match control_event {
-            ServiceControl::Stop => {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
                 let _ = shutdown_tx.send(());
                 ServiceControlHandlerResult::NoError
             }
@@ -144,7 +151,7 @@ fn run_route_service_loop(shutdown_rx: Option<&Receiver<()>>) -> Result<(), Stri
 
     loop {
         if let Err(err) = route_service_tick(&mut state) {
-            eprintln!("[SuperRouteService] {err}");
+            log_service_message(&err);
         }
 
         match shutdown_rx {
@@ -194,10 +201,10 @@ fn route_service_tick(state: &mut RouteServiceState) -> Result<(), String> {
 
             if state.drift_passes >= ROUTE_MONITOR_CONFIRMATION_PASSES {
                 apply_config_and_mark_state(state, &config, config_stamp)?;
-                eprintln!(
-                    "[SuperRouteService] Re-applied persisted routes after drift '{}'.",
+                log_service_message(&format!(
+                    "Re-applied persisted routes after drift '{}'.",
                     signature
-                );
+                ));
             }
         }
         None => {
@@ -216,10 +223,10 @@ fn apply_config_and_mark_state(
     config_stamp: String,
 ) -> Result<(), String> {
     let (interface_index, adapters) = find_nic_interface_index(&config.nic)?;
-    eprintln!(
-        "[SuperRouteService] NIC '{}' resolved at InterfaceIndex {interface_index}",
+    log_service_message(&format!(
+        "NIC '{}' resolved at InterfaceIndex {interface_index}",
         config.nic.description
-    );
+    ));
     apply_routes(config, &interface_index, &adapters)?;
     state.mark_applied(config_stamp);
     Ok(())
@@ -252,12 +259,12 @@ fn apply_routes(
 ) -> Result<(), String> {
     let report = apply_persist_config_with_adapters(config, adapters)?;
     for line in report.output_lines {
-        eprintln!("[SuperRouteService] {line}");
+        log_service_message(&line);
     }
-    eprintln!(
-        "[SuperRouteService] Persist config applied on interface {interface_index} with {} custom route(s).",
+    log_service_message(&format!(
+        "Persist config applied on interface {interface_index} with {} custom route(s).",
         report.custom_route_count
-    );
+    ));
     Ok(())
 }
 
@@ -272,7 +279,7 @@ fn service_status_with_exit_code(current_state: ServiceState, exit_code: u32) ->
         service_type: ServiceType::OWN_PROCESS,
         current_state,
         controls_accepted: if current_state == ServiceState::Running {
-            ServiceControlAccept::STOP
+            ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN
         } else {
             ServiceControlAccept::empty()
         },
@@ -305,4 +312,22 @@ pub(crate) fn test_resolve_custom_route_interface_index(
     nic_index_lookup: &HashMap<String, String>,
 ) -> Result<String, String> {
     resolve_custom_route_interface_index(route, default_interface_index, nic_index_lookup)
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "windows")]
+    use super::service_status_with_exit_code;
+    #[cfg(target_os = "windows")]
+    use windows_service::service::{ServiceControlAccept, ServiceState};
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn running_service_accepts_stop_and_shutdown_controls() {
+        let status = service_status_with_exit_code(ServiceState::Running, 0);
+        assert!(status.controls_accepted.contains(ServiceControlAccept::STOP));
+        assert!(status
+            .controls_accepted
+            .contains(ServiceControlAccept::SHUTDOWN));
+    }
 }

@@ -148,9 +148,14 @@ pub(crate) async fn repair_set_default_gateway(
 pub(crate) async fn repair_save_persist_config(
     config: crate::route_persist::PersistConfig,
 ) -> Result<RepairCommandResult, String> {
-    dispatch_repair_machine_action(RepairMachineAction::SavePersistConfig(
+    let should_stop_watcher = config.enabled;
+    let result = dispatch_repair_machine_action(RepairMachineAction::SavePersistConfig(
         PersistConfigRequest { config },
-    ))
+    ))?;
+    if result.success && should_stop_watcher {
+        crate::route_watcher::stop_async();
+    }
+    Ok(result)
 }
 
 #[tauri::command]
