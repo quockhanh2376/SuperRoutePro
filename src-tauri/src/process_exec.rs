@@ -4,11 +4,78 @@ use std::io::Read;
 #[cfg(target_os = "windows")]
 use std::path::Path;
 use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_CMD_TIMEOUT_SECS: u64 = 30;
 pub const DEFAULT_POWERSHELL_TIMEOUT_SECS: u64 = 45;
 pub const NETWORK_COMMAND_TIMEOUT_SECS: u64 = 90;
+const POST_EXIT_PIPE_DRAIN_GRACE: Duration = Duration::from_millis(250);
+
+struct PipeDrain {
+    state: Arc<(Mutex<(Vec<u8>, bool)>, Condvar)>,
+}
+
+impl PipeDrain {
+    fn spawn<R: Read + Send + 'static>(pipe: Option<R>) -> Self {
+        let state = Arc::new((Mutex::new((Vec::new(), false)), Condvar::new()));
+        let worker_state = Arc::clone(&state);
+
+        std::thread::spawn(move || {
+            if let Some(mut reader) = pipe {
+                let mut chunk = [0u8; 4096];
+                loop {
+                    match reader.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(bytes_read) => {
+                            let mut guard = worker_state
+                                .0
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            guard.0.extend_from_slice(&chunk[..bytes_read]);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+
+            let mut guard = worker_state
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.1 = true;
+            worker_state.1.notify_all();
+        });
+
+        Self { state }
+    }
+
+    fn collect_until(&self, deadline: Instant) -> Vec<u8> {
+        let mut guard = self
+            .state
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        while !guard.1 {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            let (next_guard, wait_result) = self
+                .state
+                .1
+                .wait_timeout(guard, deadline.saturating_duration_since(now))
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard = next_guard;
+            if wait_result.timed_out() {
+                break;
+            }
+        }
+
+        guard.0.clone()
+    }
+}
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -50,34 +117,20 @@ pub fn run_process_blocking(
         .spawn()
         .map_err(|e| format!("Failed to spawn {}: {}", program, e))?;
 
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-
-    let stdout_reader = std::thread::spawn(move || {
-        let mut buffer = Vec::new();
-        if let Some(mut pipe) = stdout_pipe {
-            let _ = pipe.read_to_end(&mut buffer);
-        }
-        buffer
-    });
-
-    let stderr_reader = std::thread::spawn(move || {
-        let mut buffer = Vec::new();
-        if let Some(mut pipe) = stderr_pipe {
-            let _ = pipe.read_to_end(&mut buffer);
-        }
-        buffer
-    });
+    let stdout_drain = PipeDrain::spawn(child.stdout.take());
+    let stderr_drain = PipeDrain::spawn(child.stderr.take());
 
     let started = Instant::now();
+    let overall_deadline = started + timeout;
     loop {
         match child
             .try_wait()
             .map_err(|e| format!("Failed waiting for {}: {}", program, e))?
         {
             Some(status) => {
-                let stdout = stdout_reader.join().unwrap_or_default();
-                let stderr = stderr_reader.join().unwrap_or_default();
+                let drain_deadline = (Instant::now() + POST_EXIT_PIPE_DRAIN_GRACE).min(overall_deadline);
+                let stdout = stdout_drain.collect_until(drain_deadline);
+                let stderr = stderr_drain.collect_until(drain_deadline);
                 return Ok(Output {
                     status,
                     stdout,
@@ -85,7 +138,7 @@ pub fn run_process_blocking(
                 });
             }
             None => {
-                if started.elapsed() >= timeout {
+                if Instant::now() >= overall_deadline {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(format!(
