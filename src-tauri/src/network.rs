@@ -112,7 +112,15 @@ pub fn add_route_blocking(
     metric: String,
     interface_index: Option<String>,
 ) -> Result<CommandResult, String> {
-    add_route_blocking_with_persistence(destination, mask, gateway, metric, interface_index, true)
+    add_route_blocking_with_persistence(
+        destination,
+        mask,
+        gateway,
+        metric,
+        interface_index,
+        true,
+        true,
+    )
 }
 
 pub(crate) fn add_route_blocking_with_persistence(
@@ -122,6 +130,7 @@ pub(crate) fn add_route_blocking_with_persistence(
     metric: String,
     interface_index: Option<String>,
     persistent: bool,
+    validate_gateway: bool,
 ) -> Result<CommandResult, String> {
     let routes = read_current_routes()?;
     if has_matching_connected_route(&routes, &destination, &mask, interface_index.as_deref()) {
@@ -133,7 +142,7 @@ pub(crate) fn add_route_blocking_with_persistence(
         });
     }
 
-    if persistent {
+    if validate_gateway {
         if let Err(reason) =
             validate_gateway_on_connected_subnet(&routes, &gateway, interface_index.as_deref())
         {
@@ -248,7 +257,7 @@ fn validate_gateway_on_connected_subnet(
         let Ok(dest_ip) = route.destination.trim().parse::<std::net::Ipv4Addr>() else {
             continue;
         };
-        if dest_ip.is_multicast() || dest_ip.is_broadcast() {
+        if dest_ip.is_loopback() || dest_ip.is_multicast() || dest_ip.is_broadcast() {
             continue;
         }
         let Ok(mask_ip) = route.netmask.trim().parse::<std::net::Ipv4Addr>() else {
@@ -1009,5 +1018,98 @@ mod tests {
         assert!(err.contains("172.16.0.1"));
         assert!(err.contains("10.184.4.0/23"));
         assert!(err.contains("192.168.88.0/24"));
+    }
+
+    #[test]
+    fn validate_gateway_ignores_loopback_multicast_host_and_non_contiguous_routes() {
+        let routes = vec![
+            RouteEntry {
+                destination: "127.0.0.0".to_string(),
+                netmask: "255.0.0.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "331".to_string(),
+                interface_index: "1".to_string(),
+            },
+            RouteEntry {
+                destination: "224.0.0.0".to_string(),
+                netmask: "240.0.0.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "192.168.88.63".to_string(),
+                netmask: "255.255.255.255".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "10.20.30.0".to_string(),
+                netmask: "255.0.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "192.168.88.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+        ];
+
+        let loopback_err = super::validate_gateway_on_connected_subnet(&routes, "127.0.0.1", None)
+            .expect_err("loopback gateway must be rejected");
+        assert!(!loopback_err.contains("127.0.0.0/8"), "loopback must not appear in hints: {loopback_err}");
+        assert!(!loopback_err.contains("224.0.0.0/4"), "multicast must not appear in hints: {loopback_err}");
+
+        let multicast_err =
+            super::validate_gateway_on_connected_subnet(&routes, "224.0.0.1", Some("12"))
+                .expect_err("multicast gateway must be rejected");
+        assert!(!multicast_err.contains("224.0.0.0/4"));
+        assert!(multicast_err.contains("192.168.88.0/24"));
+
+        let non_contiguous_err =
+            super::validate_gateway_on_connected_subnet(&routes, "10.20.30.1", Some("12"))
+                .expect_err("non-contiguous mask route must be ignored");
+        assert!(non_contiguous_err.contains("192.168.88.0/24"));
+    }
+
+    #[test]
+    fn validate_gateway_supports_multi_subnet_card_and_rejects_non_ipv4_gateway() {
+        let routes = vec![
+            RouteEntry {
+                destination: "192.168.88.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+            RouteEntry {
+                destination: "10.10.0.0".to_string(),
+                netmask: "255.255.255.0".to_string(),
+                gateway: "On-link".to_string(),
+                metric: "281".to_string(),
+                interface_index: "12".to_string(),
+            },
+        ];
+
+        super::validate_gateway_on_connected_subnet(&routes, "192.168.88.1", Some("12"))
+            .expect("first subnet on card should match");
+        super::validate_gateway_on_connected_subnet(&routes, "10.10.0.1", Some("12"))
+            .expect("second subnet on card should match");
+
+        let outside_err =
+            super::validate_gateway_on_connected_subnet(&routes, "172.16.1.1", Some("12"))
+                .expect_err("gateway outside both subnets should be rejected");
+        assert!(outside_err.contains("10.10.0.0/24"));
+        assert!(outside_err.contains("192.168.88.0/24"));
+
+        let invalid_err =
+            super::validate_gateway_on_connected_subnet(&routes, "not-an-ip", Some("12"))
+                .expect_err("non-IPv4 gateway must be rejected");
+        assert!(invalid_err.contains("not a valid IPv4 address"));
     }
 }

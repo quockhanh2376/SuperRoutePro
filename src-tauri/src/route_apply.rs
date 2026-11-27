@@ -361,6 +361,7 @@ fn apply_custom_route(route: &CustomRoute, interface_index: &str) -> Result<Stri
         metric.to_string(),
         Some(interface_index.to_string()),
         false,
+        false,
     )?;
     if !result.success {
         return Err(result.output);
